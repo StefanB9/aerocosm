@@ -3,6 +3,7 @@ cargo-features = ["panic-immediate-abort"]
 [workspace]
 members = [
     "crates/aerocosm",
+    "crates/aerocosm-basemap",
     "crates/aerocosm-core",
 ]
 resolver = "3"
@@ -33,7 +34,7 @@ clap = { version = "4.6.7", default-features = false, features = ["derive", "err
 rand_chacha = { version = "0.10.0", default-features = false }
 rand_core = { version = "0.10.1", default-features = false }
 serde = { version = "1.0.229", default-features = false, features = ["derive", "std"] }
-serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
+serde_json = { version = "1.0.154", default-features = false, features = ["float_roundtrip", "std"] }
 thiserror = { version = "2.0.21", default-features = false }
 tracing = { version = "0.1.44", default-features = false, features = ["attributes", "std"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["env-filter", "fmt", "std"] }

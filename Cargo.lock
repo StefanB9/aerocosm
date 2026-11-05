@@ -14,6 +14,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "aerocosm-basemap"
+version = "0.1.0"
+dependencies = [
+ "aerocosm-core",
+ "anyhow",
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "aerocosm-core"
 version = "0.1.0"
 dependencies = [
