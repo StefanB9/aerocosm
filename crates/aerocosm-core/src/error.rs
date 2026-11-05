@@ -14,6 +14,38 @@ pub enum CoreError {
         /// The rejected table position.
         index: usize,
     },
+
+    /// A calendar date-time component is out of range.
+    #[error("invalid date-time: {reason}")]
+    InvalidDateTime {
+        /// Which component is invalid.
+        reason: &'static str,
+    },
+
+    /// An instant lies outside the supported years -9999 to 9999.
+    #[error("time {millis} ms since the Unix epoch is outside years -9999 to 9999")]
+    TimeOutOfRange {
+        /// The rejected millisecond count.
+        millis: i64,
+    },
+
+    /// Duration arithmetic overflowed `i64` milliseconds.
+    #[error("duration arithmetic overflowed")]
+    DurationOverflow,
+
+    /// Text is not an ISO 8601 UTC timestamp.
+    #[error("cannot parse {input:?} as a UTC timestamp (expected YYYY-MM-DDTHH:MM:SS[.mmm]Z)")]
+    ParseTime {
+        /// The rejected text.
+        input: String,
+    },
+
+    /// Text is not a duration like `1h30m`.
+    #[error("cannot parse {input:?} as a duration (expected e.g. 24h, 1h30m, 250ms)")]
+    ParseDuration {
+        /// The rejected text.
+        input: String,
+    },
 }
 
 #[cfg(test)]

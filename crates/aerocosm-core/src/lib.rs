@@ -2,6 +2,8 @@
 
 pub mod error;
 pub mod id;
+pub mod time;
 
 pub use error::CoreError;
 pub use id::Id;
+pub use time::{CivilDateTime, SimDuration, SimTime};
