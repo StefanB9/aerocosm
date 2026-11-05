@@ -1,0 +1,17 @@
+[package]
+name = "aerocosm-data"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+aerocosm-basemap = { path = "../aerocosm-basemap" }
+aerocosm-core = { path = "../aerocosm-core" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

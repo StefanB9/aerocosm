@@ -40,6 +40,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "aerocosm-data"
+version = "0.1.0"
+dependencies = [
+ "aerocosm-basemap",
+ "aerocosm-core",
+ "anyhow",
+ "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

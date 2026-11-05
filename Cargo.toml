@@ -5,6 +5,7 @@ members = [
     "crates/aerocosm",
     "crates/aerocosm-basemap",
     "crates/aerocosm-core",
+    "crates/aerocosm-data",
 ]
 resolver = "3"
 
