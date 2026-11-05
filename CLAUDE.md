@@ -10,19 +10,24 @@ Cargo workspace:
 aerocosm/                              (workspace root)
 ├── Cargo.toml                         [workspace] manifest — all dependency versions here
 ├── docs/plan/                         Approved plans
+├── assets/
+│   └── aircraft/types.json            Hand-curated aircraft catalog (validated by a core test)
 └── crates/
     ├── aerocosm-core/                 (library — deterministic simulation, no I/O, no UI)
     │   ├── benches/core.rs            Criterion micro-benchmarks
     │   └── src/
     │       ├── lib.rs                 Module declarations + re-exports
     │       ├── error.rs               CoreError (thiserror)
+    │       ├── aircraft.rs            AircraftType, AircraftCatalog, WakeCategory
     │       ├── id.rs                  Id<T> typed table indices
     │       ├── time/                  SimTime, SimDuration, CivilDateTime (integer ms, UTC)
     │       ├── units.rs               Meters, Feet, NauticalMiles, Knots, Degrees, …
     │       ├── geo/                   LatLon, great-circle maths
     │       ├── rng.rs                 RngSeed, SimRng — per-subsystem ChaCha8 streams
     │       ├── pacing.rs              WallClock trait, SimSpeed, Pacer
-    │       └── sim.rs                 Simulation, fixed 1 s tick loop
+    │       ├── sim.rs                 Simulation (owns the World), fixed 1 s tick loop
+    │       └── world/                 World + WorldDefinition (file format), Airport, Runway,
+    │                                  RunwayDesignator, codes (AirportIdent, IcaoCode, …)
     └── aerocosm/                      (binary — headless CLI runner, tracing setup)
         └── src/
             ├── main.rs                Entry point

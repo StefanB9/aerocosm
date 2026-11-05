@@ -85,6 +85,85 @@ pub enum CoreError {
         /// What is wrong with the configuration.
         reason: &'static str,
     },
+
+    /// An aviation code or identifier is malformed.
+    #[error("invalid {kind}: {input:?}")]
+    InvalidCode {
+        /// What kind of code was expected.
+        kind: &'static str,
+        /// The rejected text.
+        input: String,
+    },
+
+    /// An airport definition is inconsistent.
+    #[error("invalid airport {ident}: {reason}")]
+    InvalidAirport {
+        /// Ident of the rejected airport.
+        ident: String,
+        /// What is wrong.
+        reason: &'static str,
+    },
+
+    /// A runway end is inconsistent.
+    #[error("invalid runway end {designator}: {reason}")]
+    InvalidRunwayEnd {
+        /// Designator of the rejected end.
+        designator: String,
+        /// What is wrong.
+        reason: &'static str,
+    },
+
+    /// A runway definition is inconsistent.
+    #[error("invalid runway {designator} at {airport}: {reason}")]
+    InvalidRunway {
+        /// Ident of the runway's airport.
+        airport: String,
+        /// Runway name, e.g. `07C/25C`.
+        designator: String,
+        /// What is wrong.
+        reason: &'static str,
+    },
+
+    /// Two airports share an ident.
+    #[error("duplicate airport ident {ident}")]
+    DuplicateAirport {
+        /// The repeated ident.
+        ident: String,
+    },
+
+    /// A runway references an airport that does not exist.
+    #[error("runway references unknown airport {ident}")]
+    UnknownAirport {
+        /// The unresolved ident.
+        ident: String,
+    },
+
+    /// A data file has a format version this build cannot read.
+    #[error("{file} format {found} is not supported (expected {supported})")]
+    UnsupportedFileFormat {
+        /// Which kind of file.
+        file: &'static str,
+        /// Version found in the file.
+        found: u32,
+        /// Version this build reads.
+        supported: u32,
+    },
+
+    /// An aircraft type definition is implausible.
+    #[error("invalid aircraft type {code}: {reason}")]
+    InvalidAircraftType {
+        /// Designator of the rejected type.
+        code: String,
+        /// What is wrong.
+        reason: &'static str,
+    },
+
+    /// Two aircraft types share a designator.
+    #[error("duplicate aircraft type {code}")]
+    DuplicateAircraftType {
+        /// The repeated designator.
+        code: String,
+    },
 }
 
 #[cfg(test)]
@@ -154,5 +233,88 @@ mod tests {
             error.to_string(),
             "invalid pacer configuration: tick must be positive"
         );
+    }
+
+    #[test]
+    fn test_core_error_invalid_code_display() {
+        let error = CoreError::InvalidCode {
+            kind: "ICAO airport code",
+            input: "eddf".to_owned(),
+        };
+        assert_eq!(error.to_string(), "invalid ICAO airport code: \"eddf\"");
+    }
+
+    #[test]
+    fn test_core_error_invalid_airport_display() {
+        let error = CoreError::InvalidAirport {
+            ident: "EDDF".to_owned(),
+            reason: "bad name",
+        };
+        assert_eq!(error.to_string(), "invalid airport EDDF: bad name");
+    }
+
+    #[test]
+    fn test_core_error_invalid_runway_end_display() {
+        let error = CoreError::InvalidRunwayEnd {
+            designator: "07L".to_owned(),
+            reason: "bad",
+        };
+        assert_eq!(error.to_string(), "invalid runway end 07L: bad");
+    }
+
+    #[test]
+    fn test_core_error_invalid_runway_display() {
+        let error = CoreError::InvalidRunway {
+            airport: "EDDF".to_owned(),
+            designator: "07C/25C".to_owned(),
+            reason: "bad",
+        };
+        assert_eq!(error.to_string(), "invalid runway 07C/25C at EDDF: bad");
+    }
+
+    #[test]
+    fn test_core_error_duplicate_airport_display() {
+        let error = CoreError::DuplicateAirport {
+            ident: "EDDF".to_owned(),
+        };
+        assert_eq!(error.to_string(), "duplicate airport ident EDDF");
+    }
+
+    #[test]
+    fn test_core_error_unknown_airport_display() {
+        let error = CoreError::UnknownAirport {
+            ident: "EDDH".to_owned(),
+        };
+        assert_eq!(error.to_string(), "runway references unknown airport EDDH");
+    }
+
+    #[test]
+    fn test_core_error_unsupported_file_format_display() {
+        let error = CoreError::UnsupportedFileFormat {
+            file: "world file",
+            found: 2,
+            supported: 1,
+        };
+        assert_eq!(
+            error.to_string(),
+            "world file format 2 is not supported (expected 1)"
+        );
+    }
+
+    #[test]
+    fn test_core_error_invalid_aircraft_type_display() {
+        let error = CoreError::InvalidAircraftType {
+            code: "A320".to_owned(),
+            reason: "bad",
+        };
+        assert_eq!(error.to_string(), "invalid aircraft type A320: bad");
+    }
+
+    #[test]
+    fn test_core_error_duplicate_aircraft_type_display() {
+        let error = CoreError::DuplicateAircraftType {
+            code: "A320".to_owned(),
+        };
+        assert_eq!(error.to_string(), "duplicate aircraft type A320");
     }
 }

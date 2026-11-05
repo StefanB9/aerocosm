@@ -3,6 +3,9 @@
 mod cli;
 mod run;
 
+use std::{fs::File, io::BufReader};
+
+use aerocosm_core::world::World;
 use anyhow::{Context, Result};
 use clap::Parser;
 use tracing::info;
@@ -20,8 +23,19 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Run(args) => {
             info!(seed = args.seed.value(), start = %args.start, duration = %args.duration, "run started");
-            let summary = run::run(&args, &SystemClock::new()).context("run failed")?;
+            let world = match &args.world {
+                Some(path) => {
+                    let file = File::open(path)
+                        .with_context(|| format!("cannot open {}", path.display()))?;
+                    run::load_world(BufReader::new(file))
+                        .with_context(|| format!("cannot load {}", path.display()))?
+                }
+                None => World::empty(),
+            };
+            let summary = run::run(&args, world, &SystemClock::new()).context("run failed")?;
             info!(
+                airports = summary.airports,
+                runways = summary.runways,
                 ticks = summary.ticks,
                 end = %summary.end,
                 wall_ms = summary.wall.as_millis(),

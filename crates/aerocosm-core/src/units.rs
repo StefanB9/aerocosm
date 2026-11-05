@@ -107,6 +107,11 @@ quantity!(
     "m/s"
 );
 quantity!(
+    /// Vertical speed in feet per minute, used for climb and descent rates.
+    FeetPerMinute,
+    "ft/min"
+);
+quantity!(
     /// Angle in degrees. Not normalised unless [`Degrees::normalized`] is
     /// called.
     Degrees,
@@ -150,6 +155,13 @@ impl MetersPerSecond {
     /// Converts to knots.
     pub const fn to_knots(self) -> Knots {
         Knots(self.0 * SECONDS_PER_HOUR / METERS_PER_NAUTICAL_MILE)
+    }
+}
+
+impl FeetPerMinute {
+    /// Converts to metres per second.
+    pub const fn to_meters_per_second(self) -> MetersPerSecond {
+        MetersPerSecond(self.0 * METERS_PER_FOOT / 60.0)
     }
 }
 

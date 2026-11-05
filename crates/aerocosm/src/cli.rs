@@ -1,5 +1,7 @@
 //! Command-line interface.
 
+use std::path::PathBuf;
+
 use aerocosm_core::{RngSeed, SimDuration, SimTime};
 use clap::{Args, Parser, Subcommand, builder::TypedValueParser};
 
@@ -33,6 +35,11 @@ pub(crate) struct RunArgs {
     /// How much simulated time to run, e.g. 24h, 1h30m, 7d.
     #[arg(long, default_value = "24h")]
     pub(crate) duration: SimDuration,
+
+    /// World file to simulate, e.g. assets/world/germany.world.json. Without it
+    /// the world is empty.
+    #[arg(long)]
+    pub(crate) world: Option<PathBuf>,
 }
 
 #[cfg(test)]
@@ -54,6 +61,7 @@ mod tests {
         assert_eq!(args.seed, RngSeed::new(0));
         assert_eq!(args.start, "2026-01-01T00:00:00Z".parse::<SimTime>()?);
         assert_eq!(args.duration, SimDuration::from_hours(24));
+        assert_eq!(args.world, None);
         Ok(())
     }
 
@@ -68,7 +76,13 @@ mod tests {
             "2026-11-05T06:00:00Z",
             "--duration",
             "1h30m",
+            "--world",
+            "assets/world/germany.world.json",
         ])?;
+        assert_eq!(
+            args.world.as_deref(),
+            Some(std::path::Path::new("assets/world/germany.world.json"))
+        );
         assert_eq!(args.seed, RngSeed::new(7));
         assert_eq!(args.start, "2026-11-05T06:00:00Z".parse::<SimTime>()?);
         assert_eq!(args.duration, SimDuration::from_minutes(90));
