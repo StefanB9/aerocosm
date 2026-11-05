@@ -121,6 +121,7 @@ impl RunwayEnd {
 
 /// Unvalidated runway data as stored in the world file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RunwayDefinition {
     /// The airport this runway belongs to.
     pub airport: AirportIdent,

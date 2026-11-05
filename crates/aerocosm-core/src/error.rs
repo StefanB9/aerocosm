@@ -123,6 +123,29 @@ pub enum CoreError {
         /// What is wrong.
         reason: &'static str,
     },
+
+    /// Two airports share an ident.
+    #[error("duplicate airport ident {ident}")]
+    DuplicateAirport {
+        /// The repeated ident.
+        ident: String,
+    },
+
+    /// A runway references an airport that does not exist.
+    #[error("runway references unknown airport {ident}")]
+    UnknownAirport {
+        /// The unresolved ident.
+        ident: String,
+    },
+
+    /// A world file has a format version this build cannot read.
+    #[error("world file format {found} is not supported (expected {supported})")]
+    UnsupportedWorldFormat {
+        /// Version found in the file.
+        found: u32,
+        /// Version this build reads.
+        supported: u32,
+    },
 }
 
 #[cfg(test)]
@@ -229,5 +252,33 @@ mod tests {
             reason: "bad",
         };
         assert_eq!(error.to_string(), "invalid runway 07C/25C at EDDF: bad");
+    }
+
+    #[test]
+    fn test_core_error_duplicate_airport_display() {
+        let error = CoreError::DuplicateAirport {
+            ident: "EDDF".to_owned(),
+        };
+        assert_eq!(error.to_string(), "duplicate airport ident EDDF");
+    }
+
+    #[test]
+    fn test_core_error_unknown_airport_display() {
+        let error = CoreError::UnknownAirport {
+            ident: "EDDH".to_owned(),
+        };
+        assert_eq!(error.to_string(), "runway references unknown airport EDDH");
+    }
+
+    #[test]
+    fn test_core_error_unsupported_world_format_display() {
+        let error = CoreError::UnsupportedWorldFormat {
+            found: 2,
+            supported: 1,
+        };
+        assert_eq!(
+            error.to_string(),
+            "world file format 2 is not supported (expected 1)"
+        );
     }
 }

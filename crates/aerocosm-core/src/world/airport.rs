@@ -22,6 +22,7 @@ pub enum AirportKind {
 
 /// Unvalidated airport data as stored in the world file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AirportDefinition {
     /// Unique identifier: the ICAO code where there is one.
     pub ident: AirportIdent,
