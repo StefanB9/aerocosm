@@ -29,6 +29,32 @@ pub struct NaturalEarthSources<R> {
     pub places: R,
 }
 
+/// A settlement with its population, for airport catchments (plan D37).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PopulatedPlace {
+    /// Position.
+    pub location: LatLon,
+    /// Population of the metropolitan area (`POP_MAX`); negative source values
+    /// become 0.
+    pub population: u32,
+}
+
+/// Reads every place of the Natural Earth populated places layer, without
+/// clipping.
+pub fn read_places(reader: impl Read) -> Result<Vec<PopulatedPlace>> {
+    let features = read_layer::<PlaceProperties>(reader, "places")?;
+    let mut places = Vec::with_capacity(features.len());
+    for feature in features {
+        if let Some(Geometry::Point(point)) = feature.geometry {
+            places.push(PopulatedPlace {
+                location: to_lat_lon(point)?,
+                population: u32::try_from(feature.properties.population).unwrap_or(0),
+            });
+        }
+    }
+    Ok(places)
+}
+
 /// What area to cover and how much detail to keep.
 #[derive(Debug, Clone)]
 pub struct BasemapSettings {
@@ -437,5 +463,17 @@ mod tests {
                 prop_assert!(prepared.path().points().iter().all(|p| bounds.contains(*p)));
             }
         }
+    }
+
+    #[test]
+    fn test_read_places_keeps_all_places_with_population() -> Result<()> {
+        let places = read_places(sources().places)?;
+        assert_eq!(places.len(), 5, "no bounds filtering: Paris is kept");
+        let nowhere = places
+            .iter()
+            .find(|p| (p.location.latitude().value() - 50.0).abs() < 1e-9)
+            .context("Nowhere")?;
+        assert_eq!(nowhere.population, 0, "negative populations become 0");
+        Ok(())
     }
 }
