@@ -437,4 +437,26 @@ mod tests {
             prop_assert!(World::from_definition(definition).is_err());
         }
     }
+
+    /// The generated world file shipped with the project (see
+    /// docs/data-sources.md).
+    const GERMANY: &str = include_str!("../../../../assets/world/germany.world.json");
+
+    #[test]
+    fn test_shipped_germany_world_is_valid() -> Result<()> {
+        let world = World::from_json(GERMANY).context("assets/world/germany.world.json")?;
+        assert!(
+            world.airport_count() > 400,
+            "{} airports",
+            world.airport_count()
+        );
+        let frankfurt = world.airport_by_icao("EDDF".parse()?).context("EDDF")?;
+        assert_eq!(world.runways_of(frankfurt).len(), 4);
+        let majors = world
+            .airports()
+            .filter(|(_, a)| a.kind() == AirportKind::Major)
+            .count();
+        assert!(majors >= 20, "{majors} major airports");
+        Ok(())
+    }
 }

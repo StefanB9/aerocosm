@@ -40,6 +40,8 @@ The viewer zooms continuously from country level down to a single airport.
 | D18 | Missing runway thresholds are synthesised (centred on the reference point, heading from data or designator) and flagged `GeometrySource::Approximate` | ~half of small-airfield runways lack coordinates; flag allows OSM replacement later |
 | D19 | `AirportKind = Major \| Regional \| Airfield \| Edge` (was `Hub`) | OurAirports `large_airport` includes e.g. Paderborn, which is no hub; "hub" is an airline concept for M2 |
 | D20 | Aircraft types live in a hand-curated catalog (`assets/aircraft/types.json`, `AircraftCatalog`) separate from the generated world file | Different sources and lifecycles: the importer regenerates geography; the catalog is edited by hand |
+| D21 | Basemap file types live in a small `aerocosm-basemap` crate (written by `aerocosm-data`, read by the viewer) | Keeps the viewer independent of importer dependencies and the core free of map-drawing data |
+| D22 | Airport ident = OurAirports `icao_code` when valid, else the OurAirports ident; `icao` is set only when the ident is an ICAO code | Some airfields have local idents (`DE-0004`) but real ICAO codes (`EDUG`); keeps ICAO lookups complete |
 
 ## Research findings (2026-11-05)
 
@@ -76,6 +78,7 @@ crates/
 │       ├── pacing.rs     WallClock trait, SimSpeed, Pacer
 │       ├── sim.rs        Simulation, fixed-step loop
 │       └── world/        Airport, Runway, AircraftType, codes, World + validation
+├── aerocosm-basemap/     library — basemap file types (D21)
 ├── aerocosm-data/        library + `import` binary — offline data pipeline
 ├── aerocosm/             binary — headless CLI runner (batch mode)
 └── aerocosm-viewer/      binary — Bevy viewer, native + wasm
@@ -86,7 +89,7 @@ assets/
 docs/data-sources.md                URLs, licences, attribution, regeneration steps
 ```
 
-Dependency boundary: `core` ← `data`, `aerocosm`, `viewer`. The viewer reads the world file
+Dependency boundary: `core` ← `basemap` ← `data`, `viewer`; `core` ← `aerocosm`. The viewer reads the world file
 through core types; it never depends on `aerocosm-data`.
 
 ## M0 — Foundations
