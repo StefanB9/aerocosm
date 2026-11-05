@@ -39,6 +39,7 @@ tracing = { version = "0.1.44", default-features = false, features = ["attribute
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["env-filter", "fmt", "std"] }
 
 # --- Dev dependencies ---
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
 proptest = { version = "1.12.0" }
 
 [profile.release]
@@ -52,6 +53,12 @@ overflow-checks = false
 panic = "immediate-abort"
 rpath = false
 strip = true
+
+# Bench targets always unwind; with build-std, inheriting release's
+# immediate-abort would build `core` twice with conflicting panic strategies.
+[profile.bench]
+inherits = "release"
+panic = "unwind"
 
 [profile.dev]
 codegen-units = 256
