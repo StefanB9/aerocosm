@@ -1,0 +1,11 @@
+/target
+.idea
+.claude
+
+# Environment files with secrets
+.env
+.env.local
+.env.production
+!.env.example
+
+logs
