@@ -34,6 +34,12 @@ The viewer zooms continuously from country level down to a single airport.
 | D12 | Self-rendered vector basemap from Natural Earth; no web tile services | OSM tile policy forbids it; offline; fully styleable; wasm-friendly |
 | D13 | Planning depth: M0–M1 detailed, later milestones planned when reached | User choice |
 | D14 | Always feature branch + PR into `dev` | CLAUDE.md branch rules |
+| D15 | M1 ships as three PRs: core world model → data pipeline → viewer | Reviewable units; each builds on the merged previous one |
+| D16 | Tests and implementation share a commit; red runs are noted in the PR | Every commit stays green, as CLAUDE.md requires |
+| D17 | Airports keyed by `AirportIdent` (OurAirports ident: ICAO code or `DE-xxxx`); `icao` is optional | 65 of 436 German aerodromes have no ICAO code. Scheduled traffic only uses ICAO airports |
+| D18 | Missing runway thresholds are synthesised (centred on the reference point, heading from data or designator) and flagged `GeometrySource::Approximate` | ~half of small-airfield runways lack coordinates; flag allows OSM replacement later |
+| D19 | `AirportKind = Major \| Regional \| Airfield \| Edge` (was `Hub`) | OurAirports `large_airport` includes e.g. Paderborn, which is no hub; "hub" is an airline concept for M2 |
+| D20 | Aircraft types live in a hand-curated catalog (`assets/aircraft/types.json`, `AircraftCatalog`) separate from the generated world file | Different sources and lifecycles: the importer regenerates geography; the catalog is edited by hand |
 
 ## Research findings (2026-11-05)
 
@@ -109,20 +115,26 @@ loads a world, runs in batch mode, logs a summary. CLI via `clap` (derive).
 
 ### Core domain (`world/`)
 
-- Codes: `IcaoCode([u8; 4])`, `IataCode([u8; 3])`, `AircraftTypeCode([u8; 4])`,
-  `CountryCode([u8; 2])`; validated `TryFrom<&str>`, `Display`, `serde` as strings.
-- `Airport { id, icao, iata, name, location, elevation: Feet, kind: AirportKind, country }`,
-  `AirportKind = Hub | Regional | Airfield | Edge`.
-- `Runway { id, airport, ends: [RunwayEnd; 2], length: Meters, width: Meters, surface }`,
-  `RunwayEnd { designator, threshold: LatLon, true_heading: Degrees, displaced_threshold:
-  Meters }`.
+- Codes: `AirportIdent` (1–8 of `A-Z0-9-`), `IcaoCode` (4 letters), `IataCode` (3 letters),
+  `AircraftTypeCode` (2–4, letter first), `CountryCode` (2 letters); fixed-size ASCII,
+  validated `TryFrom<&str>`, `Display`, `serde` as strings.
+- `Airport { ident, icao: Option, iata: Option, name, location, elevation: Feet, kind:
+  AirportKind, country }`, `AirportKind = Major | Regional | Airfield | Edge` (D17, D19).
+- `Runway { airport, ends: [RunwayEnd; 2], length: Meters, width: Meters, surface: Surface,
+  geometry: GeometrySource }`, `RunwayEnd { designator: RunwayDesignator, threshold: LatLon,
+  true_heading: Degrees, displaced_threshold: Meters }`, `GeometrySource = Surveyed |
+  Approximate` (D18). Designators are `01`–`36` with optional `L`/`C`/`R`.
+- In the world file, runways reference their airport by `AirportIdent` (readable diffs);
+  `World` resolves them to `Id<Airport>` and stores runways grouped by airport.
 - `AircraftType { code, name, wake: WakeCategory, seats, cruise_speed, cruise_level,
   climb_rate, descent_rate, approach_speed, range, min_runway_length }` — ~15 curated types
   (A319/A320/A321 incl. neo, B737-800/MAX 8, A220-300, E190/E195, CRJ900, ATR 72, DHC-8-400,
-  A330, A350, B787, B777, A380, B747-8), each with a source citation.
+  A330, A350, B787, B777, A380, B747-8), each with a source citation. Loaded as a separate
+  `AircraftCatalog` from `assets/aircraft/types.json` (D20).
 - `WorldDefinition` (serde DTO) → `World::from_definition(def) -> Result<World>` validates
   unique codes, resolvable references, runway geometry (ends ≈ length apart, headings ≈
-  reciprocal) and builds lookup indices (`HashMap<IcaoCode, Id<Airport>>`).
+  reciprocal, designators reciprocal) and builds lookup indices by ident and ICAO code.
+- `Simulation` owns the `World`; `aerocosm run --world <path>` loads it.
 
 Tests: unit tests per constructor and validation failure; proptests for code parsing and
 for validation (randomly corrupted definitions are always rejected).
@@ -132,8 +144,10 @@ for validation (randomly corrupted definitions are always rejected).
 - `import` binary: `aerocosm-data import --ourairports <dir> --natural-earth <dir> --out
   assets/`. Reads local downloads only (no network code).
 - Filters German aerodromes (`iso_country = DE`, excluding heliports, closed and balloon
-  ports) with at least one runway; classifies `Hub`/`Regional`/`Airfield` by type and
-  scheduled-service flag. Edge hubs are added in M2.
+  ports) with at least one open runway; classifies `Major` (large) / `Regional` (medium or
+  scheduled service) / `Airfield`. Edge hubs are added in M2.
+- Normalises free-text surfaces into `Surface`, drops helipad and malformed runway rows,
+  synthesises missing thresholds (D18), defaults missing widths by surface.
 - Basemap: clips Natural Earth layers to a Germany + margin bounding box, simplifies with
   Douglas–Peucker (own implementation, tested), writes polygons/polylines per layer.
 - Outputs are deterministic (stable ordering) so regenerated files diff cleanly.
