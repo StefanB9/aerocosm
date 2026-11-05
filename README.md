@@ -151,9 +151,12 @@ scripts/build-web.sh
 python3 -m http.server --directory target/web 8080
 ```
 
-Open <http://localhost:8080>. The page uses the WebGPU build when the browser offers a WebGPU
-adapter and the WebGL2 build otherwise. Force one with
-<http://localhost:8080/?renderer=webgl2> or <http://localhost:8080/?renderer=webgpu>.
+Open <http://localhost:8080>. The page uses the WebGPU build when the browser can actually
+render with WebGPU (it renders one tiny probe frame first) and the WebGL2 build otherwise.
+Force one with <http://localhost:8080/?renderer=webgl2> or
+<http://localhost:8080/?renderer=webgpu>.
+
+Each variant's `.wasm` is currently about 33 MB uncompressed; the first load takes a moment.
 
 The release build of both variants takes a while; `PROFILE=dev scripts/build-web.sh` builds
 faster but produces much larger, slower files.
@@ -166,7 +169,9 @@ faster but produces much larger, slower files.
 3. Resize the window — the canvas fills it and the map stays sharp.
 4. On a touch device (or touch emulation in developer tools): one finger pans, two fingers
    pinch-zoom.
-5. With a browser that has no WebGPU, the default page still loads (WebGL2 build).
+5. With a browser that has no working WebGPU, the default page still loads (WebGL2 build).
+   Headless Chromium is such a browser: it offers a WebGPU adapter and device, but rendering
+   fails, so automated checks there exercise the WebGL2 build and the fallback.
 
 ## Regenerating the data
 

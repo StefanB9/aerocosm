@@ -19,12 +19,30 @@
   <div id="status">Loading aerocosm…</div>
   <script type="module">
     // Two builds exist because Bevy selects WebGL2 at compile time (plan D23).
-    // Use WebGPU when the browser can provide an adapter, else WebGL2.
+    // Use WebGPU when the browser can actually render with it, else WebGL2.
     // `?renderer=webgpu` or `?renderer=webgl2` forces a build.
     async function webGpuAvailable() {
-      if (!("gpu" in navigator)) return false;
+      if (!("gpu" in navigator) || typeof OffscreenCanvas === "undefined") return false;
       try {
-        return (await navigator.gpu.requestAdapter()) !== null;
+        const adapter = await navigator.gpu.requestAdapter();
+        if (adapter === null) return false;
+        const device = await adapter.requestDevice();
+        // Some browsers hand out an adapter and device whose rendering then fails (seen in
+        // headless Chromium), so render one tiny frame and wait for the GPU to finish it.
+        const context = new OffscreenCanvas(4, 4).getContext("webgpu");
+        context.configure({ device, format: navigator.gpu.getPreferredCanvasFormat() });
+        const encoder = device.createCommandEncoder();
+        encoder.beginRenderPass({
+          colorAttachments: [{
+            view: context.getCurrentTexture().createView(),
+            loadOp: "clear",
+            storeOp: "store",
+          }],
+        }).end();
+        device.queue.submit([encoder.finish()]);
+        await device.queue.onSubmittedWorkDone();
+        device.destroy();
+        return true;
       } catch {
         return false;
       }
