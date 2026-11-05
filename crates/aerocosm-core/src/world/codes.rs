@@ -134,6 +134,25 @@ ascii_code!(
     |raw| all_uppercase(raw, 2)
 );
 
+ascii_code!(
+    /// An ICAO airline designator, e.g. `DLH`: three letters `A-Z`.
+    AirlineIcao,
+    3,
+    "ICAO airline designator",
+    |raw| all_uppercase(raw, 3)
+);
+
+ascii_code!(
+    /// An IATA airline designator, e.g. `LH` or `U2`: two letters or digits.
+    AirlineIata,
+    2,
+    "IATA airline designator",
+    |raw| raw.len() == 2
+        && raw
+            .iter()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+);
+
 impl From<IcaoCode> for AirportIdent {
     fn from(icao: IcaoCode) -> Self {
         let mut bytes = [0; 8];
