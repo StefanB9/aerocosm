@@ -24,13 +24,17 @@ separation, delay propagation).
 | D35 | M2 ships as four PRs: data → schedules → flight operations → viewer | Reviewable units |
 | D36 | Kinematics are incremental: per leg an orthonormal great-circle basis, position = `a·cos θ + b·sin θ`; altitude/speed from piecewise profiles | M0 benchmark: from-scratch interpolation ~200 ns is too slow for 15k aircraft at 1000× |
 | D37 | Catchment population per commercial/edge airport is computed by the importer from Natural Earth places (within 100 km) and stored in the world file | Core stays independent of the basemap; reproducible |
+| D38 | Airlines are catalogued with bases (weights), network style and a fleet type mix; the number of tails per airline is an output of schedule generation, reported for sanity checks (replaces curated counts in D32) | Germany-related fleet counts are hard to source, and fixed counts could make the official targets unschedulable |
+| D39 | Four cargo carriers (DHL/European Air Transport, UPS, FedEx, AeroLogic) fly mostly at night, mainly LEJ/CGN | The official scheduled movements of those hubs are largely cargo |
+| D40 | Local time via `jiff` with the bundled IANA database (`tzdb-bundle-always`): every airport has an IANA zone; curfews, daily curves and banks are local | Exact DST everywhere; bundled data keeps results identical on all platforms and in wasm |
 
 ## Calibration facts (to be cited in `docs/data-sources.md`)
 
 - German airspace: ~8,616 flights/day in 2024 (EUROCONTROL European Aviation Overview); 4,888
   daily arrivals+departures at German airports in 2025 → ~3,700 overflights/day.
-- Airport movements 2025 (to be taken from the official ADV monthly/annual statistics in
-  PR 1; indicative: FRA ~454k, MUC ~330k, BER ~184k per year).
+- Airport movements 2025: ADV-Monatsstatistik 12/2025, cumulative January–December,
+  "Linien- und Charterverkehr (an+ab)": FRA 449,896, MUC 319,039, BER 182,007, DUS 149,240,
+  HAM 109,086, CGN 103,956, STR 76,338, LEJ 65,684, … (2,161,690 movements in total).
 - DFS: ~3.07 million IFR movements in 2025; peak day 18 July 2025 with 10,220 flights.
 
 ## PR 1 — Data: edge airports, airlines, traffic targets
@@ -41,16 +45,20 @@ separation, delay propagation).
 - **Catchment population** (D37): importer sums Natural Earth places within 100 km of each
   Major/Regional/Edge airport; new optional `catchment` field in the world file (format
   version 2, version-1 files rejected with a clear message).
-- **Airline catalog** (D32): `Airline { icao, iata, name, callsign, bases, fleet: [{type, base,
-  count}], colour, source }`; ~20 carriers — Lufthansa, Lufthansa CityLine, Eurowings,
+- **Airline catalog** (D32, D38, D39): `Airline { icao, iata, name, callsign, kind (passenger
+  / cargo), network (hub / point-to-point / foreign hub), bases: [{airport, weight}], fleet
+  mix: [{type, share}], colour, source }`; ~20 passenger carriers plus DHL, UPS, FedEx and
+  AeroLogic — Lufthansa, Lufthansa CityLine, Eurowings,
   Discover, Condor, TUIfly, SunExpress, Ryanair, easyJet, Wizz Air, Air France, KLM, British
-  Airways, Swiss, Austrian, SAS, Turkish Airlines, LOT, Iberia, ITA. Fleets scaled to their
-  Germany-related operations; figures cited.
+  Airways, Swiss, Austrian, SAS, Turkish Airlines, LOT, Iberia, ITA; sources cited.
 - **Traffic targets:** `assets/traffic/germany.json` — per German commercial airport: daily
-  movements (ADV 2025 ÷ 365), weekday factors, curfew window, hub flag and bank pattern;
+  scheduled+charter movements (ADV 2025 "Linien- und Charterverkehr" ÷ 365), IANA time zone,
+  local curfew window, hub flag and local bank times; IANA zones of the edge airports; weekday
+  factors;
   overflight target; a coarse German airspace polygon (~25 vertices) for overflight
   detection.
-- **Core types:** `AirlineCatalog`, `TrafficTargets`, validated; guard tests load the files.
+- **Core types:** `AirlineCatalog`, `TrafficTargets`, `Zone` (IANA zone via `jiff`, D40) with
+  local-time helpers; validated; guard tests load the files.
 
 ## PR 2 — Core: schedule generation (`aerocosm-core::schedule`)
 
@@ -66,9 +74,11 @@ Deterministic from the `Scheduling` stream; output is a weekly `Schedule`.
    minimum runway length.
 5. **Timetables:** departure times follow a daily curve (morning/evening peaks) or hub banks;
    curfews respected; block time from distance, type speeds and taxi allowances.
-6. **Rotations:** flights chained into tail rotations per base with minimum turnaround by size
+6. **Rotations:** flights chained into tail rotations per base (the tail count per airline is
+   derived and reported, D38) with minimum turnaround by size
    class (regional 25 min, narrow-body 35 min, wide-body 90 min); every tail ends the day where
    the next day starts.
+6a. **Cargo:** cargo carriers' flights are placed at night in local time (D39).
 7. **Overflights:** edge-pair routes whose great circle crosses the German airspace polygon,
    gravity-weighted and scaled to the overflight target; foreign carriers, own rotations at
    edge airports.
