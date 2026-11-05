@@ -40,14 +40,15 @@ pub struct BasemapSettings {
 }
 
 impl BasemapSettings {
-    /// Germany with a margin showing its neighbours.
+    /// Germany with a wide margin, so the viewer never shows the edge of the
+    /// map even fully zoomed out on a wide screen.
     pub fn germany() -> Result<Self> {
         Ok(Self {
             bounds: Rect {
-                west: 3.0,
-                south: 45.5,
-                east: 17.5,
-                north: 56.5,
+                west: -8.0,
+                south: 41.0,
+                east: 30.0,
+                north: 61.0,
             },
             // ~150-220 m: invisible at country zoom, slightly coarse at airport
             // zoom, where OSM detail takes over in a later milestone.
@@ -281,6 +282,21 @@ mod tests {
 
     use super::*;
 
+    /// A fixed box independent of the production bounds: 3–17.5° E, 45.5–56.5°
+    /// N.
+    fn test_settings() -> BasemapSettings {
+        BasemapSettings {
+            bounds: Rect {
+                west: 3.0,
+                south: 45.5,
+                east: 17.5,
+                north: 56.5,
+            },
+            tolerance: 0.002,
+            state_country: "DEU",
+        }
+    }
+
     fn collection(features: &str) -> Cursor<Vec<u8>> {
         Cursor::new(
             format!(r#"{{"type": "FeatureCollection", "features": [{features}]}}"#).into_bytes(),
@@ -334,7 +350,7 @@ mod tests {
 
     #[test]
     fn test_import_basemap_filters_and_clips_layers() -> Result<()> {
-        let basemap = import_basemap(sources(), &BasemapSettings::germany()?)?;
+        let basemap = import_basemap(sources(), &test_settings())?;
         let codes: Vec<_> = basemap
             .countries()
             .iter()
@@ -370,7 +386,7 @@ mod tests {
 
     #[test]
     fn test_import_basemap_orders_places_by_importance() -> Result<()> {
-        let basemap = import_basemap(sources(), &BasemapSettings::germany()?)?;
+        let basemap = import_basemap(sources(), &test_settings())?;
         let names: Vec<_> = basemap.places().iter().map(Place::name).collect();
         assert_eq!(names, ["Berlin", "Hamburg", "Bonn", "Nowhere"]);
         let nowhere = basemap
@@ -388,7 +404,7 @@ mod tests {
         sources.places = collection(
             r#"{"properties": {"NAME": "Exact", "POP_MAX": 1, "SCALERANK": 1}, "geometry": {"type": "Point", "coordinates": [8.123456789,50.987654321]}}"#,
         );
-        let basemap = import_basemap(sources, &BasemapSettings::germany()?)?;
+        let basemap = import_basemap(sources, &test_settings())?;
         let place = basemap.places()[0].location();
         assert!((place.longitude().value() - 8.123_46).abs() < 1e-12);
         assert!((place.latitude().value() - 50.987_65).abs() < 1e-12);
@@ -399,7 +415,7 @@ mod tests {
     fn test_import_basemap_names_the_failing_layer() -> Result<()> {
         let mut sources = sources();
         sources.lakes = Cursor::new(b"not json".to_vec());
-        let error = import_basemap(sources, &BasemapSettings::germany()?)
+        let error = import_basemap(sources, &test_settings())
             .err()
             .context("must fail")?;
         assert!(format!("{error:#}").contains("lakes"), "{error:#}");
@@ -414,7 +430,7 @@ mod tests {
             mut ring in prop::collection::vec((-5.0_f64..25.0, 40.0_f64..62.0).prop_map(|(lon, lat)| [lon, lat]), 3..40),
         ) {
             ring.push(ring[0]);
-            let settings = BasemapSettings::germany().map_err(|e| TestCaseError::fail(e.to_string()))?;
+            let settings = test_settings();
             let bounds = settings.basemap_bounds().map_err(|e| TestCaseError::fail(e.to_string()))?;
             let prepared = prepare_ring(&ring, &settings).map_err(|e| TestCaseError::fail(format!("{e:#}")))?;
             if let Some(prepared) = prepared {

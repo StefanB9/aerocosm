@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>aerocosm</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #0b1220; overflow: hidden; }
+    canvas#aerocosm { display: block; width: 100%; height: 100%; outline: none; }
+    #status {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: #8a94a8; font: 14px/1.4 system-ui, sans-serif; letter-spacing: 0.02em;
+      pointer-events: none; transition: opacity 0.4s;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="aerocosm"></canvas>
+  <div id="status">Loading aerocosm…</div>
+  <script type="module">
+    // Two builds exist because Bevy selects WebGL2 at compile time (plan D23).
+    // Use WebGPU when the browser can actually render with it, else WebGL2.
+    // `?renderer=webgpu` or `?renderer=webgl2` forces a build.
+    async function webGpuAvailable() {
+      if (!("gpu" in navigator) || typeof OffscreenCanvas === "undefined") return false;
+      try {
+        const adapter = await navigator.gpu.requestAdapter();
+        if (adapter === null) return false;
+        const device = await adapter.requestDevice();
+        // Some browsers hand out an adapter and device whose rendering then fails (seen in
+        // headless Chromium), so render one tiny frame and wait for the GPU to finish it.
+        const context = new OffscreenCanvas(4, 4).getContext("webgpu");
+        context.configure({ device, format: navigator.gpu.getPreferredCanvasFormat() });
+        const encoder = device.createCommandEncoder();
+        encoder.beginRenderPass({
+          colorAttachments: [{
+            view: context.getCurrentTexture().createView(),
+            loadOp: "clear",
+            storeOp: "store",
+          }],
+        }).end();
+        device.queue.submit([encoder.finish()]);
+        await device.queue.onSubmittedWorkDone();
+        device.destroy();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    const status = document.getElementById("status");
+    const forced = new URLSearchParams(location.search).get("renderer");
+    const renderer = forced === "webgpu" || forced === "webgl2"
+      ? forced
+      : (await webGpuAvailable() ? "webgpu" : "webgl2");
+    document.documentElement.dataset.renderer = renderer;
+
+    try {
+      const viewer = await import(`./${renderer}/aerocosm-viewer.js`);
+      status.style.opacity = "0";
+      await viewer.default();
+    } catch (error) {
+      // winit hands control to the browser's event loop by throwing; that is not a failure.
+      if (!String(error).includes("Using exceptions for control flow")) {
+        status.style.opacity = "1";
+        status.textContent = `aerocosm could not start (${renderer}): ${error}`;
+        throw error;
+      }
+    }
+  </script>
+</body>
+</html>

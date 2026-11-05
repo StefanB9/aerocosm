@@ -6,6 +6,7 @@ members = [
     "crates/aerocosm-basemap",
     "crates/aerocosm-core",
     "crates/aerocosm-data",
+    "crates/aerocosm-viewer",
 ]
 resolver = "3"
 
@@ -31,8 +32,32 @@ missing_panics_doc = "allow"
 
 [workspace.dependencies]
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
+bevy = { version = "0.20.1", default-features = false, features = [
+    "async_executor",
+    "bevy_asset",
+    "bevy_camera",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_gizmos",
+    "bevy_gizmos_render",
+    "bevy_log",
+    "bevy_mesh",
+    "bevy_picking",
+    "bevy_render",
+    "bevy_sprite",
+    "bevy_sprite_render",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_ui_render",
+    "bevy_window",
+    "bevy_winit",
+    "multi_threaded",
+    "std",
+    "ui_picking",
+] }
 clap = { version = "4.6.7", default-features = false, features = ["derive", "error-context", "help", "std", "usage"] }
 csv = { version = "1.4.0", default-features = false }
+lyon_tessellation = { version = "1.0.23", default-features = false, features = ["std"] }
 rand_chacha = { version = "0.10.0", default-features = false }
 rand_core = { version = "0.10.1", default-features = false }
 serde = { version = "1.0.229", default-features = false, features = ["derive", "std"] }

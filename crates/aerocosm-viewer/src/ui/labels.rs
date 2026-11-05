@@ -1,0 +1,292 @@
+//! Map labels: UI text positioned over the map each frame, placed without
+//! collisions.
+
+use aerocosm_core::{
+    Id,
+    world::{Airport, AirportKind},
+};
+use bevy::{picking::Pickable, prelude::*, ui::ComputedNode};
+
+use crate::{
+    airports::{Selection, WorldView},
+    camera::{CameraRig, PointerState},
+    data::{Fonts, MapData},
+    labels::{LabelCandidate, place_labels},
+    lod,
+    projection::MapProjection,
+    theme,
+};
+
+/// What a label belongs to, for level of detail.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Subject {
+    Airport(Id<Airport>, AirportKind),
+    Place(u8),
+    Runway,
+}
+
+/// A label anchored to a map position.
+#[derive(Component)]
+struct MapLabel {
+    subject: Subject,
+    position: Vec2,
+    /// Direction (map units, y up) in which the label is pushed away from its
+    /// anchor; runway designators sit just beyond their threshold.
+    outward: Vec2,
+}
+
+/// How far runway designators sit beyond their threshold, in pixels.
+const DESIGNATOR_OFFSET: f32 = 14.0;
+/// Extra space between a selected airport's ring and its label, in pixels.
+const SELECTED_GAP: f32 = 6.0;
+
+/// Label entities in placement priority order.
+#[derive(Resource, Default)]
+struct LabelOrder(Vec<Entity>);
+
+/// Spawns and places map labels.
+pub(crate) struct LabelsPlugin;
+
+impl Plugin for LabelsPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<LabelOrder>()
+            .add_systems(Startup, spawn_labels.after(crate::data::setup_fonts))
+            .add_systems(Update, place.after(crate::camera::CameraSet));
+    }
+}
+
+/// Placement tier: lower is placed first and wins collisions.
+fn tier(subject: Subject) -> u8 {
+    match subject {
+        Subject::Airport(_, AirportKind::Major | AirportKind::Edge) => 0,
+        Subject::Place(rank) if rank <= 3 => 1,
+        Subject::Airport(_, AirportKind::Regional) => 2,
+        Subject::Place(_) => 3,
+        Subject::Airport(_, AirportKind::Airfield) => 4,
+        Subject::Runway => 5,
+    }
+}
+
+fn spawn_labels(
+    mut commands: Commands,
+    fonts: Res<Fonts>,
+    view: Res<WorldView>,
+    map: Res<MapData>,
+    projection: Res<MapProjection>,
+    mut order: ResMut<LabelOrder>,
+) {
+    let root = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                width: percent(100),
+                height: percent(100),
+                ..default()
+            },
+            Pickable::IGNORE,
+        ))
+        .id();
+    let shadow = TextShadow {
+        offset: Vec2::new(0.0, 1.0),
+        color: theme::SEA.with_alpha(0.9),
+    };
+    let mut labels: Vec<(u8, usize, Entity)> =
+        Vec::with_capacity(view.world.airport_count() + map.basemap.places().len());
+    let mut spawn = |commands: &mut Commands,
+                     subject: Subject,
+                     (position, outward): (Vec2, Vec2),
+                     text: String,
+                     font: TextFont,
+                     color: Color| {
+        let entity = commands
+            .spawn((
+                MapLabel {
+                    subject,
+                    position,
+                    outward,
+                },
+                Text::new(text),
+                font,
+                TextColor(color),
+                shadow,
+                // Hidden with `Visibility`, not `Display::None`, so the text is
+                // still laid out and its measured size is available for
+                // placement.
+                Node {
+                    position_type: PositionType::Absolute,
+                    ..default()
+                },
+                Visibility::Hidden,
+                Pickable::IGNORE,
+                ChildOf(root),
+            ))
+            .id();
+        labels.push((tier(subject), labels.len(), entity));
+    };
+    for (id, airport) in view.world.airports() {
+        let kind = airport.kind();
+        let code = airport
+            .iata()
+            .map_or_else(|| airport.ident().to_string(), |iata| iata.to_string());
+        let (font, color) = match kind {
+            AirportKind::Major | AirportKind::Edge => (
+                TextFont::from_font_size(13.0).with_font(fonts.semibold.clone()),
+                theme::TEXT,
+            ),
+            AirportKind::Regional => (
+                TextFont::from_font_size(12.0).with_font(fonts.semibold.clone()),
+                theme::REGIONAL.with_alpha(0.9),
+            ),
+            AirportKind::Airfield => (
+                TextFont::from_font_size(11.0).with_font(fonts.regular.clone()),
+                theme::TEXT_MUTED,
+            ),
+        };
+        spawn(
+            &mut commands,
+            Subject::Airport(id, kind),
+            (projection.project(airport.location()), Vec2::ZERO),
+            code,
+            font,
+            color,
+        );
+    }
+    // Places arrive sorted by importance.
+    for place in map.basemap.places() {
+        spawn(
+            &mut commands,
+            Subject::Place(place.rank()),
+            (projection.project(place.location()), Vec2::ZERO),
+            place.name().to_owned(),
+            TextFont::from_font_size(12.0).with_font(fonts.regular.clone()),
+            theme::TEXT_PLACE,
+        );
+    }
+    for (id, _) in view.world.airports() {
+        for runway in view.world.runways_of(id) {
+            let [a, b] = runway.ends().map(|end| projection.project(end.threshold()));
+            for (end, here, other) in [(runway.ends()[0], a, b), (runway.ends()[1], b, a)] {
+                spawn(
+                    &mut commands,
+                    Subject::Runway,
+                    (here, (here - other).normalize_or_zero()),
+                    end.designator().to_string(),
+                    TextFont::from_font_size(10.0).with_font(fonts.semibold.clone()),
+                    theme::TEXT_MUTED,
+                );
+            }
+        }
+    }
+    labels.sort_by_key(|(tier, index, _)| (*tier, *index));
+    order.0 = labels.into_iter().map(|(_, _, entity)| entity).collect();
+}
+
+/// Per-frame scratch buffers, reused to avoid allocating every frame.
+#[derive(Default)]
+struct Scratch {
+    candidates: Vec<LabelCandidate>,
+    owners: Vec<Entity>,
+    placed: Vec<(usize, Rect)>,
+    shown: Vec<(Entity, Vec2)>,
+}
+
+fn place(
+    rig: Option<Res<CameraRig>>,
+    pointer: Res<PointerState>,
+    selection: Res<Selection>,
+    order: Res<LabelOrder>,
+    mut labels: Query<(&MapLabel, &mut Node, &mut Visibility, &ComputedNode)>,
+    mut scratch: Local<Scratch>,
+) {
+    let Some(rig) = rig else {
+        return;
+    };
+    let scale = rig.state.scale();
+    let scratch = &mut *scratch;
+    scratch.candidates.clear();
+    scratch.owners.clear();
+
+    // The selected airport's label goes first so it is always shown.
+    let selected = order.0.iter().copied().find(|entity| {
+        labels.get(*entity).is_ok_and(|(label, _, _, _)| {
+            matches!(label.subject, Subject::Airport(id, _) if Some(id) == selection.selected)
+        })
+    });
+    let others = order
+        .0
+        .iter()
+        .copied()
+        .filter(|entity| Some(*entity) != selected);
+    for entity in selected.into_iter().chain(others) {
+        let Ok((label, _, _, computed)) = labels.get(entity) else {
+            continue;
+        };
+        let (visible, gap) = match label.subject {
+            Subject::Airport(id, kind) if Some(id) == selection.selected => (
+                true,
+                Some(lod::glyph_radius(kind) * crate::airports::SELECTED_RING + SELECTED_GAP),
+            ),
+            Subject::Airport(_, kind) => (
+                lod::airport_label_visible(kind, scale),
+                Some(lod::glyph_radius(kind) + 5.0),
+            ),
+            Subject::Place(rank) => (lod::place_label_visible(rank, scale), None),
+            Subject::Runway => (lod::runways_visible(scale), None),
+        };
+        if !visible {
+            continue;
+        }
+        let size = computed.size() * computed.inverse_scale_factor();
+        // Before the first layout the size is unknown; estimate a typical
+        // label.
+        let size = if size.x > 0.0 {
+            size
+        } else {
+            Vec2::new(60.0, 16.0)
+        };
+        let anchor = rig.state.world_to_screen(label.position, pointer.viewport)
+            + Vec2::new(label.outward.x, -label.outward.y) * DESIGNATOR_OFFSET;
+        scratch
+            .candidates
+            .push(LabelCandidate { anchor, size, gap });
+        scratch.owners.push(entity);
+    }
+    place_labels(&scratch.candidates, pointer.viewport, &mut scratch.placed);
+
+    scratch.shown.clear();
+    scratch.shown.extend(
+        scratch
+            .placed
+            .iter()
+            .map(|(index, rect)| (scratch.owners[*index], rect.min)),
+    );
+    scratch.shown.sort_unstable_by_key(|(entity, _)| *entity);
+    for entity in &order.0 {
+        let Ok((_, mut node, mut visibility, _)) = labels.get_mut(*entity) else {
+            continue;
+        };
+        if let Ok(found) = scratch.shown.binary_search_by_key(entity, |(e, _)| *e) {
+            let corner = scratch.shown[found].1;
+            visibility.set_if_neq(Visibility::Inherited);
+            node.left = px(corner.x);
+            node.top = px(corner.y);
+        } else {
+            visibility.set_if_neq(Visibility::Hidden);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tiers_put_major_airports_before_cities_before_airfields() {
+        let major = tier(Subject::Airport(Id::new(0), AirportKind::Major));
+        let capital = tier(Subject::Place(1));
+        let village = tier(Subject::Place(9));
+        let airfield = tier(Subject::Airport(Id::new(1), AirportKind::Airfield));
+        let runway = tier(Subject::Runway);
+        assert!(major < capital && capital < village && village < airfield && airfield < runway);
+    }
+}

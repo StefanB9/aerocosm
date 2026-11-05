@@ -1,0 +1,25 @@
+[package]
+name = "aerocosm-viewer"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = ["native"]
+# Desktop windowing backends.
+native = ["bevy/x11", "bevy/wayland"]
+# Browser builds; exactly one of these per wasm build (plan D23).
+webgpu = ["bevy/webgpu", "bevy/web"]
+webgl2 = ["bevy/webgl2", "bevy/web"]
+
+[dependencies]
+aerocosm-basemap = { path = "../aerocosm-basemap" }
+aerocosm-core = { path = "../aerocosm-core" }
+anyhow = { workspace = true }
+bevy = { workspace = true }
+lyon_tessellation = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

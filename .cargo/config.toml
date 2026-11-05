@@ -11,3 +11,8 @@ rustflags = ["-C", "link-arg=/OPT:REF", "-C", "link-arg=/OPT:ICF"]
 
 [target.x86_64-unknown-linux-gnu]
 rustflags = ["-Ctarget-cpu=native", "-C", "link-arg=-Wl,--icf=all"]
+
+# `[build]` rustflags add `target-cpu=native`, which names the host's x86 CPU and is
+# meaningless for wasm ("not a recognized processor" on every crate).
+[target.wasm32-unknown-unknown]
+rustflags = ["-Z", "location-detail=none"]
