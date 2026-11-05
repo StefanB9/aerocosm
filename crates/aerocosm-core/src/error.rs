@@ -46,6 +46,13 @@ pub enum CoreError {
         /// The rejected text.
         input: String,
     },
+
+    /// A physical quantity was NaN or infinite.
+    #[error("non-finite value for a quantity in {unit}")]
+    NonFiniteQuantity {
+        /// Unit symbol of the quantity.
+        unit: &'static str,
+    },
 }
 
 #[cfg(test)]
@@ -61,5 +68,11 @@ mod tests {
             error.to_string(),
             "index 5000000000 does not fit in a 32-bit id"
         );
+    }
+
+    #[test]
+    fn test_core_error_non_finite_quantity_display() {
+        let error = CoreError::NonFiniteQuantity { unit: "kt" };
+        assert_eq!(error.to_string(), "non-finite value for a quantity in kt");
     }
 }

@@ -3,6 +3,7 @@
 pub mod error;
 pub mod id;
 pub mod time;
+pub mod units;
 
 pub use error::CoreError;
 pub use id::Id;
