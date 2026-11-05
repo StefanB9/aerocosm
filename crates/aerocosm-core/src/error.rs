@@ -53,6 +53,27 @@ pub enum CoreError {
         /// Unit symbol of the quantity.
         unit: &'static str,
     },
+
+    /// A latitude or longitude is out of range or not finite.
+    #[error("invalid coordinate lat={lat} lon={lon} (expected -90..=90, -180..=180)")]
+    InvalidCoordinate {
+        /// Rejected latitude in degrees.
+        lat: f64,
+        /// Rejected longitude in degrees.
+        lon: f64,
+    },
+
+    /// An interpolation fraction is outside `0..=1`.
+    #[error("interpolation fraction {fraction} is outside 0..=1")]
+    InvalidFraction {
+        /// The rejected fraction.
+        fraction: f64,
+    },
+
+    /// Two points are antipodal, so the great circle between them is not
+    /// unique.
+    #[error("points are antipodal; the great circle between them is ambiguous")]
+    AntipodalPoints,
 }
 
 #[cfg(test)]
@@ -74,5 +95,34 @@ mod tests {
     fn test_core_error_non_finite_quantity_display() {
         let error = CoreError::NonFiniteQuantity { unit: "kt" };
         assert_eq!(error.to_string(), "non-finite value for a quantity in kt");
+    }
+
+    #[test]
+    fn test_core_error_invalid_coordinate_display() {
+        let error = CoreError::InvalidCoordinate {
+            lat: 91.0,
+            lon: 0.5,
+        };
+        assert_eq!(
+            error.to_string(),
+            "invalid coordinate lat=91 lon=0.5 (expected -90..=90, -180..=180)"
+        );
+    }
+
+    #[test]
+    fn test_core_error_invalid_fraction_display() {
+        let error = CoreError::InvalidFraction { fraction: 1.5 };
+        assert_eq!(
+            error.to_string(),
+            "interpolation fraction 1.5 is outside 0..=1"
+        );
+    }
+
+    #[test]
+    fn test_core_error_antipodal_points_display() {
+        assert_eq!(
+            CoreError::AntipodalPoints.to_string(),
+            "points are antipodal; the great circle between them is ambiguous"
+        );
     }
 }
