@@ -54,9 +54,10 @@ panic = "immediate-abort"
 rpath = false
 strip = true
 
-# Bench targets always unwind; with build-std, inheriting release's
-# immediate-abort would build `core` twice with conflicting panic strategies.
-[profile.bench]
+# Release settings for benchmarks: `cargo bench --profile bench-unwind`.
+# Bench targets need unwinding; with build-std, release's immediate-abort
+# builds `core` twice with conflicting panic strategies (E0152).
+[profile.bench-unwind]
 inherits = "release"
 panic = "unwind"
 
