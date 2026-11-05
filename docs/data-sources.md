@@ -63,5 +63,5 @@ load the shipped files. Update the snapshot section above.
   and reciprocal headings. Otherwise geometry is synthesised along the data heading, or the
   designator plus 4° magnetic declination, and flagged `approximate` (plan D18). Helipads and
   glider strips with non-numeric designators are skipped.
-- **Basemap:** clipped to 3°–17.5° E, 45.5°–56.5° N, simplified at 0.002° (~200 m), and
+- **Basemap:** clipped to 8° W–30° E, 41°–61° N (wide enough that the viewer never shows the map edge), simplified at 0.002° (~200 m), and
   rounded to 5 decimals (~1 m).
