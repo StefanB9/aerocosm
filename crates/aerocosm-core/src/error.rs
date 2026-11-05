@@ -74,6 +74,10 @@ pub enum CoreError {
     /// unique.
     #[error("points are antipodal; the great circle between them is ambiguous")]
     AntipodalPoints,
+
+    /// A random draw was requested from an empty range.
+    #[error("cannot draw from an empty range")]
+    EmptyRange,
 }
 
 #[cfg(test)]
@@ -123,6 +127,14 @@ mod tests {
         assert_eq!(
             CoreError::AntipodalPoints.to_string(),
             "points are antipodal; the great circle between them is ambiguous"
+        );
+    }
+
+    #[test]
+    fn test_core_error_empty_range_display() {
+        assert_eq!(
+            CoreError::EmptyRange.to_string(),
+            "cannot draw from an empty range"
         );
     }
 }
