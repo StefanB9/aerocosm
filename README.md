@@ -3,9 +3,10 @@
 A complete aviation world in miniature: a deterministic simulation of real-world aviation,
 starting with Germany. Step 1 simulates; step 2 lets you intervene as a sandbox "god".
 
-Current state (milestone M1): the simulation core, the German world (429 aerodromes, 518
-runways), a basemap of Germany and its neighbours, and a Bevy viewer for desktop and browser.
-Nothing flies yet — aircraft movement arrives in M2.
+Current state (milestone M1, M2 in progress): the simulation core, the German world (429
+aerodromes plus 23 European edge airports, 582 runways), a basemap of Germany and its
+neighbours, a Bevy viewer for desktop and browser, and the M2 inputs: airline catalog and
+traffic calibration targets. Nothing flies yet — schedules and flights arrive later in M2.
 
 Plans live in [`docs/plan/`](docs/plan/), data provenance in
 [`docs/data-sources.md`](docs/data-sources.md), engineering rules in [`CLAUDE.md`](CLAUDE.md).
@@ -85,7 +86,7 @@ cargo run -p aerocosm -- run --world assets/world/germany.world.json --duration 
 
 What to check:
 
-- The log reports `airports=429 runways=518 ticks=86400`.
+- The log reports `airports=452 runways=582 ticks=86400`.
 - `--seed 7`, `--start 2026-11-05T06:00:00Z` and durations like `1h30m` or `7d` are accepted.
 - Bad input fails with a clear message, e.g. `--duration soon` or `--world missing.json`.
 - `cargo run -p aerocosm -- --help` lists the options.

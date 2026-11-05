@@ -8,6 +8,8 @@ below; the importer output is deterministic, so unchanged inputs give byte-ident
 | `assets/world/germany.world.json` | [OurAirports](https://ourairports.com/data/) `airports.csv`, `runways.csv` | Public domain | Not required; credited here |
 | `assets/basemap/germany.basemap.json` | [Natural Earth](https://www.naturalearthdata.com/) 1:10m vector layers (`GeoJSON` from [nvkelso/natural-earth-vector](https://github.com/nvkelso/natural-earth-vector)) | Public domain | "Made with Natural Earth" (requested, not required) |
 | `assets/aircraft/types.json` | Hand-curated; see each entry's `source` field | — | — |
+| `assets/airlines/airlines.json` | Hand-curated from carriers' published bases and fleets (2025); see each entry's `source` field | — | — |
+| `assets/traffic/germany.json` | [ADV-Monatsstatistik 12/2025](https://www.adv.aero/wp-content/uploads/2015/11/12.2025-ADV-Monatsstatistik.pdf) (movements), [DFS 2025 traffic](https://www.dfs.de/homepage/en/media/press/2026/05-01-2026-air-traffic-in-germany-2025-more-flights-good-punctuality-level/), [EUROCONTROL European Aviation Overview 2025](https://www.eurocontrol.int/sites/default/files/2026-01/eurocontrol-european-aviation-overview-20260123-2025-review.pdf); estimates labelled in the file's `source` field | Statistics cited, figures transcribed | Sources cited here |
 | `assets/fonts/Inter-*.ttf` | [Inter 4.1](https://github.com/rsms/inter) (`extras/ttf`), Regular and SemiBold | SIL Open Font License 1.1 (`assets/fonts/Inter-LICENSE.txt`) | Licence file shipped alongside |
 
 ## Current snapshot
@@ -29,7 +31,8 @@ Downloaded 2026-11-05.
 | `ne_10m_populated_places.geojson` | `9b8e3de09048ef00dfc70357dbb9fa324493f214b5e0ae4daf1aa79a8d10116b` |
 | `ne_10m_rivers_lake_centerlines.geojson` | `bb854a900ecbd3b408df46d5e16e3e0f974ba55993f9d8b5c26e855273c0905a` |
 
-Import result: 429 aerodromes, 518 runways (293 surveyed, 225 approximate).
+Import result: 452 aerodromes (429 German, 23 edge), 582 runways (357 surveyed, 225
+approximate); catchment populations for every Major, Regional and Edge airport.
 
 ## Regenerating
 
@@ -57,6 +60,12 @@ Then run the full check: the asset guard tests in `aerocosm-core` and `aerocosm-
 load the shipped files. Update the snapshot section above.
 
 ## Processing notes
+
+- **Edge airports (M2, plan D29):** 23 foreign airports inside the basemap, listed in
+  `crates/aerocosm-data/src/ourairports/mod.rs`, imported with their runways as `edge`.
+- **Catchment (plan D37):** the sum of `POP_MAX` of all Natural Earth populated places within
+  100 km of each Major, Regional and Edge airport (unclipped, so airports near the map edge
+  count places beyond it).
 
 - **Aerodromes:** large, medium and small airports in Germany with at least one usable runway.
   The ICAO code is the ident where one exists (plan D22).
