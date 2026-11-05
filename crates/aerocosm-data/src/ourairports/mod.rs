@@ -11,10 +11,11 @@ use std::{
 };
 
 use aerocosm_core::{
+    LatLon,
     units::Degrees,
     world::{
-        AirportDefinition, FORMAT_VERSION, GeometrySource, WorldDefinition,
-        codes::{AirportIdent, CountryCode},
+        AirportDefinition, AirportKind, FORMAT_VERSION, GeometrySource, WorldDefinition,
+        codes::{AirportIdent, CountryCode, IcaoCode},
     },
 };
 use anyhow::{Context, Result};
@@ -25,6 +26,7 @@ use self::{
     records::{AirportRecord, RunwayRecord},
     runway::convert_runway,
 };
+use crate::natural_earth::PopulatedPlace;
 
 /// Readers for `airports.csv` and `runways.csv`.
 #[derive(Debug)]
@@ -37,22 +39,52 @@ pub struct OurAirportsSources<R> {
 
 /// Which country to import and how to turn magnetic designators into true
 /// headings.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct WorldSettings {
     country: CountryCode,
+    /// Foreign airports imported as edge airports.
+    edges: Vec<IcaoCode>,
     /// Magnetic declination, positive east, used when synthesising runway
     /// headings.
     declination: Degrees,
 }
 
+/// Foreign airports imported as edge airports (plan D29): major European
+/// destinations and endpoints of overflights, all inside the basemap. East
+/// Midlands is DHL's UK hub.
+const EDGE_AIRPORTS: [&str; 23] = [
+    "EGLL", "EGNX", "EIDW", "LFPG", "EHAM", "EBBR", "LSZH", "LSGG", "LOWW", "LKPR", "EPWA", "EKCH",
+    "ESSA", "ENGM", "EFHK", "LHBP", "LROP", "LTFM", "LIRF", "LIMC", "LEBL", "LEMD", "LEPA",
+];
+
+/// Radius within which populated places count towards an airport's catchment.
+const CATCHMENT_RADIUS_METERS: f64 = 100_000.0;
+
 impl WorldSettings {
-    /// Germany; declination is about 3–5° east across the country in 2026.
+    /// Germany plus its edge airports; declination is about 3–5° east across
+    /// the country in 2026.
     pub fn germany() -> Result<Self> {
+        let mut edges = Vec::with_capacity(EDGE_AIRPORTS.len() + 1);
+        for code in EDGE_AIRPORTS {
+            edges.push(
+                code.parse()
+                    .with_context(|| format!("edge airport {code}"))?,
+            );
+        }
         Ok(Self {
             country: "DE".parse()?,
+            edges,
             declination: Degrees::new(4.0)?,
         })
     }
+}
+
+/// Sum of the populations within [`CATCHMENT_RADIUS_METERS`] of `location`.
+fn catchment(location: LatLon, places: &[PopulatedPlace]) -> u32 {
+    places
+        .iter()
+        .filter(|place| place.location.distance_to(location).value() <= CATCHMENT_RADIUS_METERS)
+        .fold(0_u32, |sum, place| sum.saturating_add(place.population))
 }
 
 /// Counts of approximations applied to imported records.
@@ -100,6 +132,7 @@ pub struct WorldImport {
 pub fn import_world<R: Read>(
     sources: OurAirportsSources<R>,
     settings: &WorldSettings,
+    places: &[PopulatedPlace],
 ) -> Result<WorldImport> {
     let mut fallbacks = Fallbacks::default();
     let mut skipped: BTreeMap<&'static str, usize> = BTreeMap::new();
@@ -111,7 +144,15 @@ pub fn import_world<R: Read>(
     let mut seen = HashSet::new();
     for record in read_csv::<AirportRecord>(sources.airports, "airports.csv")? {
         let mut airport_fallbacks = Fallbacks::default();
-        if let Some(airport) = convert_airport(&record, settings.country, &mut airport_fallbacks)? {
+        if let Some(mut airport) = convert_airport(
+            &record,
+            settings.country,
+            &settings.edges,
+            &mut airport_fallbacks,
+        )? {
+            if airport.kind != AirportKind::Airfield {
+                airport.catchment = Some(catchment(airport.location, places));
+            }
             if seen.insert(airport.ident) {
                 airports.insert(record.ident, (airport, airport_fallbacks));
             } else {
@@ -181,10 +222,14 @@ fn read_csv<T: DeserializeOwned>(reader: impl Read, file: &str) -> Result<Vec<T>
 mod tests {
     use std::io::Cursor;
 
-    use aerocosm_core::world::{AirportKind, GeometrySource, Surface, World};
+    use aerocosm_core::{
+        LatLon,
+        world::{AirportKind, GeometrySource, Surface, World},
+    };
     use anyhow::{Context, Result};
 
     use super::*;
+    use crate::natural_earth::PopulatedPlace;
 
     const AIRPORTS_HEADER: &str = "id,ident,type,name,latitude_deg,longitude_deg,elevation_ft,\
                                    continent,iso_country,iso_region,municipality,\
@@ -240,7 +285,21 @@ mod tests {
             airports: Cursor::new(airports().into_bytes()),
             runways: Cursor::new(runways().into_bytes()),
         };
-        import_world(sources, &WorldSettings::germany()?)
+        import_world(sources, &WorldSettings::germany()?, &places()?)
+    }
+
+    /// One place 20 km from Frankfurt, one 150 km away.
+    fn places() -> Result<Vec<PopulatedPlace>> {
+        Ok(vec![
+            PopulatedPlace {
+                location: LatLon::new(50.11, 8.68)?,
+                population: 700_000,
+            },
+            PopulatedPlace {
+                location: LatLon::new(51.34, 8.55)?,
+                population: 1_000_000,
+            },
+        ])
     }
 
     #[test]
@@ -254,8 +313,8 @@ mod tests {
             .collect();
         assert_eq!(
             idents,
-            ["DE-0062", "EDDF", "EDFE", "EDUG"],
-            "sorted; heliports, foreign, closed and runway-less dropped"
+            ["DE-0062", "EDDF", "EDFE", "EDUG", "LFPG"],
+            "sorted; heliports, closed, runway-less and non-edge foreign airports dropped"
         );
         let kind = |ident: &str| {
             import
@@ -320,7 +379,7 @@ mod tests {
         assert_eq!(geometry("EDDF", "18"), Some(GeometrySource::Approximate));
         assert_eq!(geometry("EDFE", "09"), Some(GeometrySource::Approximate));
         assert_eq!(geometry("DE-0062", "04"), Some(GeometrySource::Approximate));
-        assert_eq!(import.definition.runways.len(), 5);
+        assert_eq!(import.definition.runways.len(), 6);
         Ok(())
     }
 
@@ -348,16 +407,16 @@ mod tests {
     #[test]
     fn test_import_world_reports_skips_and_fallbacks() -> Result<()> {
         let report = import()?.report;
-        assert_eq!(report.airports, 4);
+        assert_eq!(report.airports, 5);
         assert_eq!(report.surveyed_runways, 1);
-        assert_eq!(report.approximate_runways, 4);
+        assert_eq!(report.approximate_runways, 5);
         assert_eq!(report.skipped.get("closed"), Some(&1));
         assert_eq!(report.skipped.get("unparseable designator"), Some(&1));
         assert_eq!(report.skipped.get("missing length"), Some(&1));
         assert_eq!(report.skipped.get("airport without runways"), Some(&1));
         assert_eq!(
             report.fallbacks.get("surveyed geometry inconsistent"),
-            Some(&1)
+            Some(&2)
         );
         assert_eq!(report.fallbacks.get("missing elevation"), Some(&1));
         assert_eq!(report.fallbacks.get("default width"), Some(&1));
@@ -365,10 +424,49 @@ mod tests {
     }
 
     #[test]
+    fn test_import_world_marks_listed_foreign_airports_as_edge() -> Result<()> {
+        let import = import()?;
+        let paris = import
+            .definition
+            .airports
+            .iter()
+            .find(|a| a.ident.as_str() == "LFPG")
+            .context("LFPG")?;
+        assert_eq!(paris.kind, AirportKind::Edge);
+        assert_eq!(paris.country.as_str(), "FR");
+        Ok(())
+    }
+
+    #[test]
+    fn test_import_world_computes_catchment_for_commercial_airports() -> Result<()> {
+        let import = import()?;
+        let catchment = |ident: &str| {
+            import
+                .definition
+                .airports
+                .iter()
+                .find(|a| a.ident.as_str() == ident)
+                .map(|a| a.catchment)
+        };
+        assert_eq!(
+            catchment("EDDF"),
+            Some(Some(700_000)),
+            "only places within 100 km"
+        );
+        assert_eq!(
+            catchment("LFPG"),
+            Some(Some(0)),
+            "edge airports get a catchment too"
+        );
+        assert_eq!(catchment("EDFE"), Some(None), "airfields have none");
+        Ok(())
+    }
+
+    #[test]
     fn test_import_world_output_is_a_valid_world() -> Result<()> {
         let world = World::from_definition(import()?.definition)?;
-        assert_eq!(world.airport_count(), 4);
-        assert_eq!(world.runway_count(), 5);
+        assert_eq!(world.airport_count(), 5);
+        assert_eq!(world.runway_count(), 6);
         Ok(())
     }
 
@@ -378,7 +476,7 @@ mod tests {
             airports: Cursor::new(b"id,ident\n1,EDDF".to_vec()),
             runways: Cursor::new(runways().into_bytes()),
         };
-        let error = import_world(sources, &WorldSettings::germany()?)
+        let error = import_world(sources, &WorldSettings::germany()?, &[])
             .err()
             .context("must fail")?;
         assert!(format!("{error:#}").contains("airports.csv"), "{error:#}");

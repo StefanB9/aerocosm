@@ -1,5 +1,5 @@
 {
-  "format_version": 1,
+  "format_version": 2,
   "airports": [
     {
       "ident": "DE-0005",
@@ -596,6 +596,20 @@
       "country": "DE"
     },
     {
+      "ident": "EBBR",
+      "icao": "EBBR",
+      "iata": "BRU",
+      "name": "Brussels Airport",
+      "location": {
+        "lat": 50.901402,
+        "lon": 4.48444
+      },
+      "elevation": 175.0,
+      "kind": "edge",
+      "country": "BE",
+      "catchment": 5181981
+    },
+    {
       "ident": "EDAB",
       "icao": "EDAB",
       "name": "Bautzen Airfield",
@@ -618,7 +632,8 @@
       },
       "elevation": 640.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1728211
     },
     {
       "ident": "EDAD",
@@ -667,7 +682,8 @@
       },
       "elevation": 94.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 469179
     },
     {
       "ident": "EDAI",
@@ -1020,7 +1036,8 @@
       },
       "elevation": 228.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 672259
     },
     {
       "ident": "EDBO",
@@ -1068,7 +1085,8 @@
       },
       "elevation": 515.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1037295
     },
     {
       "ident": "EDBS",
@@ -1384,7 +1402,8 @@
       },
       "elevation": 157.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 3729162
     },
     {
       "ident": "EDDC",
@@ -1397,7 +1416,8 @@
       },
       "elevation": 755.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1764034
     },
     {
       "ident": "EDDE",
@@ -1410,7 +1430,8 @@
       },
       "elevation": 1036.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 669251
     },
     {
       "ident": "EDDF",
@@ -1423,7 +1444,8 @@
       },
       "elevation": 364.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 6880704
     },
     {
       "ident": "EDDG",
@@ -1436,7 +1458,8 @@
       },
       "elevation": 160.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 3163955
     },
     {
       "ident": "EDDH",
@@ -1449,7 +1472,8 @@
       },
       "elevation": 53.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 3221118
     },
     {
       "ident": "EDDK",
@@ -1462,7 +1486,8 @@
       },
       "elevation": 302.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 7601055
     },
     {
       "ident": "EDDL",
@@ -1475,7 +1500,8 @@
       },
       "elevation": 147.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 8220711
     },
     {
       "ident": "EDDM",
@@ -1488,7 +1514,8 @@
       },
       "elevation": 1487.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 2054482
     },
     {
       "ident": "EDDN",
@@ -1501,7 +1528,8 @@
       },
       "elevation": 1046.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1532447
     },
     {
       "ident": "EDDP",
@@ -1514,7 +1542,8 @@
       },
       "elevation": 465.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1487623
     },
     {
       "ident": "EDDR",
@@ -1527,7 +1556,8 @@
       },
       "elevation": 1058.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 2376840
     },
     {
       "ident": "EDDS",
@@ -1540,7 +1570,8 @@
       },
       "elevation": 1276.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 3921732
     },
     {
       "ident": "EDDV",
@@ -1553,7 +1584,8 @@
       },
       "elevation": 183.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 2024020
     },
     {
       "ident": "EDDW",
@@ -1566,7 +1598,8 @@
       },
       "elevation": 14.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 3740876
     },
     {
       "ident": "EDEG",
@@ -1698,7 +1731,8 @@
       },
       "elevation": 384.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 7049265
     },
     {
       "ident": "EDFG",
@@ -1723,7 +1757,8 @@
       },
       "elevation": 1649.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 2682760
     },
     {
       "ident": "EDFK",
@@ -1748,7 +1783,8 @@
       },
       "elevation": 308.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 9807900
     },
     {
       "ident": "EDFN",
@@ -1880,7 +1916,8 @@
       },
       "elevation": 760.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 6880704
     },
     {
       "ident": "EDGB",
@@ -1905,7 +1942,8 @@
       },
       "elevation": 1112.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 798363
     },
     {
       "ident": "EDGM",
@@ -1942,7 +1980,8 @@
       },
       "elevation": 1966.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 6553182
     },
     {
       "ident": "EDGZ",
@@ -2016,7 +2055,8 @@
       },
       "elevation": 23.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 3124477
     },
     {
       "ident": "EDHK",
@@ -2029,7 +2069,8 @@
       },
       "elevation": 102.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 2388927
     },
     {
       "ident": "EDHL",
@@ -2042,7 +2083,8 @@
       },
       "elevation": 53.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 2561538
     },
     {
       "ident": "EDHM",
@@ -2115,7 +2157,8 @@
       },
       "elevation": 2077.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 650531
     },
     {
       "ident": "EDKA",
@@ -2382,7 +2425,8 @@
       },
       "elevation": 454.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 2434234
     },
     {
       "ident": "EDLK",
@@ -2419,7 +2463,8 @@
       },
       "elevation": 125.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 8903379
     },
     {
       "ident": "EDLO",
@@ -2444,7 +2489,8 @@
       },
       "elevation": 699.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1851163
     },
     {
       "ident": "EDLR",
@@ -2493,7 +2539,8 @@
       },
       "elevation": 106.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 8113726
     },
     {
       "ident": "EDLW",
@@ -2506,7 +2553,8 @@
       },
       "elevation": 425.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 8121780
     },
     {
       "ident": "EDLZ",
@@ -2531,7 +2579,8 @@
       },
       "elevation": 1516.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1970269
     },
     {
       "ident": "EDMB",
@@ -2651,7 +2700,8 @@
       },
       "elevation": 1312.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 2054482
     },
     {
       "ident": "EDMN",
@@ -2676,7 +2726,8 @@
       },
       "elevation": 1947.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 2045337
     },
     {
       "ident": "EDMQ",
@@ -2954,7 +3005,8 @@
       },
       "elevation": 1367.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1573251
     },
     {
       "ident": "EDNZ",
@@ -3314,7 +3366,8 @@
       },
       "elevation": 811.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1260916
     },
     {
       "ident": "EDQC",
@@ -3339,7 +3392,8 @@
       },
       "elevation": 1601.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1092355
     },
     {
       "ident": "EDQE",
@@ -3438,7 +3492,8 @@
       },
       "elevation": 1959.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 832475
     },
     {
       "ident": "EDQN",
@@ -3693,7 +3748,8 @@
       },
       "elevation": 408.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 7575639
     },
     {
       "ident": "EDSC",
@@ -3921,7 +3977,8 @@
       },
       "elevation": 2231.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 3047584
     },
     {
       "ident": "EDTE",
@@ -3982,7 +4039,8 @@
       },
       "elevation": 511.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 2164497
     },
     {
       "ident": "EDTM",
@@ -3994,7 +4052,8 @@
       },
       "elevation": 1818.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 4400084
     },
     {
       "ident": "EDTN",
@@ -4078,7 +4137,8 @@
       },
       "elevation": 1299.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 3950650
     },
     {
       "ident": "EDTZ",
@@ -4163,7 +4223,8 @@
       },
       "elevation": 295.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1336450
     },
     {
       "ident": "EDVH",
@@ -4212,7 +4273,8 @@
       },
       "elevation": 820.0,
       "kind": "major",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 761249
     },
     {
       "ident": "EDVM",
@@ -4285,7 +4347,8 @@
       },
       "elevation": 3.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 761438
     },
     {
       "ident": "EDWF",
@@ -4310,7 +4373,8 @@
       },
       "elevation": 7.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1081644
     },
     {
       "ident": "EDWH",
@@ -4348,7 +4412,8 @@
       },
       "elevation": 7.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 623687
     },
     {
       "ident": "EDWL",
@@ -4422,7 +4487,8 @@
       },
       "elevation": 3.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 456229
     },
     {
       "ident": "EDWS",
@@ -4435,7 +4501,8 @@
       },
       "elevation": 3.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 635660
     },
     {
       "ident": "EDWT",
@@ -4497,7 +4564,8 @@
       },
       "elevation": 7.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 635660
     },
     {
       "ident": "EDWZ",
@@ -4510,7 +4578,8 @@
       },
       "elevation": 7.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 635660
     },
     {
       "ident": "EDXA",
@@ -4535,7 +4604,8 @@
       },
       "elevation": 7.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 2262108
     },
     {
       "ident": "EDXC",
@@ -4597,7 +4667,8 @@
       },
       "elevation": 8.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 137751
     },
     {
       "ident": "EDXI",
@@ -4695,7 +4766,8 @@
       },
       "elevation": 7.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1298332
     },
     {
       "ident": "EDXQ",
@@ -4756,7 +4828,8 @@
       },
       "elevation": 51.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 170135
     },
     {
       "ident": "EDXY",
@@ -4784,6 +4857,132 @@
       "country": "DE"
     },
     {
+      "ident": "EFHK",
+      "icao": "EFHK",
+      "iata": "HEL",
+      "name": "Helsinki Vantaa Airport",
+      "location": {
+        "lat": 60.318363,
+        "lon": 24.963341
+      },
+      "elevation": 179.0,
+      "kind": "edge",
+      "country": "FI",
+      "catchment": 1667353
+    },
+    {
+      "ident": "EGLL",
+      "icao": "EGLL",
+      "iata": "LHR",
+      "name": "London Heathrow Airport",
+      "location": {
+        "lat": 51.470748,
+        "lon": -0.459909
+      },
+      "elevation": 83.0,
+      "kind": "edge",
+      "country": "GB",
+      "catchment": 11442109
+    },
+    {
+      "ident": "EGNX",
+      "icao": "EGNX",
+      "iata": "EMA",
+      "name": "East Midlands Airport",
+      "location": {
+        "lat": 52.8311,
+        "lon": -1.32806
+      },
+      "elevation": 306.0,
+      "kind": "edge",
+      "country": "GB",
+      "catchment": 8010696
+    },
+    {
+      "ident": "EHAM",
+      "icao": "EHAM",
+      "iata": "AMS",
+      "name": "Amsterdam Airport Schiphol",
+      "location": {
+        "lat": 52.308601,
+        "lon": 4.76389
+      },
+      "elevation": -11.0,
+      "kind": "edge",
+      "country": "NL",
+      "catchment": 4819956
+    },
+    {
+      "ident": "EIDW",
+      "icao": "EIDW",
+      "iata": "DUB",
+      "name": "Dublin Airport",
+      "location": {
+        "lat": 53.428713,
+        "lon": -6.262121
+      },
+      "elevation": 242.0,
+      "kind": "edge",
+      "country": "IE",
+      "catchment": 1134417
+    },
+    {
+      "ident": "EKCH",
+      "icao": "EKCH",
+      "iata": "CPH",
+      "name": "Copenhagen Kastrup Airport",
+      "location": {
+        "lat": 55.617900848389,
+        "lon": 12.656000137329
+      },
+      "elevation": 17.0,
+      "kind": "edge",
+      "country": "DK",
+      "catchment": 1525418
+    },
+    {
+      "ident": "ENGM",
+      "icao": "ENGM",
+      "iata": "OSL",
+      "name": "Oslo-Gardermoen International Airport",
+      "location": {
+        "lat": 60.193901,
+        "lon": 11.1004
+      },
+      "elevation": 681.0,
+      "kind": "edge",
+      "country": "NO",
+      "catchment": 1128480
+    },
+    {
+      "ident": "EPWA",
+      "icao": "EPWA",
+      "iata": "WAW",
+      "name": "Warsaw Chopin Airport",
+      "location": {
+        "lat": 52.165699,
+        "lon": 20.9671
+      },
+      "elevation": 362.0,
+      "kind": "edge",
+      "country": "PL",
+      "catchment": 1707000
+    },
+    {
+      "ident": "ESSA",
+      "icao": "ESSA",
+      "iata": "ARN",
+      "name": "Stockholm-Arlanda Airport",
+      "location": {
+        "lat": 59.64849,
+        "lon": 17.928829
+      },
+      "elevation": 137.0,
+      "kind": "edge",
+      "country": "SE",
+      "catchment": 1504311
+    },
+    {
       "ident": "ETAD",
       "icao": "ETAD",
       "iata": "SPM",
@@ -4794,7 +4993,8 @@
       },
       "elevation": 1197.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1906816
     },
     {
       "ident": "ETAR",
@@ -4807,7 +5007,8 @@
       },
       "elevation": 776.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 5182131
     },
     {
       "ident": "ETHA",
@@ -4831,7 +5032,8 @@
       },
       "elevation": 230.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 2255288
     },
     {
       "ident": "ETHC",
@@ -4843,7 +5045,8 @@
       },
       "elevation": 129.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1692114
     },
     {
       "ident": "ETHE",
@@ -4868,7 +5071,8 @@
       },
       "elevation": 565.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 511701
     },
     {
       "ident": "ETHL",
@@ -4880,7 +5084,8 @@
       },
       "elevation": 1766.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 3574144
     },
     {
       "ident": "ETHM",
@@ -4904,7 +5109,8 @@
       },
       "elevation": 1536.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 4514999
     },
     {
       "ident": "ETHR",
@@ -4928,7 +5134,8 @@
       },
       "elevation": 245.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 3449114
     },
     {
       "ident": "ETIC",
@@ -4940,7 +5147,8 @@
       },
       "elevation": 1363.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1256714
     },
     {
       "ident": "ETIH",
@@ -4952,7 +5160,8 @@
       },
       "elevation": 1455.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1302832
     },
     {
       "ident": "ETIN",
@@ -4978,7 +5187,8 @@
       },
       "elevation": 74.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 2787118
     },
     {
       "ident": "ETND",
@@ -4990,7 +5200,8 @@
       },
       "elevation": 128.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 2448215
     },
     {
       "ident": "ETNG",
@@ -5003,7 +5214,8 @@
       },
       "elevation": 296.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 8279527
     },
     {
       "ident": "ETNH",
@@ -5015,7 +5227,8 @@
       },
       "elevation": 39.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 2359747
     },
     {
       "ident": "ETNL",
@@ -5028,7 +5241,8 @@
       },
       "elevation": 138.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 361089
     },
     {
       "ident": "ETNN",
@@ -5040,7 +5254,8 @@
       },
       "elevation": 386.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 8541765
     },
     {
       "ident": "ETNS",
@@ -5053,7 +5268,8 @@
       },
       "elevation": 70.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 631927
     },
     {
       "ident": "ETNT",
@@ -5065,7 +5281,8 @@
       },
       "elevation": 26.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1360569
     },
     {
       "ident": "ETNW",
@@ -5077,7 +5294,8 @@
       },
       "elevation": 187.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 2255288
     },
     {
       "ident": "ETOI",
@@ -5102,7 +5320,8 @@
       },
       "elevation": 461.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 6880704
     },
     {
       "ident": "ETSB",
@@ -5114,7 +5333,8 @@
       },
       "elevation": 1568.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 2916759
     },
     {
       "ident": "ETSH",
@@ -5126,7 +5346,8 @@
       },
       "elevation": 265.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 4889206
     },
     {
       "ident": "ETSI",
@@ -5139,7 +5360,8 @@
       },
       "elevation": 1202.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 2936821
     },
     {
       "ident": "ETSL",
@@ -5151,7 +5373,8 @@
       },
       "elevation": 1822.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 1970269
     },
     {
       "ident": "ETSN",
@@ -5163,7 +5386,8 @@
       },
       "elevation": 1249.0,
       "kind": "regional",
-      "country": "DE"
+      "country": "DE",
+      "catchment": 3109776
     },
     {
       "ident": "ETWM",
@@ -5176,6 +5400,188 @@
       "elevation": 0.0,
       "kind": "airfield",
       "country": "DE"
+    },
+    {
+      "ident": "LEBL",
+      "icao": "LEBL",
+      "iata": "BCN",
+      "name": "Josep Tarradellas Barcelona-El Prat Airport",
+      "location": {
+        "lat": 41.2971,
+        "lon": 2.07846
+      },
+      "elevation": 12.0,
+      "kind": "edge",
+      "country": "ES",
+      "catchment": 5229584
+    },
+    {
+      "ident": "LEMD",
+      "icao": "LEMD",
+      "iata": "MAD",
+      "name": "Adolfo Suárez Madrid–Barajas Airport",
+      "location": {
+        "lat": 40.493407,
+        "lon": -3.572249
+      },
+      "elevation": 1998.0,
+      "kind": "edge",
+      "country": "ES",
+      "catchment": 5714482
+    },
+    {
+      "ident": "LEPA",
+      "icao": "LEPA",
+      "iata": "PMI",
+      "name": "Palma de Mallorca Airport",
+      "location": {
+        "lat": 39.551701,
+        "lon": 2.73881
+      },
+      "elevation": 27.0,
+      "kind": "edge",
+      "country": "ES",
+      "catchment": 375773
+    },
+    {
+      "ident": "LFPG",
+      "icao": "LFPG",
+      "iata": "CDG",
+      "name": "Charles de Gaulle International Airport",
+      "location": {
+        "lat": 49.00896,
+        "lon": 2.554117
+      },
+      "elevation": 392.0,
+      "kind": "edge",
+      "country": "FR",
+      "catchment": 10238848
+    },
+    {
+      "ident": "LHBP",
+      "icao": "LHBP",
+      "iata": "BUD",
+      "name": "Budapest Liszt Ferenc International Airport",
+      "location": {
+        "lat": 47.43018,
+        "lon": 19.262393
+      },
+      "elevation": 495.0,
+      "kind": "edge",
+      "country": "HU",
+      "catchment": 2248596
+    },
+    {
+      "ident": "LIMC",
+      "icao": "LIMC",
+      "iata": "MXP",
+      "name": "Milan Malpensa International Airport",
+      "location": {
+        "lat": 45.6306,
+        "lon": 8.72811
+      },
+      "elevation": 768.0,
+      "kind": "edge",
+      "country": "IT",
+      "catchment": 3689146
+    },
+    {
+      "ident": "LIRF",
+      "icao": "LIRF",
+      "iata": "FCO",
+      "name": "Rome–Fiumicino Leonardo da Vinci International Airport",
+      "location": {
+        "lat": 41.804532,
+        "lon": 12.251998
+      },
+      "elevation": 13.0,
+      "kind": "edge",
+      "country": "IT",
+      "catchment": 3401148
+    },
+    {
+      "ident": "LKPR",
+      "icao": "LKPR",
+      "iata": "PRG",
+      "name": "Václav Havel Airport Prague",
+      "location": {
+        "lat": 50.100874,
+        "lon": 14.259911
+      },
+      "elevation": 1247.0,
+      "kind": "edge",
+      "country": "CZ",
+      "catchment": 1522460
+    },
+    {
+      "ident": "LOWW",
+      "icao": "LOWW",
+      "iata": "VIE",
+      "name": "Vienna International Airport",
+      "location": {
+        "lat": 48.110298,
+        "lon": 16.5697
+      },
+      "elevation": 600.0,
+      "kind": "edge",
+      "country": "AT",
+      "catchment": 3235048
+    },
+    {
+      "ident": "LROP",
+      "icao": "LROP",
+      "iata": "OTP",
+      "name": "Bucharest Henri Coandă International Airport",
+      "location": {
+        "lat": 44.571792,
+        "lon": 26.103285
+      },
+      "elevation": 314.0,
+      "kind": "edge",
+      "country": "RO",
+      "catchment": 2696614
+    },
+    {
+      "ident": "LSGG",
+      "icao": "LSGG",
+      "iata": "GVA",
+      "name": "Geneva International Airport",
+      "location": {
+        "lat": 46.238098,
+        "lon": 6.10895
+      },
+      "elevation": 1411.0,
+      "kind": "edge",
+      "country": "CH",
+      "catchment": 1639496
+    },
+    {
+      "ident": "LSZH",
+      "icao": "LSZH",
+      "iata": "ZRH",
+      "name": "Zürich Airport",
+      "location": {
+        "lat": 47.458056,
+        "lon": 8.548056
+      },
+      "elevation": 1417.0,
+      "kind": "edge",
+      "country": "CH",
+      "catchment": 3030703
+    },
+    {
+      "ident": "LTFM",
+      "icao": "LTFM",
+      "iata": "IST",
+      "name": "İstanbul Airport",
+      "location": {
+        "lat": 41.274874,
+        "lon": 28.732136
+      },
+      "elevation": 325.0,
+      "kind": "edge",
+      "country": "TR",
+      "catchment": 10061000
     }
   ],
   "runways": [
@@ -6851,6 +7257,87 @@
       "length": 449.88480000000004,
       "width": 27.127200000000002,
       "surface": "grass",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EBBR",
+      "ends": [
+        {
+          "designator": "01",
+          "threshold": {
+            "lat": 50.886902,
+            "lon": 4.49142
+          },
+          "true_heading": 14.0,
+          "displaced_threshold": 46.0248
+        },
+        {
+          "designator": "19",
+          "threshold": {
+            "lat": 50.912899,
+            "lon": 4.50202
+          },
+          "true_heading": 194.0,
+          "displaced_threshold": 174.04080000000002
+        }
+      ],
+      "length": 2987.04,
+      "width": 49.9872,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EBBR",
+      "ends": [
+        {
+          "designator": "07L",
+          "threshold": {
+            "lat": 50.89889907836914,
+            "lon": 4.455659866333008
+          },
+          "true_heading": 65.0,
+          "displaced_threshold": 257.86080000000004
+        },
+        {
+          "designator": "25R",
+          "threshold": {
+            "lat": 50.912601470947266,
+            "lon": 4.502630233764648
+          },
+          "true_heading": 245.0,
+          "displaced_threshold": 299.9232
+        }
+      ],
+      "length": 3638.0928000000004,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EBBR",
+      "ends": [
+        {
+          "designator": "07R",
+          "threshold": {
+            "lat": 50.888999938964844,
+            "lon": 4.480420112609863
+          },
+          "true_heading": 70.0,
+          "displaced_threshold": 121.92
+        },
+        {
+          "designator": "25L",
+          "threshold": {
+            "lat": 50.89889907836914,
+            "lon": 4.5233001708984375
+          },
+          "true_heading": 250.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3211.068,
+      "width": 45.110400000000006,
+      "surface": "paved",
       "geometry": "surveyed"
     },
     {
@@ -18086,6 +18573,681 @@
       "geometry": "approximate"
     },
     {
+      "airport": "EFHK",
+      "ends": [
+        {
+          "designator": "04L",
+          "threshold": {
+            "lat": 60.31290054321289,
+            "lon": 24.903900146484375
+          },
+          "true_heading": 48.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "22R",
+          "threshold": {
+            "lat": 60.33150100708008,
+            "lon": 24.944700241088867
+          },
+          "true_heading": 228.0,
+          "displaced_threshold": 59.7408
+        }
+      ],
+      "length": 3059.8872,
+      "width": 60.0456,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EFHK",
+      "ends": [
+        {
+          "designator": "04R",
+          "threshold": {
+            "lat": 60.309467,
+            "lon": 24.932343
+          },
+          "true_heading": 48.0,
+          "displaced_threshold": 239.8776
+        },
+        {
+          "designator": "22L",
+          "threshold": {
+            "lat": 60.330692,
+            "lon": 24.979092
+          },
+          "true_heading": 228.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3500.0184000000004,
+      "width": 60.0456,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EFHK",
+      "ends": [
+        {
+          "designator": "15",
+          "threshold": {
+            "lat": 60.330299377441406,
+            "lon": 24.964500427246094
+          },
+          "true_heading": 154.1,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "33",
+          "threshold": {
+            "lat": 60.307098388671875,
+            "lon": 24.988300323486328
+          },
+          "true_heading": 334.1,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 2901.0864,
+      "width": 60.0456,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EGLL",
+      "ends": [
+        {
+          "designator": "09L",
+          "threshold": {
+            "lat": 51.47749,
+            "lon": -0.489439
+          },
+          "true_heading": 90.0,
+          "displaced_threshold": 306.9336
+        },
+        {
+          "designator": "27R",
+          "threshold": {
+            "lat": 51.477681,
+            "lon": -0.433227
+          },
+          "true_heading": 270.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3901.1352,
+      "width": 49.9872,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EGLL",
+      "ends": [
+        {
+          "designator": "09R",
+          "threshold": {
+            "lat": 51.46478,
+            "lon": -0.486808
+          },
+          "true_heading": 90.0,
+          "displaced_threshold": 308.7624
+        },
+        {
+          "designator": "27L",
+          "threshold": {
+            "lat": 51.464957,
+            "lon": -0.434048
+          },
+          "true_heading": 270.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3657.9048000000003,
+      "width": 49.9872,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EGNX",
+      "ends": [
+        {
+          "designator": "09",
+          "threshold": {
+            "lat": 52.830601,
+            "lon": -1.34957
+          },
+          "true_heading": 88.0,
+          "displaced_threshold": 179.83200000000002
+        },
+        {
+          "designator": "27",
+          "threshold": {
+            "lat": 52.831402,
+            "lon": -1.30667
+          },
+          "true_heading": 268.0,
+          "displaced_threshold": 129.84480000000002
+        }
+      ],
+      "length": 2894.076,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EHAM",
+      "ends": [
+        {
+          "designator": "04",
+          "threshold": {
+            "lat": 52.30039978027344,
+            "lon": 4.783480167388916
+          },
+          "true_heading": 41.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "22",
+          "threshold": {
+            "lat": 52.31399917602539,
+            "lon": 4.803020000457764
+          },
+          "true_heading": 221.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 2019.9096000000002,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EHAM",
+      "ends": [
+        {
+          "designator": "06",
+          "threshold": {
+            "lat": 52.287899017333984,
+            "lon": 4.734020233154297
+          },
+          "true_heading": 58.0,
+          "displaced_threshold": 249.936
+        },
+        {
+          "designator": "24",
+          "threshold": {
+            "lat": 52.30459976196289,
+            "lon": 4.777520179748535
+          },
+          "true_heading": 238.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3439.0584000000003,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EHAM",
+      "ends": [
+        {
+          "designator": "09",
+          "threshold": {
+            "lat": 52.31660079956055,
+            "lon": 4.746349811553955
+          },
+          "true_heading": 87.0,
+          "displaced_threshold": 89.61120000000001
+        },
+        {
+          "designator": "27",
+          "threshold": {
+            "lat": 52.31840133666992,
+            "lon": 4.796889781951904
+          },
+          "true_heading": 267.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3453.0792,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EHAM",
+      "ends": [
+        {
+          "designator": "18L",
+          "threshold": {
+            "lat": 52.3213005065918,
+            "lon": 4.7799601554870605
+          },
+          "true_heading": 183.0,
+          "displaced_threshold": 575.1576
+        },
+        {
+          "designator": "36R",
+          "threshold": {
+            "lat": 52.29079818725586,
+            "lon": 4.777349948883057
+          },
+          "true_heading": 3.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3400.0440000000003,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EHAM",
+      "ends": [
+        {
+          "designator": "18C",
+          "threshold": {
+            "lat": 52.33140182495117,
+            "lon": 4.740029811859131
+          },
+          "true_heading": 183.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "36C",
+          "threshold": {
+            "lat": 52.30179977416992,
+            "lon": 4.737500190734863
+          },
+          "true_heading": 3.0,
+          "displaced_threshold": 449.88480000000004
+        }
+      ],
+      "length": 3299.7648000000004,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EHAM",
+      "ends": [
+        {
+          "designator": "18R",
+          "threshold": {
+            "lat": 52.362701416015625,
+            "lon": 4.711929798126221
+          },
+          "true_heading": 183.0,
+          "displaced_threshold": 270.0528
+        },
+        {
+          "designator": "36L",
+          "threshold": {
+            "lat": 52.3286018371582,
+            "lon": 4.7088398933410645
+          },
+          "true_heading": 3.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3799.9416,
+      "width": 60.3504,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EIDW",
+      "ends": [
+        {
+          "designator": "10L",
+          "threshold": {
+            "lat": 53.43716,
+            "lon": -6.28062
+          },
+          "true_heading": 97.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "28R",
+          "threshold": {
+            "lat": 53.4352,
+            "lon": -6.24496
+          },
+          "true_heading": 278.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3109.8744,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EIDW",
+      "ends": [
+        {
+          "designator": "10R",
+          "threshold": {
+            "lat": 53.42243,
+            "lon": -6.29007
+          },
+          "true_heading": 95.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "28L",
+          "threshold": {
+            "lat": 53.4203,
+            "lon": -6.25058
+          },
+          "true_heading": 275.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 2637.1296,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EIDW",
+      "ends": [
+        {
+          "designator": "16",
+          "threshold": {
+            "lat": 53.437,
+            "lon": -6.26198
+          },
+          "true_heading": 157.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "34",
+          "threshold": {
+            "lat": 53.419899,
+            "lon": -6.24959
+          },
+          "true_heading": 337.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 2072.0304,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EKCH",
+      "ends": [
+        {
+          "designator": "04L",
+          "threshold": {
+            "lat": 55.592201,
+            "lon": 12.603536
+          },
+          "true_heading": 41.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "22R",
+          "threshold": {
+            "lat": 55.616543,
+            "lon": 12.641174
+          },
+          "true_heading": 221.0,
+          "displaced_threshold": 599.5416
+        }
+      ],
+      "length": 3599.9928,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EKCH",
+      "ends": [
+        {
+          "designator": "04R",
+          "threshold": {
+            "lat": 55.60309982299805,
+            "lon": 12.633000373840332
+          },
+          "true_heading": 41.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "22L",
+          "threshold": {
+            "lat": 55.62540054321289,
+            "lon": 12.66759967803955
+          },
+          "true_heading": 221.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3300.0696000000003,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EKCH",
+      "ends": [
+        {
+          "designator": "12",
+          "threshold": {
+            "lat": 55.626293,
+            "lon": 12.633331
+          },
+          "true_heading": 123.0,
+          "displaced_threshold": 705.0024000000001
+        },
+        {
+          "designator": "30",
+          "threshold": {
+            "lat": 55.612522,
+            "lon": 12.670532
+          },
+          "true_heading": 303.0,
+          "displaced_threshold": 270.0528
+        }
+      ],
+      "length": 2799.8928,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "ENGM",
+      "ends": [
+        {
+          "designator": "01L",
+          "threshold": {
+            "lat": 60.185001373291016,
+            "lon": 11.073699951171875
+          },
+          "true_heading": 16.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "19R",
+          "threshold": {
+            "lat": 60.21609878540039,
+            "lon": 11.091699600219727
+          },
+          "true_heading": 196.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3599.9928,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "ENGM",
+      "ends": [
+        {
+          "designator": "01R",
+          "threshold": {
+            "lat": 60.17580032348633,
+            "lon": 11.107799530029297
+          },
+          "true_heading": 16.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "19L",
+          "threshold": {
+            "lat": 60.20119857788086,
+            "lon": 11.1225004196167
+          },
+          "true_heading": 196.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 2949.8544,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EPWA",
+      "ends": [
+        {
+          "designator": "11",
+          "threshold": {
+            "lat": 52.171501,
+            "lon": 20.946699
+          },
+          "true_heading": 115.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "29",
+          "threshold": {
+            "lat": 52.160999,
+            "lon": 20.9839
+          },
+          "true_heading": 295.0,
+          "displaced_threshold": 499.872
+        }
+      ],
+      "length": 2799.8928,
+      "width": 49.9872,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "EPWA",
+      "ends": [
+        {
+          "designator": "15",
+          "threshold": {
+            "lat": 52.1786,
+            "lon": 20.9559
+          },
+          "true_heading": 152.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "33",
+          "threshold": {
+            "lat": 52.149399,
+            "lon": 20.9814
+          },
+          "true_heading": 332.0,
+          "displaced_threshold": 661.416
+        }
+      ],
+      "length": 3689.9088,
+      "width": 59.7408,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "ESSA",
+      "ends": [
+        {
+          "designator": "01L",
+          "threshold": {
+            "lat": 59.637298583984375,
+            "lon": 17.91320037841797
+          },
+          "true_heading": 10.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "19R",
+          "threshold": {
+            "lat": 59.66640090942383,
+            "lon": 17.923799514770508
+          },
+          "true_heading": 190.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3300.9840000000004,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "ESSA",
+      "ends": [
+        {
+          "designator": "01R",
+          "threshold": {
+            "lat": 59.626399993896484,
+            "lon": 17.950700759887695
+          },
+          "true_heading": 10.4,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "19L",
+          "threshold": {
+            "lat": 59.64849853515625,
+            "lon": 17.95870018005371
+          },
+          "true_heading": 190.4,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 2499.6648,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "ESSA",
+      "ends": [
+        {
+          "designator": "08",
+          "threshold": {
+            "lat": 59.65840148925781,
+            "lon": 17.936100006103516
+          },
+          "true_heading": 75.9,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "26",
+          "threshold": {
+            "lat": 59.66389846801758,
+            "lon": 17.97920036315918
+          },
+          "true_heading": 255.9,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 2499.9696,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
       "airport": "ETAD",
       "ends": [
         {
@@ -19164,6 +20326,978 @@
       "width": 60.0456,
       "surface": "grass",
       "geometry": "approximate"
+    },
+    {
+      "airport": "LEBL",
+      "ends": [
+        {
+          "designator": "02",
+          "threshold": {
+            "lat": 41.287737,
+            "lon": 2.08483
+          },
+          "true_heading": 19.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "20",
+          "threshold": {
+            "lat": 41.309293,
+            "lon": 2.094668
+          },
+          "true_heading": 199.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 2529.84,
+      "width": 44.805600000000005,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LEBL",
+      "ends": [
+        {
+          "designator": "06L",
+          "threshold": {
+            "lat": 41.293244,
+            "lon": 2.067251
+          },
+          "true_heading": 66.0,
+          "displaced_threshold": 426.72
+        },
+        {
+          "designator": "24R",
+          "threshold": {
+            "lat": 41.305735,
+            "lon": 2.103751
+          },
+          "true_heading": 246.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3352.8,
+      "width": 59.7408,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LEBL",
+      "ends": [
+        {
+          "designator": "06R",
+          "threshold": {
+            "lat": 41.282311,
+            "lon": 2.074342
+          },
+          "true_heading": 66.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "24L",
+          "threshold": {
+            "lat": 41.292218,
+            "lon": 2.103282
+          },
+          "true_heading": 246.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 2659.9896000000003,
+      "width": 59.7408,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LEMD",
+      "ends": [
+        {
+          "designator": "14L",
+          "threshold": {
+            "lat": 40.49489974975586,
+            "lon": -3.5578699111938477
+          },
+          "true_heading": 144.2,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "32R",
+          "threshold": {
+            "lat": 40.470001220703125,
+            "lon": -3.5325798988342285
+          },
+          "true_heading": 324.2,
+          "displaced_threshold": 499.872
+        }
+      ],
+      "length": 3500.0184000000004,
+      "width": 60.0456,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LEMD",
+      "ends": [
+        {
+          "designator": "14R",
+          "threshold": {
+            "lat": 40.484901428222656,
+            "lon": -3.57600998878479
+          },
+          "true_heading": 144.2,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "32L",
+          "threshold": {
+            "lat": 40.4556999206543,
+            "lon": -3.546380043029785
+          },
+          "true_heading": 324.2,
+          "displaced_threshold": 1050.036
+        }
+      ],
+      "length": 3988.0032,
+      "width": 60.0456,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LEMD",
+      "ends": [
+        {
+          "designator": "18L",
+          "threshold": {
+            "lat": 40.53260040283203,
+            "lon": -3.559380054473877
+          },
+          "true_heading": 181.0,
+          "displaced_threshold": 499.872
+        },
+        {
+          "designator": "36R",
+          "threshold": {
+            "lat": 40.5010986328125,
+            "lon": -3.5592100620269775
+          },
+          "true_heading": 1.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3500.0184000000004,
+      "width": 60.0456,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LEMD",
+      "ends": [
+        {
+          "designator": "18R",
+          "threshold": {
+            "lat": 40.531799,
+            "lon": -3.57485
+          },
+          "true_heading": 181.0,
+          "displaced_threshold": 985.1136
+        },
+        {
+          "designator": "36L",
+          "threshold": {
+            "lat": 40.492599,
+            "lon": -3.57463
+          },
+          "true_heading": 2.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 4349.8008,
+      "width": 60.0456,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LEPA",
+      "ends": [
+        {
+          "designator": "06L",
+          "threshold": {
+            "lat": 39.54710006713867,
+            "lon": 2.7107300758361816
+          },
+          "true_heading": 58.6,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "24R",
+          "threshold": {
+            "lat": 39.5625,
+            "lon": 2.743190050125122
+          },
+          "true_heading": 238.6,
+          "displaced_threshold": 70.104
+        }
+      ],
+      "length": 3269.8944,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LEPA",
+      "ends": [
+        {
+          "designator": "06R",
+          "threshold": {
+            "lat": 39.54130172729492,
+            "lon": 2.7317399978637695
+          },
+          "true_heading": 58.6,
+          "displaced_threshold": 409.956
+        },
+        {
+          "designator": "24L",
+          "threshold": {
+            "lat": 39.555301666259766,
+            "lon": 2.7615299224853516
+          },
+          "true_heading": 238.6,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 2999.8416,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LFPG",
+      "ends": [
+        {
+          "designator": "08L",
+          "threshold": {
+            "lat": 48.99570083618164,
+            "lon": 2.5527400970458984
+          },
+          "true_heading": 85.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "26R",
+          "threshold": {
+            "lat": 48.99879837036133,
+            "lon": 2.610179901123047
+          },
+          "true_heading": 265.0,
+          "displaced_threshold": 600.1512
+        }
+      ],
+      "length": 4215.0792,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LFPG",
+      "ends": [
+        {
+          "designator": "08R",
+          "threshold": {
+            "lat": 48.99290084838867,
+            "lon": 2.565659999847412
+          },
+          "true_heading": 85.1,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "26L",
+          "threshold": {
+            "lat": 48.99489974975586,
+            "lon": 2.6024301052093506
+          },
+          "true_heading": 265.1,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 2699.9184,
+      "width": 60.0456,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LFPG",
+      "ends": [
+        {
+          "designator": "09L",
+          "threshold": {
+            "lat": 49.02470016479492,
+            "lon": 2.5248899459838867
+          },
+          "true_heading": 85.3,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "27R",
+          "threshold": {
+            "lat": 49.02669906616211,
+            "lon": 2.561690092086792
+          },
+          "true_heading": 265.3,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 2699.9184,
+      "width": 60.0456,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LFPG",
+      "ends": [
+        {
+          "designator": "09R",
+          "threshold": {
+            "lat": 49.020599365234375,
+            "lon": 2.5130600929260254
+          },
+          "true_heading": 86.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "27L",
+          "threshold": {
+            "lat": 49.02370071411133,
+            "lon": 2.5702900886535645
+          },
+          "true_heading": 266.0,
+          "displaced_threshold": 600.1512
+        }
+      ],
+      "length": 4200.144,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LHBP",
+      "ends": [
+        {
+          "designator": "13L",
+          "threshold": {
+            "lat": 47.4454,
+            "lon": 19.2575
+          },
+          "true_heading": 132.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "31R",
+          "threshold": {
+            "lat": 47.423,
+            "lon": 19.2939
+          },
+          "true_heading": 312.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3706.9776,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LHBP",
+      "ends": [
+        {
+          "designator": "13R",
+          "threshold": {
+            "lat": 47.4487,
+            "lon": 19.2208
+          },
+          "true_heading": 132.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "31L",
+          "threshold": {
+            "lat": 47.4305,
+            "lon": 19.2502
+          },
+          "true_heading": 312.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3009.9,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LIMC",
+      "ends": [
+        {
+          "designator": "17L",
+          "threshold": {
+            "lat": 45.650385,
+            "lon": 8.727939
+          },
+          "true_heading": 170.0,
+          "displaced_threshold": 940.6128
+        },
+        {
+          "designator": "35R",
+          "threshold": {
+            "lat": 45.615741,
+            "lon": 8.737507
+          },
+          "true_heading": 350.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3920.0328000000004,
+      "width": 60.0456,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LIMC",
+      "ends": [
+        {
+          "designator": "17R",
+          "threshold": {
+            "lat": 45.645449,
+            "lon": 8.718736
+          },
+          "true_heading": 170.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "35L",
+          "threshold": {
+            "lat": 45.610824,
+            "lon": 8.728302
+          },
+          "true_heading": 350.0,
+          "displaced_threshold": 400.2024
+        }
+      ],
+      "length": 3920.0328000000004,
+      "width": 60.0456,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LIRF",
+      "ends": [
+        {
+          "designator": "07",
+          "threshold": {
+            "lat": 41.799332,
+            "lon": 12.232144
+          },
+          "true_heading": 70.0,
+          "displaced_threshold": 410.8704
+        },
+        {
+          "designator": "25",
+          "threshold": {
+            "lat": 41.809631,
+            "lon": 12.269483
+          },
+          "true_heading": 250.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3299.7648000000004,
+      "width": 44.805600000000005,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LIRF",
+      "ends": [
+        {
+          "designator": "16L",
+          "threshold": {
+            "lat": 41.84600067138672,
+            "lon": 12.261500358581543
+          },
+          "true_heading": 163.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "34R",
+          "threshold": {
+            "lat": 41.812400817871094,
+            "lon": 12.275500297546387
+          },
+          "true_heading": 343.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3901.7448000000004,
+      "width": 59.7408,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LIRF",
+      "ends": [
+        {
+          "designator": "16R",
+          "threshold": {
+            "lat": 41.815498,
+            "lon": 12.2264
+          },
+          "true_heading": 163.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "34L",
+          "threshold": {
+            "lat": 41.782001,
+            "lon": 12.2404
+          },
+          "true_heading": 343.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3901.7448000000004,
+      "width": 59.7408,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LKPR",
+      "ends": [
+        {
+          "designator": "06",
+          "threshold": {
+            "lat": 50.10179901123047,
+            "lon": 14.226300239562988
+          },
+          "true_heading": 65.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "24",
+          "threshold": {
+            "lat": 50.11600112915039,
+            "lon": 14.27340030670166
+          },
+          "true_heading": 245.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3715.2072000000003,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LKPR",
+      "ends": [
+        {
+          "designator": "12",
+          "threshold": {
+            "lat": 50.108001708984375,
+            "lon": 14.245400428771973
+          },
+          "true_heading": 127.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "30",
+          "threshold": {
+            "lat": 50.09049987792969,
+            "lon": 14.281700134277344
+          },
+          "true_heading": 307.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3250.0824000000002,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LOWW",
+      "ends": [
+        {
+          "designator": "11",
+          "threshold": {
+            "lat": 48.122798919677734,
+            "lon": 16.53339958190918
+          },
+          "true_heading": 116.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "29",
+          "threshold": {
+            "lat": 48.10900115966797,
+            "lon": 16.575599670410156
+          },
+          "true_heading": 296.1,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3500.0184000000004,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LOWW",
+      "ends": [
+        {
+          "designator": "16",
+          "threshold": {
+            "lat": 48.11980056762695,
+            "lon": 16.57819938659668
+          },
+          "true_heading": 164.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "34",
+          "threshold": {
+            "lat": 48.088600158691406,
+            "lon": 16.591299057006836
+          },
+          "true_heading": 344.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3599.9928,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LROP",
+      "ends": [
+        {
+          "designator": "08L",
+          "threshold": {
+            "lat": 44.576499938964844,
+            "lon": 26.083900451660156
+          },
+          "true_heading": 84.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "26R",
+          "threshold": {
+            "lat": 44.57979965209961,
+            "lon": 26.12779998779297
+          },
+          "true_heading": 264.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3500.3232000000003,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LROP",
+      "ends": [
+        {
+          "designator": "08R",
+          "threshold": {
+            "lat": 44.56449890136719,
+            "lon": 26.07659912109375
+          },
+          "true_heading": 84.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "26L",
+          "threshold": {
+            "lat": 44.56779861450195,
+            "lon": 26.120399475097656
+          },
+          "true_heading": 264.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3500.3232000000003,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LSGG",
+      "ends": [
+        {
+          "designator": "04",
+          "threshold": {
+            "lat": 46.2258,
+            "lon": 6.09092
+          },
+          "true_heading": 46.0,
+          "displaced_threshold": 329.7936
+        },
+        {
+          "designator": "22",
+          "threshold": {
+            "lat": 46.250401,
+            "lon": 6.12699
+          },
+          "true_heading": 226.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3899.916,
+      "width": 49.9872,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LSZH",
+      "ends": [
+        {
+          "designator": "10",
+          "threshold": {
+            "lat": 47.458900451660156,
+            "lon": 8.537469863891602
+          },
+          "true_heading": 96.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "28",
+          "threshold": {
+            "lat": 47.456600189208984,
+            "lon": 8.570449829101562
+          },
+          "true_heading": 276.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 2499.9696,
+      "width": 60.0456,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LSZH",
+      "ends": [
+        {
+          "designator": "14",
+          "threshold": {
+            "lat": 47.483101,
+            "lon": 8.53473
+          },
+          "true_heading": 137.0,
+          "displaced_threshold": 149.9616
+        },
+        {
+          "designator": "32",
+          "threshold": {
+            "lat": 47.4613,
+            "lon": 8.56446
+          },
+          "true_heading": 317.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3300.0696000000003,
+      "width": 60.0456,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LSZH",
+      "ends": [
+        {
+          "designator": "16",
+          "threshold": {
+            "lat": 47.475601,
+            "lon": 8.53595
+          },
+          "true_heading": 155.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "34",
+          "threshold": {
+            "lat": 47.4454,
+            "lon": 8.55673
+          },
+          "true_heading": 335.0,
+          "displaced_threshold": 470.0016
+        }
+      ],
+      "length": 3699.9672,
+      "width": 60.0456,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LTFM",
+      "ends": [
+        {
+          "designator": "09",
+          "threshold": {
+            "lat": 41.253693,
+            "lon": 28.766272
+          },
+          "true_heading": 89.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "27",
+          "threshold": {
+            "lat": 41.254063,
+            "lon": 28.800018
+          },
+          "true_heading": 269.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 2819.4,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LTFM",
+      "ends": [
+        {
+          "designator": "16L",
+          "threshold": {
+            "lat": 41.29859924316406,
+            "lon": 28.709199905395508
+          },
+          "true_heading": 174.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "34R",
+          "threshold": {
+            "lat": 41.26490020751953,
+            "lon": 28.70989990234375
+          },
+          "true_heading": 354.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3749.9544,
+      "width": 44.805600000000005,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LTFM",
+      "ends": [
+        {
+          "designator": "16R",
+          "threshold": {
+            "lat": 41.29859924316406,
+            "lon": 28.706750869750977
+          },
+          "true_heading": 174.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "34L",
+          "threshold": {
+            "lat": 41.26483917236328,
+            "lon": 28.70741081237793
+          },
+          "true_heading": 354.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3749.9544,
+      "width": 59.7408,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LTFM",
+      "ends": [
+        {
+          "designator": "17L",
+          "threshold": {
+            "lat": 41.298828125,
+            "lon": 28.727039337158203
+          },
+          "true_heading": 174.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "35R",
+          "threshold": {
+            "lat": 41.26192092895508,
+            "lon": 28.727760314941406
+          },
+          "true_heading": 354.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 4099.8648,
+      "width": 59.7408,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LTFM",
+      "ends": [
+        {
+          "designator": "17R",
+          "threshold": {
+            "lat": 41.29880142211914,
+            "lon": 28.72450065612793
+          },
+          "true_heading": 174.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "35L",
+          "threshold": {
+            "lat": 41.26190185546875,
+            "lon": 28.725299835205078
+          },
+          "true_heading": 354.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 4099.8648,
+      "width": 44.805600000000005,
+      "surface": "paved",
+      "geometry": "surveyed"
+    },
+    {
+      "airport": "LTFM",
+      "ends": [
+        {
+          "designator": "18",
+          "threshold": {
+            "lat": 41.289798736572266,
+            "lon": 28.756200790405273
+          },
+          "true_heading": 179.0,
+          "displaced_threshold": 0.0
+        },
+        {
+          "designator": "36",
+          "threshold": {
+            "lat": 41.26219940185547,
+            "lon": 28.75670051574707
+          },
+          "true_heading": 354.0,
+          "displaced_threshold": 0.0
+        }
+      ],
+      "length": 3059.8872,
+      "width": 45.110400000000006,
+      "surface": "paved",
+      "geometry": "surveyed"
     }
   ]
 }

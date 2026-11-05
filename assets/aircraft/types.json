@@ -266,6 +266,66 @@
       "range": 7730.0,
       "min_runway_length": 3100.0,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "A306",
+      "name": "Airbus A300-600F",
+      "wake": "heavy",
+      "seats": 0,
+      "cruise_speed": 450.0,
+      "cruise_altitude": 35000.0,
+      "climb_rate": 2000.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 135.0,
+      "range": 2650.0,
+      "min_runway_length": 2400.0,
+      "freighter": true,
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "B752",
+      "name": "Boeing 757-200PF",
+      "wake": "medium",
+      "seats": 0,
+      "cruise_speed": 460.0,
+      "cruise_altitude": 38000.0,
+      "climb_rate": 2500.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 135.0,
+      "range": 2900.0,
+      "min_runway_length": 2100.0,
+      "freighter": true,
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "B763",
+      "name": "Boeing 767-300F",
+      "wake": "heavy",
+      "seats": 0,
+      "cruise_speed": 460.0,
+      "cruise_altitude": 39000.0,
+      "climb_rate": 2200.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 140.0,
+      "range": 3250.0,
+      "min_runway_length": 2600.0,
+      "freighter": true,
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "B77L",
+      "name": "Boeing 777F",
+      "wake": "heavy",
+      "seats": 0,
+      "cruise_speed": 490.0,
+      "cruise_altitude": 39000.0,
+      "climb_rate": 2000.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 150.0,
+      "range": 4970.0,
+      "min_runway_length": 2800.0,
+      "freighter": true,
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     }
   ]
 }

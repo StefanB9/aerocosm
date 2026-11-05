@@ -17,18 +17,26 @@ use super::{Fallbacks, records::AirportRecord};
 pub(super) fn convert_airport(
     record: &AirportRecord,
     country: CountryCode,
+    edges: &[IcaoCode],
     fallbacks: &mut Fallbacks,
 ) -> Result<Option<AirportDefinition>> {
-    let kind = match record.kind.as_str() {
-        "large_airport" => AirportKind::Major,
-        "medium_airport" => AirportKind::Regional,
-        "small_airport" if record.scheduled_service == "yes" => AirportKind::Regional,
-        "small_airport" => AirportKind::Airfield,
+    let listed_edge = record
+        .icao_code
+        .as_deref()
+        .or(Some(record.ident.as_str()))
+        .and_then(|code| code.parse::<IcaoCode>().ok())
+        .is_some_and(|icao| edges.contains(&icao));
+    let kind = match (record.iso_country == country.as_str(), record.kind.as_str()) {
+        (true, "large_airport") => AirportKind::Major,
+        (true, "medium_airport") => AirportKind::Regional,
+        (true, "small_airport") if record.scheduled_service == "yes" => AirportKind::Regional,
+        (true, "small_airport") => AirportKind::Airfield,
+        (false, "large_airport" | "medium_airport") if listed_edge => AirportKind::Edge,
         _ => return Ok(None),
     };
-    if record.iso_country != country.as_str() {
+    let Ok(country) = record.iso_country.parse::<CountryCode>() else {
         return Ok(None);
-    }
+    };
     // D22: the ICAO code is the ident whenever there is one.
     let icao = record
         .icao_code
@@ -67,5 +75,6 @@ pub(super) fn convert_airport(
         elevation,
         kind,
         country,
+        catchment: None,
     }))
 }

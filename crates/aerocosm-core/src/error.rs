@@ -149,6 +149,50 @@ pub enum CoreError {
         supported: u32,
     },
 
+    /// A time zone name is not in the IANA database.
+    #[error("unknown time zone {name:?}")]
+    UnknownTimeZone {
+        /// The rejected name.
+        name: String,
+    },
+
+    /// A local time of day is out of range.
+    #[error("local minute of day {minute} is outside 0..1440")]
+    InvalidLocalTime {
+        /// The rejected minute.
+        minute: u16,
+    },
+
+    /// An airline definition is inconsistent.
+    #[error("invalid airline {icao}: {reason}")]
+    InvalidAirline {
+        /// Designator of the rejected airline.
+        icao: String,
+        /// What is wrong.
+        reason: &'static str,
+    },
+
+    /// Two airlines share a designator.
+    #[error("duplicate airline {icao}")]
+    DuplicateAirline {
+        /// The repeated designator.
+        icao: String,
+    },
+
+    /// A reference names an aircraft type that is not in the catalog.
+    #[error("unknown aircraft type {code}")]
+    UnknownAircraftType {
+        /// The unresolved designator.
+        code: String,
+    },
+
+    /// Traffic targets are inconsistent.
+    #[error("invalid traffic targets: {reason}")]
+    InvalidTraffic {
+        /// What is wrong.
+        reason: &'static str,
+    },
+
     /// An aircraft type definition is implausible.
     #[error("invalid aircraft type {code}: {reason}")]
     InvalidAircraftType {
@@ -316,5 +360,53 @@ mod tests {
             code: "A320".to_owned(),
         };
         assert_eq!(error.to_string(), "duplicate aircraft type A320");
+    }
+
+    #[test]
+    fn test_core_error_unknown_time_zone_display() {
+        let error = CoreError::UnknownTimeZone {
+            name: "Mars/Olympus".to_owned(),
+        };
+        assert_eq!(error.to_string(), "unknown time zone \"Mars/Olympus\"");
+    }
+
+    #[test]
+    fn test_core_error_invalid_local_time_display() {
+        let error = CoreError::InvalidLocalTime { minute: 1440 };
+        assert_eq!(
+            error.to_string(),
+            "local minute of day 1440 is outside 0..1440"
+        );
+    }
+
+    #[test]
+    fn test_core_error_invalid_airline_display() {
+        let error = CoreError::InvalidAirline {
+            icao: "DLH".to_owned(),
+            reason: "bad",
+        };
+        assert_eq!(error.to_string(), "invalid airline DLH: bad");
+    }
+
+    #[test]
+    fn test_core_error_duplicate_airline_display() {
+        let error = CoreError::DuplicateAirline {
+            icao: "DLH".to_owned(),
+        };
+        assert_eq!(error.to_string(), "duplicate airline DLH");
+    }
+
+    #[test]
+    fn test_core_error_unknown_aircraft_type_display() {
+        let error = CoreError::UnknownAircraftType {
+            code: "C172".to_owned(),
+        };
+        assert_eq!(error.to_string(), "unknown aircraft type C172");
+    }
+
+    #[test]
+    fn test_core_error_invalid_traffic_display() {
+        let error = CoreError::InvalidTraffic { reason: "bad" };
+        assert_eq!(error.to_string(), "invalid traffic targets: bad");
     }
 }

@@ -123,7 +123,7 @@ mod tests {
     }
 
     const ONE_AIRPORT: &str = r#"{
-        "format_version": 1,
+        "format_version": 2,
         "airports": [{
             "ident": "DE-0062", "name": "Test Field",
             "location": {"lat": 51.0, "lon": 10.0}, "elevation": 500.0,

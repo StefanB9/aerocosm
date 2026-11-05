@@ -5,6 +5,7 @@
 
 mod civil;
 mod duration;
+mod zone;
 
 use std::{fmt, str::FromStr};
 
@@ -13,6 +14,7 @@ pub use civil::CivilDateTime;
 use civil::{MAX_YEAR, MIN_YEAR, civil_from_days, days_from_civil};
 pub use duration::SimDuration;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+pub use zone::{LocalDate, LocalTime, Weekday, Zone};
 
 use crate::CoreError;
 

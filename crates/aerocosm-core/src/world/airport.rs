@@ -42,6 +42,11 @@ pub struct AirportDefinition {
     pub kind: AirportKind,
     /// Country the aerodrome is in.
     pub country: CountryCode,
+    /// Population within reach of a commercial or edge airport
+    /// (importer-computed, plan D37); drives the schedule gravity model. Absent
+    /// for airfields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catchment: Option<u32>,
 }
 
 /// A validated aerodrome.
@@ -110,6 +115,11 @@ impl Airport {
         self.definition.country
     }
 
+    /// Population within reach, for commercial and edge airports.
+    pub const fn catchment(&self) -> Option<u32> {
+        self.definition.catchment
+    }
+
     /// The definition this airport was built from, for writing world files.
     pub const fn definition(&self) -> &AirportDefinition {
         &self.definition
@@ -133,6 +143,7 @@ pub(super) mod tests {
             elevation: Feet::new(364.0)?,
             kind: AirportKind::Major,
             country: "DE".parse()?,
+            catchment: Some(5_600_000),
         })
     }
 
@@ -160,6 +171,7 @@ pub(super) mod tests {
         assert!((airport.elevation().value() - 364.0).abs() < f64::EPSILON);
         assert_eq!(airport.kind(), AirportKind::Major);
         assert_eq!(airport.country().as_str(), "DE");
+        assert_eq!(airport.catchment(), Some(5_600_000));
         Ok(())
     }
 
@@ -218,8 +230,10 @@ pub(super) mod tests {
     fn test_airport_definition_omits_absent_codes() -> Result<()> {
         let mut definition = frankfurt()?;
         definition.iata = None;
+        definition.catchment = None;
         let json = serde_json::to_string(&definition).context("serialise")?;
         assert!(!json.contains("iata"), "{json}");
+        assert!(!json.contains("catchment"), "{json}");
         let back: AirportDefinition = serde_json::from_str(&json).context("deserialise")?;
         assert_eq!(back.iata, None);
         Ok(())

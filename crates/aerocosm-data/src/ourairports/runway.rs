@@ -192,6 +192,7 @@ mod tests {
             elevation: Feet::new(0.0)?,
             kind: AirportKind::Airfield,
             country: "DE".parse()?,
+            catchment: None,
         })
     }
 

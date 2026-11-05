@@ -7,7 +7,8 @@ use super::{AirportDefinition, RunwayDefinition};
 use crate::CoreError;
 
 /// World file format version this build reads and writes.
-pub const FORMAT_VERSION: u32 = 1;
+/// Version 2 added the optional airport `catchment`.
+pub const FORMAT_VERSION: u32 = 2;
 
 /// The contents of a world file: unvalidated airports and runways.
 ///
@@ -69,7 +70,7 @@ mod tests {
     fn test_world_definition_json_round_trip() -> Result<()> {
         let definition = sample()?;
         let json = definition.to_json_pretty()?;
-        assert!(json.starts_with("{\n  \"format_version\": 1,"), "{json}");
+        assert!(json.starts_with("{\n  \"format_version\": 2,"), "{json}");
         assert!(json.ends_with('\n'), "files end with a newline");
         assert_eq!(WorldDefinition::from_json(&json)?, definition);
         Ok(())
@@ -79,7 +80,7 @@ mod tests {
     fn test_world_definition_rejects_unknown_version() -> Result<()> {
         let json = sample()?
             .to_json_pretty()?
-            .replace("\"format_version\": 1", "\"format_version\": 99");
+            .replace("\"format_version\": 2", "\"format_version\": 99");
         let error = WorldDefinition::from_json(&json)
             .err()
             .context("must be rejected")?;
@@ -89,6 +90,25 @@ mod tests {
                 file: "world file",
                 found: 99,
                 supported: FORMAT_VERSION
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_world_definition_rejects_version_1_files() -> Result<()> {
+        let json = sample()?
+            .to_json_pretty()?
+            .replace("\"format_version\": 2", "\"format_version\": 1");
+        let error = WorldDefinition::from_json(&json)
+            .err()
+            .context("must be rejected")?;
+        assert_eq!(
+            error.downcast_ref::<CoreError>(),
+            Some(&CoreError::UnsupportedFileFormat {
+                file: "world file",
+                found: 1,
+                supported: 2
             })
         );
         Ok(())
@@ -110,8 +130,8 @@ mod tests {
     #[test]
     fn test_world_definition_rejects_unknown_fields() -> Result<()> {
         let json = sample()?.to_json_pretty()?.replace(
-            "\"format_version\": 1,",
-            "\"format_version\": 1, \"extra\": 0,",
+            "\"format_version\": 2,",
+            "\"format_version\": 2, \"extra\": 0,",
         );
         assert!(WorldDefinition::from_json(&json).is_err());
         Ok(())
