@@ -630,4 +630,17 @@ mod tests {
         assert!(Basemap::from_json(&open_ring).is_err());
         Ok(())
     }
+
+    /// The generated basemap shipped with the project (see
+    /// docs/data-sources.md).
+    const GERMANY: &str = include_str!("../../../assets/basemap/germany.basemap.json");
+
+    #[test]
+    fn test_shipped_germany_basemap_is_valid() -> Result<()> {
+        let basemap = Basemap::from_json(GERMANY).context("assets/basemap/germany.basemap.json")?;
+        assert!(basemap.countries().iter().any(|c| c.code.as_str() == "DE"));
+        assert!(basemap.places().iter().any(|p| p.name() == "Berlin"));
+        assert!(basemap.state_borders().len() > 10);
+        Ok(())
+    }
 }
