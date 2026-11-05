@@ -51,7 +51,6 @@ Plans live in [`docs/plan/`](docs/plan/), data provenance in
   cargo install wasm-bindgen-cli --version 0.2.130 --locked
   ```
 
-- **Python 3** (any version) to serve the browser build locally.
 
 ## Automated checks
 
@@ -144,11 +143,11 @@ For a smoother experience use `cargo run --release -p aerocosm-viewer` (slower t
 Build both variants (WebGPU and WebGL2) into `target/web`, then serve them:
 
 ```bash
-scripts/build-web.sh
+cargo xtask web build
 ```
 
 ```bash
-python3 -m http.server --directory target/web 8080
+cargo xtask web serve
 ```
 
 Open <http://localhost:8080>. The page uses the WebGPU build when the browser can actually
@@ -158,8 +157,10 @@ Force one with <http://localhost:8080/?renderer=webgl2> or
 
 Each variant's `.wasm` is currently about 33 MB uncompressed; the first load takes a moment.
 
-The release build of both variants takes a while; `PROFILE=dev scripts/build-web.sh` builds
-faster but produces much larger, slower files.
+The release build of both variants takes a while; `cargo xtask web build --dev` builds faster
+but produces much larger, slower files. `cargo xtask web serve --port 9000` picks another
+port; the server only listens on localhost. All project tooling is Rust (`crates/xtask`);
+`cargo xtask --help` lists the tasks.
 
 ### Manual test checklist
 
@@ -232,6 +233,7 @@ real mouse.
 | `aerocosm-data` | Offline import of OurAirports and Natural Earth into `assets/` |
 | `aerocosm` | Headless command-line runner |
 | `aerocosm-viewer` | Bevy viewer, desktop and browser |
+| `xtask` | Project tooling: `cargo xtask web build`, `cargo xtask web serve` |
 
 Data: [OurAirports](https://ourairports.com/) (public domain) · Made with
 [Natural Earth](https://www.naturalearthdata.com/) · [Inter](https://github.com/rsms/inter)

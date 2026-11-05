@@ -16,3 +16,7 @@ rustflags = ["-Ctarget-cpu=native", "-C", "link-arg=-Wl,--icf=all"]
 # meaningless for wasm ("not a recognized processor" on every crate).
 [target.wasm32-unknown-unknown]
 rustflags = ["-Z", "location-detail=none"]
+
+# Project tooling is Rust: `cargo xtask <task>` (see crates/xtask).
+[alias]
+xtask = "run --quiet --package xtask --"

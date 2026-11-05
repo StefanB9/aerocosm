@@ -7,6 +7,7 @@ members = [
     "crates/aerocosm-core",
     "crates/aerocosm-data",
     "crates/aerocosm-viewer",
+    "crates/xtask",
 ]
 resolver = "3"
 
