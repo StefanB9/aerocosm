@@ -59,6 +59,21 @@ pub(crate) struct CameraRig {
     pinch_distance: Option<f32>,
 }
 
+impl CameraRig {
+    /// A rig at `state`; the home view defaults to the whole of
+    /// `limits.bounds`.
+    pub(crate) fn new(state: CameraState, limits: CameraLimits) -> Self {
+        Self {
+            state,
+            limits,
+            home: limits.bounds,
+            initialised: false,
+            drag: None,
+            pinch_distance: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Drag {
     last: Vec2,
@@ -116,12 +131,8 @@ fn setup_cameras(mut commands: Commands, projection: Res<MapProjection>, map: Re
         max_scale: 2400.0,
     };
     commands.insert_resource(CameraRig {
-        state: CameraState::new(home.center(), limits.max_scale),
-        limits,
         home,
-        initialised: false,
-        drag: None,
-        pinch_distance: None,
+        ..CameraRig::new(CameraState::new(home.center(), limits.max_scale), limits)
     });
     commands.spawn((
         Camera2d,

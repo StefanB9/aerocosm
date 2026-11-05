@@ -332,6 +332,67 @@ mod tests {
         Ok(())
     }
 
+    fn selection_app(cursor: Option<Vec2>, clicked: bool) -> App {
+        use crate::camera::{
+            CameraRig,
+            controller::{CameraLimits, CameraState},
+        };
+        let mut app = App::new();
+        app.insert_resource(CameraRig::new(
+            CameraState::new(Vec2::ZERO, 10.0),
+            CameraLimits {
+                bounds: Rect::new(-1e6, -1e6, 1e6, 1e6),
+                min_scale: 1.0,
+                max_scale: 100.0,
+            },
+        ))
+        .insert_resource(PointerState {
+            cursor,
+            clicked,
+            over_ui: false,
+            viewport: Vec2::new(800.0, 600.0),
+        })
+        .init_resource::<Selection>()
+        .add_systems(Update, hover_and_select);
+        // At scale 10 the screen centre (400, 300) is world (0, 0); this symbol
+        // is 50 px right.
+        app.world_mut().spawn((
+            AirportSymbol {
+                id: Id::new(7),
+                kind: AirportKind::Major,
+                position: Vec2::new(500.0, 0.0),
+            },
+            Visibility::Inherited,
+        ));
+        app
+    }
+
+    #[test]
+    fn test_hover_and_click_select_symbol_under_cursor() {
+        let mut app = selection_app(Some(Vec2::new(452.0, 301.0)), true);
+        app.update();
+        let selection = app.world().resource::<Selection>();
+        assert_eq!(selection.hovered, Some(Id::new(7)));
+        assert_eq!(selection.selected, Some(Id::new(7)));
+    }
+
+    #[test]
+    fn test_click_on_empty_map_clears_selection() {
+        let mut app = selection_app(Some(Vec2::new(100.0, 100.0)), true);
+        app.world_mut().resource_mut::<Selection>().selected = Some(Id::new(7));
+        app.update();
+        let selection = app.world().resource::<Selection>();
+        assert_eq!(selection.hovered, None);
+        assert_eq!(selection.selected, None);
+    }
+
+    #[test]
+    fn test_hover_without_click_keeps_selection() {
+        let mut app = selection_app(Some(Vec2::new(452.0, 301.0)), false);
+        app.update();
+        assert_eq!(app.world().resource::<Selection>().selected, None);
+    }
+
     #[test]
     fn test_quads_index_each_quad_from_its_own_vertices() {
         let mut quads = Quads::default();
