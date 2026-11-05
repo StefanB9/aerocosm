@@ -78,6 +78,13 @@ pub enum CoreError {
     /// A random draw was requested from an empty range.
     #[error("cannot draw from an empty range")]
     EmptyRange,
+
+    /// A pacer was configured with a non-positive tick or frame budget.
+    #[error("invalid pacer configuration: {reason}")]
+    InvalidPacerConfig {
+        /// What is wrong with the configuration.
+        reason: &'static str,
+    },
 }
 
 #[cfg(test)]
@@ -135,6 +142,17 @@ mod tests {
         assert_eq!(
             CoreError::EmptyRange.to_string(),
             "cannot draw from an empty range"
+        );
+    }
+
+    #[test]
+    fn test_core_error_invalid_pacer_config_display() {
+        let error = CoreError::InvalidPacerConfig {
+            reason: "tick must be positive",
+        };
+        assert_eq!(
+            error.to_string(),
+            "invalid pacer configuration: tick must be positive"
         );
     }
 }
