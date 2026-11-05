@@ -1,0 +1,538 @@
+{
+  "format_version": 1,
+  "source": "Movements: ADV-Monatsstatistik 12/2025, cumulative January-December 2025, 'Flugbewegungen Linien- und Charterverkehr (an+ab)'; airports with at least ~1,000 such movements. Overflights: DFS 2025 traffic (3.07 million movements, about 8,411 per day) minus EUROCONTROL's 4,888 daily arrivals and departures at German airports in 2025. Curfews: local night-flight rules, simplified to one window without scheduled movements (estimate). Hub banks (FRA, MUC) and weekday factors: estimates of the typical pattern. Airspace: coarse outline of Germany, not the FIR boundary.",
+  "weekday_factors": [
+    1.03,
+    0.97,
+    0.98,
+    1.02,
+    1.06,
+    0.88,
+    1.06
+  ],
+  "overflights_per_day": 3523.0,
+  "airspace": [
+    {
+      "lat": 53.42,
+      "lon": 6.87
+    },
+    {
+      "lat": 53.75,
+      "lon": 7.2
+    },
+    {
+      "lat": 53.75,
+      "lon": 8.0
+    },
+    {
+      "lat": 54.05,
+      "lon": 8.6
+    },
+    {
+      "lat": 54.9,
+      "lon": 8.3
+    },
+    {
+      "lat": 54.85,
+      "lon": 9.0
+    },
+    {
+      "lat": 54.8,
+      "lon": 9.9
+    },
+    {
+      "lat": 54.45,
+      "lon": 10.9
+    },
+    {
+      "lat": 54.0,
+      "lon": 11.1
+    },
+    {
+      "lat": 54.5,
+      "lon": 12.3
+    },
+    {
+      "lat": 54.65,
+      "lon": 13.6
+    },
+    {
+      "lat": 53.95,
+      "lon": 14.2
+    },
+    {
+      "lat": 53.3,
+      "lon": 14.4
+    },
+    {
+      "lat": 52.85,
+      "lon": 14.15
+    },
+    {
+      "lat": 52.6,
+      "lon": 14.6
+    },
+    {
+      "lat": 52.05,
+      "lon": 14.75
+    },
+    {
+      "lat": 51.8,
+      "lon": 14.6
+    },
+    {
+      "lat": 51.27,
+      "lon": 15.04
+    },
+    {
+      "lat": 50.87,
+      "lon": 14.82
+    },
+    {
+      "lat": 51.05,
+      "lon": 14.3
+    },
+    {
+      "lat": 50.7,
+      "lon": 13.55
+    },
+    {
+      "lat": 50.42,
+      "lon": 12.95
+    },
+    {
+      "lat": 50.3,
+      "lon": 12.1
+    },
+    {
+      "lat": 49.95,
+      "lon": 12.5
+    },
+    {
+      "lat": 49.75,
+      "lon": 12.4
+    },
+    {
+      "lat": 49.3,
+      "lon": 13.0
+    },
+    {
+      "lat": 48.77,
+      "lon": 13.83
+    },
+    {
+      "lat": 48.57,
+      "lon": 13.45
+    },
+    {
+      "lat": 48.2,
+      "lon": 12.95
+    },
+    {
+      "lat": 47.75,
+      "lon": 12.75
+    },
+    {
+      "lat": 47.5,
+      "lon": 13.05
+    },
+    {
+      "lat": 47.6,
+      "lon": 12.2
+    },
+    {
+      "lat": 47.4,
+      "lon": 11.1
+    },
+    {
+      "lat": 47.55,
+      "lon": 10.45
+    },
+    {
+      "lat": 47.53,
+      "lon": 9.55
+    },
+    {
+      "lat": 47.65,
+      "lon": 8.6
+    },
+    {
+      "lat": 47.58,
+      "lon": 7.6
+    },
+    {
+      "lat": 48.98,
+      "lon": 8.2
+    },
+    {
+      "lat": 49.15,
+      "lon": 7.0
+    },
+    {
+      "lat": 49.45,
+      "lon": 6.35
+    },
+    {
+      "lat": 49.75,
+      "lon": 6.5
+    },
+    {
+      "lat": 50.15,
+      "lon": 6.05
+    },
+    {
+      "lat": 50.32,
+      "lon": 6.4
+    },
+    {
+      "lat": 50.75,
+      "lon": 6.0
+    },
+    {
+      "lat": 51.4,
+      "lon": 6.2
+    },
+    {
+      "lat": 51.8,
+      "lon": 5.95
+    },
+    {
+      "lat": 51.9,
+      "lon": 6.75
+    },
+    {
+      "lat": 52.2,
+      "lon": 6.9
+    },
+    {
+      "lat": 52.6,
+      "lon": 7.05
+    },
+    {
+      "lat": 53.1,
+      "lon": 7.2
+    },
+    {
+      "lat": 53.42,
+      "lon": 6.87
+    }
+  ],
+  "airports": [
+    {
+      "airport": "EDDF",
+      "movements_per_year": 449896,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "23:00",
+        "end": "05:00"
+      },
+      "banks": [
+        "06:30",
+        "08:15",
+        "10:00",
+        "11:45",
+        "13:30",
+        "15:15",
+        "17:00",
+        "18:45",
+        "20:30"
+      ]
+    },
+    {
+      "airport": "EDDM",
+      "movements_per_year": 319039,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "00:00",
+        "end": "05:00"
+      },
+      "banks": [
+        "07:00",
+        "08:45",
+        "10:30",
+        "12:15",
+        "14:00",
+        "15:45",
+        "17:30",
+        "19:15",
+        "21:00"
+      ]
+    },
+    {
+      "airport": "EDDB",
+      "movements_per_year": 182007,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "00:00",
+        "end": "05:00"
+      }
+    },
+    {
+      "airport": "EDDL",
+      "movements_per_year": 149240,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "23:00",
+        "end": "06:00"
+      }
+    },
+    {
+      "airport": "EDDH",
+      "movements_per_year": 109086,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "23:00",
+        "end": "06:00"
+      }
+    },
+    {
+      "airport": "EDDK",
+      "movements_per_year": 103956,
+      "zone": "Europe/Berlin"
+    },
+    {
+      "airport": "EDDS",
+      "movements_per_year": 76338,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "23:30",
+        "end": "06:00"
+      }
+    },
+    {
+      "airport": "EDDP",
+      "movements_per_year": 65684,
+      "zone": "Europe/Berlin"
+    },
+    {
+      "airport": "EDDV",
+      "movements_per_year": 43578,
+      "zone": "Europe/Berlin"
+    },
+    {
+      "airport": "EDDN",
+      "movements_per_year": 31663,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "23:00",
+        "end": "06:00"
+      }
+    },
+    {
+      "airport": "EDJA",
+      "movements_per_year": 21702,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "22:30",
+        "end": "06:00"
+      }
+    },
+    {
+      "airport": "EDLW",
+      "movements_per_year": 18073,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "22:00",
+        "end": "06:00"
+      }
+    },
+    {
+      "airport": "EDDW",
+      "movements_per_year": 17257,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "23:00",
+        "end": "06:00"
+      }
+    },
+    {
+      "airport": "EDFH",
+      "movements_per_year": 16729,
+      "zone": "Europe/Berlin"
+    },
+    {
+      "airport": "EDSB",
+      "movements_per_year": 14757,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "23:00",
+        "end": "06:00"
+      }
+    },
+    {
+      "airport": "EDLV",
+      "movements_per_year": 13288,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "23:00",
+        "end": "06:00"
+      }
+    },
+    {
+      "airport": "EDDC",
+      "movements_per_year": 9229,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "23:30",
+        "end": "05:30"
+      }
+    },
+    {
+      "airport": "EDDG",
+      "movements_per_year": 8570,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "22:00",
+        "end": "06:00"
+      }
+    },
+    {
+      "airport": "EDLP",
+      "movements_per_year": 6559,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "22:00",
+        "end": "06:00"
+      }
+    },
+    {
+      "airport": "EDDR",
+      "movements_per_year": 2962,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "23:00",
+        "end": "06:00"
+      }
+    },
+    {
+      "airport": "EDVE",
+      "movements_per_year": 2445,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "22:00",
+        "end": "06:00"
+      }
+    },
+    {
+      "airport": "EDDE",
+      "movements_per_year": 2037,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "23:00",
+        "end": "06:00"
+      }
+    },
+    {
+      "airport": "EDNY",
+      "movements_per_year": 1513,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "22:00",
+        "end": "06:00"
+      }
+    },
+    {
+      "airport": "EDXW",
+      "movements_per_year": 1428,
+      "zone": "Europe/Berlin",
+      "curfew": {
+        "start": "22:00",
+        "end": "07:00"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "airport": "EGLL",
+      "zone": "Europe/London"
+    },
+    {
+      "airport": "EGNX",
+      "zone": "Europe/London"
+    },
+    {
+      "airport": "EIDW",
+      "zone": "Europe/Dublin"
+    },
+    {
+      "airport": "LFPG",
+      "zone": "Europe/Paris"
+    },
+    {
+      "airport": "EHAM",
+      "zone": "Europe/Amsterdam"
+    },
+    {
+      "airport": "EBBR",
+      "zone": "Europe/Brussels"
+    },
+    {
+      "airport": "LSZH",
+      "zone": "Europe/Zurich"
+    },
+    {
+      "airport": "LSGG",
+      "zone": "Europe/Zurich"
+    },
+    {
+      "airport": "LOWW",
+      "zone": "Europe/Vienna"
+    },
+    {
+      "airport": "LKPR",
+      "zone": "Europe/Prague"
+    },
+    {
+      "airport": "EPWA",
+      "zone": "Europe/Warsaw"
+    },
+    {
+      "airport": "EKCH",
+      "zone": "Europe/Copenhagen"
+    },
+    {
+      "airport": "ESSA",
+      "zone": "Europe/Stockholm"
+    },
+    {
+      "airport": "ENGM",
+      "zone": "Europe/Oslo"
+    },
+    {
+      "airport": "EFHK",
+      "zone": "Europe/Helsinki"
+    },
+    {
+      "airport": "LHBP",
+      "zone": "Europe/Budapest"
+    },
+    {
+      "airport": "LROP",
+      "zone": "Europe/Bucharest"
+    },
+    {
+      "airport": "LTFM",
+      "zone": "Europe/Istanbul"
+    },
+    {
+      "airport": "LIRF",
+      "zone": "Europe/Rome"
+    },
+    {
+      "airport": "LIMC",
+      "zone": "Europe/Rome"
+    },
+    {
+      "airport": "LEBL",
+      "zone": "Europe/Madrid"
+    },
+    {
+      "airport": "LEMD",
+      "zone": "Europe/Madrid"
+    },
+    {
+      "airport": "LEPA",
+      "zone": "Europe/Madrid"
+    }
+  ]
+}

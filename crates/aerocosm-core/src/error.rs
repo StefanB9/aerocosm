@@ -186,6 +186,13 @@ pub enum CoreError {
         code: String,
     },
 
+    /// Traffic targets are inconsistent.
+    #[error("invalid traffic targets: {reason}")]
+    InvalidTraffic {
+        /// What is wrong.
+        reason: &'static str,
+    },
+
     /// An aircraft type definition is implausible.
     #[error("invalid aircraft type {code}: {reason}")]
     InvalidAircraftType {
@@ -395,5 +402,11 @@ mod tests {
             code: "C172".to_owned(),
         };
         assert_eq!(error.to_string(), "unknown aircraft type C172");
+    }
+
+    #[test]
+    fn test_core_error_invalid_traffic_display() {
+        let error = CoreError::InvalidTraffic { reason: "bad" };
+        assert_eq!(error.to_string(), "invalid traffic targets: bad");
     }
 }

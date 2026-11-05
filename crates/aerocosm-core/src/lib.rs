@@ -9,6 +9,7 @@ pub mod pacing;
 pub mod rng;
 pub mod sim;
 pub mod time;
+pub mod traffic;
 pub mod units;
 pub mod world;
 

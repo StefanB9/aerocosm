@@ -236,18 +236,33 @@ mod tests {
 
     #[test]
     fn test_shipped_airline_catalog_is_valid_and_resolves() -> Result<()> {
-        let airlines = AirlineCatalog::from_json(include_str!("../../../../assets/airlines/airlines.json"))
-            .context("assets/airlines/airlines.json")?;
+        let airlines =
+            AirlineCatalog::from_json(include_str!("../../../../assets/airlines/airlines.json"))
+                .context("assets/airlines/airlines.json")?;
         let world = World::from_json(include_str!("../../../../assets/world/germany.world.json"))?;
-        let aircraft = AircraftCatalog::from_json(include_str!("../../../../assets/aircraft/types.json"))?;
+        let aircraft =
+            AircraftCatalog::from_json(include_str!("../../../../assets/aircraft/types.json"))?;
         airlines.check_references(&world, &aircraft)?;
         assert_eq!(airlines.len(), 23);
-        let cargo = airlines.iter().filter(|a| a.kind() == super::super::AirlineKind::Cargo).count();
+        let cargo = airlines
+            .iter()
+            .filter(|a| a.kind() == super::super::AirlineKind::Cargo)
+            .count();
         assert_eq!(cargo, 4);
-        for airline in airlines.iter().filter(|a| a.kind() == super::super::AirlineKind::Cargo) {
+        for airline in airlines
+            .iter()
+            .filter(|a| a.kind() == super::super::AirlineKind::Cargo)
+        {
             for share in airline.fleet() {
                 let id = aircraft.by_code(share.aircraft).context("type")?;
-                assert!(aircraft.get(id).is_some_and(crate::AircraftType::is_freighter), "{} flies {}", airline.icao(), share.aircraft);
+                assert!(
+                    aircraft
+                        .get(id)
+                        .is_some_and(crate::AircraftType::is_freighter),
+                    "{} flies {}",
+                    airline.icao(),
+                    share.aircraft
+                );
             }
         }
         Ok(())
