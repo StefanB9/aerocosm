@@ -138,13 +138,31 @@ pub enum CoreError {
         ident: String,
     },
 
-    /// A world file has a format version this build cannot read.
-    #[error("world file format {found} is not supported (expected {supported})")]
-    UnsupportedWorldFormat {
+    /// A data file has a format version this build cannot read.
+    #[error("{file} format {found} is not supported (expected {supported})")]
+    UnsupportedFileFormat {
+        /// Which kind of file.
+        file: &'static str,
         /// Version found in the file.
         found: u32,
         /// Version this build reads.
         supported: u32,
+    },
+
+    /// An aircraft type definition is implausible.
+    #[error("invalid aircraft type {code}: {reason}")]
+    InvalidAircraftType {
+        /// Designator of the rejected type.
+        code: String,
+        /// What is wrong.
+        reason: &'static str,
+    },
+
+    /// Two aircraft types share a designator.
+    #[error("duplicate aircraft type {code}")]
+    DuplicateAircraftType {
+        /// The repeated designator.
+        code: String,
     },
 }
 
@@ -271,8 +289,9 @@ mod tests {
     }
 
     #[test]
-    fn test_core_error_unsupported_world_format_display() {
-        let error = CoreError::UnsupportedWorldFormat {
+    fn test_core_error_unsupported_file_format_display() {
+        let error = CoreError::UnsupportedFileFormat {
+            file: "world file",
             found: 2,
             supported: 1,
         };
@@ -280,5 +299,22 @@ mod tests {
             error.to_string(),
             "world file format 2 is not supported (expected 1)"
         );
+    }
+
+    #[test]
+    fn test_core_error_invalid_aircraft_type_display() {
+        let error = CoreError::InvalidAircraftType {
+            code: "A320".to_owned(),
+            reason: "bad",
+        };
+        assert_eq!(error.to_string(), "invalid aircraft type A320: bad");
+    }
+
+    #[test]
+    fn test_core_error_duplicate_aircraft_type_display() {
+        let error = CoreError::DuplicateAircraftType {
+            code: "A320".to_owned(),
+        };
+        assert_eq!(error.to_string(), "duplicate aircraft type A320");
     }
 }

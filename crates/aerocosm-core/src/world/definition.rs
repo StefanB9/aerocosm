@@ -28,7 +28,8 @@ impl WorldDefinition {
     pub fn from_json(text: &str) -> Result<Self> {
         let definition: Self = serde_json::from_str(text).context("malformed world file")?;
         if definition.format_version != FORMAT_VERSION {
-            return Err(CoreError::UnsupportedWorldFormat {
+            return Err(CoreError::UnsupportedFileFormat {
+                file: "world file",
                 found: definition.format_version,
                 supported: FORMAT_VERSION,
             }
@@ -84,7 +85,8 @@ mod tests {
             .context("must be rejected")?;
         assert_eq!(
             error.downcast_ref::<CoreError>(),
-            Some(&CoreError::UnsupportedWorldFormat {
+            Some(&CoreError::UnsupportedFileFormat {
+                file: "world file",
                 found: 99,
                 supported: FORMAT_VERSION
             })
