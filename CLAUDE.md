@@ -11,13 +11,28 @@ aerocosm/                              (workspace root)
 ├── Cargo.toml                         [workspace] manifest — all dependency versions here
 ├── docs/plan/                         Approved plans
 └── crates/
-    ├── aerocosm-core/                 (library — domain types and logic shared by all binaries)
+    ├── aerocosm-core/                 (library — deterministic simulation, no I/O, no UI)
+    │   ├── benches/core.rs            Criterion micro-benchmarks
     │   └── src/
     │       ├── lib.rs                 Module declarations + re-exports
-    │       └── error.rs               CoreError (thiserror)
-    └── aerocosm/                      (binary — entry point, tracing setup)
-        └── src/main.rs
+    │       ├── error.rs               CoreError (thiserror)
+    │       ├── id.rs                  Id<T> typed table indices
+    │       ├── time/                  SimTime, SimDuration, CivilDateTime (integer ms, UTC)
+    │       ├── units.rs               Meters, Feet, NauticalMiles, Knots, Degrees, …
+    │       ├── geo/                   LatLon, great-circle maths
+    │       ├── rng.rs                 RngSeed, SimRng — per-subsystem ChaCha8 streams
+    │       ├── pacing.rs              WallClock trait, SimSpeed, Pacer
+    │       └── sim.rs                 Simulation, fixed 1 s tick loop
+    └── aerocosm/                      (binary — headless CLI runner, tracing setup)
+        └── src/
+            ├── main.rs                Entry point
+            ├── cli.rs                 clap argument definitions
+            └── run.rs                 `run` command (batch mode)
 ```
+
+**Determinism:** the core never reads real time or global randomness. Time comes from
+`SimTime`/`WallClock`, randomness from a `SimRng` stream of the run's `RngSeed`. Same seed +
+same inputs ⇒ same world.
 
 **Dependency boundary:** core ← binaries. Core has no UI or binary-specific dependencies. Never reverse.
 
@@ -40,10 +55,18 @@ cargo nextest run -p aerocosm-core            # Core-only tests
 cargo clippy --workspace --all-targets        # Zero warnings required (includes tests)
 cargo check --workspace --all-targets         # Type-check everything including tests
 cargo fmt --all -- --check                    # Format check
-cargo run -p aerocosm                         # Run the binary
+cargo run -p aerocosm -- run --duration 24h   # Headless batch run
+cargo bench -p aerocosm-core --bench core --profile bench-unwind   # Benchmarks (see below)
 ```
 
 **Always use `cargo nextest run` instead of `cargo test`.** Nextest is the project's test runner.
+
+**Benchmarks need `--profile bench-unwind`.** The release profile uses `panic = "immediate-abort"`
+with `build-std`; bench targets must unwind, and the plain bench profile then builds `core` twice
+(E0152).
+
+**Fresh cloud containers** lack the tools: install nextest with
+`curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ~/.cargo/bin`.
 
 **`--all-targets` is mandatory** for `clippy` and `check`. Lints must pass in tests and examples — not just lib/bin targets. Test code follows the same quality standards as production code.
 

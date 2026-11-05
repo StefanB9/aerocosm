@@ -4,10 +4,20 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+anyhow = { workspace = true }
+rand_chacha = { workspace = true }
+rand_core = { workspace = true }
+serde = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+criterion = { workspace = true }
 proptest = { workspace = true }
+serde_json = { workspace = true }
+
+[[bench]]
+name = "core"
+harness = false
 
 [lints]
 workspace = true
