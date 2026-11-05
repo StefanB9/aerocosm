@@ -46,6 +46,7 @@ The viewer zooms continuously from country level down to a single airport.
 | D24 | Own camera controller (drag with inertia, cursor-anchored zoom, pinch) with pure, tested maths | Bevy 0.20's `PanCamera` has no inertia or pinch |
 | D25 | Fixed local origin: Web Mercator in `f64`, minus Germany's centre, rendered in `f32` (~0.1 m precision) | Enough for M1 at runway zoom; camera-relative re-basing when the world grows |
 | D26 | World and basemap files (and the Inter font) are embedded with `include_str!`/`include_bytes!`; the aircraft catalog joins them in M2, when the viewer first needs it | Same code path on desktop and web, no loading state |
+| D27 | All project tooling is Rust: `cargo xtask` (`crates/xtask`) builds and serves the browser viewer (std-only localhost server); no Python or shell scripts | User requirement (decided after M1 part 3) |
 
 ## Research findings (2026-11-05)
 
