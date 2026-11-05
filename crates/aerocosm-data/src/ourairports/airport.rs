@@ -67,5 +67,6 @@ pub(super) fn convert_airport(
         elevation,
         kind,
         country,
+        catchment: None,
     }))
 }
