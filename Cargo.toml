@@ -29,6 +29,7 @@ missing_panics_doc = "allow"
 
 [workspace.dependencies]
 anyhow = { version = "1.0.104", default-features = false, features = ["std"] }
+clap = { version = "4.6.7", default-features = false, features = ["derive", "error-context", "help", "std", "usage"] }
 rand_chacha = { version = "0.10.0", default-features = false }
 rand_core = { version = "0.10.1", default-features = false }
 serde = { version = "1.0.229", default-features = false, features = ["derive", "std"] }
