@@ -1,0 +1,827 @@
+{
+  "format_version": 1,
+  "airlines": [
+    {
+      "icao": "DLH",
+      "iata": "LH",
+      "name": "Lufthansa",
+      "callsign": "LUFTHANSA",
+      "kind": "passenger",
+      "network": "hub",
+      "bases": [
+        {
+          "airport": "EDDF",
+          "weight": 0.6
+        },
+        {
+          "airport": "EDDM",
+          "weight": 0.4
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "A319",
+          "share": 0.1
+        },
+        {
+          "aircraft": "A320",
+          "share": 0.15
+        },
+        {
+          "aircraft": "A20N",
+          "share": 0.2
+        },
+        {
+          "aircraft": "A321",
+          "share": 0.15
+        },
+        {
+          "aircraft": "A21N",
+          "share": 0.1
+        },
+        {
+          "aircraft": "A333",
+          "share": 0.05
+        },
+        {
+          "aircraft": "A359",
+          "share": 0.1
+        },
+        {
+          "aircraft": "B789",
+          "share": 0.05
+        },
+        {
+          "aircraft": "B748",
+          "share": 0.05
+        },
+        {
+          "aircraft": "A388",
+          "share": 0.05
+        }
+      ],
+      "colour": "#05164D",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "CLH",
+      "iata": "CL",
+      "name": "Lufthansa CityLine",
+      "callsign": "HANSALINE",
+      "kind": "passenger",
+      "network": "hub",
+      "bases": [
+        {
+          "airport": "EDDF",
+          "weight": 0.5
+        },
+        {
+          "airport": "EDDM",
+          "weight": 0.5
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "CRJ9",
+          "share": 0.4
+        },
+        {
+          "aircraft": "E190",
+          "share": 0.3
+        },
+        {
+          "aircraft": "E195",
+          "share": 0.3
+        }
+      ],
+      "colour": "#05164D",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "EWG",
+      "iata": "EW",
+      "name": "Eurowings",
+      "callsign": "EUROWINGS",
+      "kind": "passenger",
+      "network": "point_to_point",
+      "bases": [
+        {
+          "airport": "EDDL",
+          "weight": 0.3
+        },
+        {
+          "airport": "EDDK",
+          "weight": 0.25
+        },
+        {
+          "airport": "EDDH",
+          "weight": 0.15
+        },
+        {
+          "airport": "EDDS",
+          "weight": 0.15
+        },
+        {
+          "airport": "EDDB",
+          "weight": 0.15
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "A319",
+          "share": 0.4
+        },
+        {
+          "aircraft": "A320",
+          "share": 0.45
+        },
+        {
+          "aircraft": "A21N",
+          "share": 0.15
+        }
+      ],
+      "colour": "#A6005B",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "OCN",
+      "iata": "4Y",
+      "name": "Discover Airlines",
+      "callsign": "DISCOVER",
+      "kind": "passenger",
+      "network": "point_to_point",
+      "bases": [
+        {
+          "airport": "EDDF",
+          "weight": 0.7
+        },
+        {
+          "airport": "EDDM",
+          "weight": 0.3
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "A320",
+          "share": 0.5
+        },
+        {
+          "aircraft": "A321",
+          "share": 0.25
+        },
+        {
+          "aircraft": "A333",
+          "share": 0.25
+        }
+      ],
+      "colour": "#0B2E5B",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "CFG",
+      "iata": "DE",
+      "name": "Condor",
+      "callsign": "CONDOR",
+      "kind": "passenger",
+      "network": "point_to_point",
+      "bases": [
+        {
+          "airport": "EDDF",
+          "weight": 0.5
+        },
+        {
+          "airport": "EDDL",
+          "weight": 0.15
+        },
+        {
+          "airport": "EDDM",
+          "weight": 0.15
+        },
+        {
+          "airport": "EDDH",
+          "weight": 0.1
+        },
+        {
+          "airport": "EDDS",
+          "weight": 0.1
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "A20N",
+          "share": 0.5
+        },
+        {
+          "aircraft": "A21N",
+          "share": 0.3
+        },
+        {
+          "aircraft": "A333",
+          "share": 0.2
+        }
+      ],
+      "colour": "#FDB813",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "TUI",
+      "iata": "X3",
+      "name": "TUIfly",
+      "callsign": "TUIJET",
+      "kind": "passenger",
+      "network": "point_to_point",
+      "bases": [
+        {
+          "airport": "EDDV",
+          "weight": 0.3
+        },
+        {
+          "airport": "EDDL",
+          "weight": 0.25
+        },
+        {
+          "airport": "EDDK",
+          "weight": 0.15
+        },
+        {
+          "airport": "EDDS",
+          "weight": 0.15
+        },
+        {
+          "airport": "EDDF",
+          "weight": 0.15
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "B738",
+          "share": 0.6
+        },
+        {
+          "aircraft": "B38M",
+          "share": 0.4
+        }
+      ],
+      "colour": "#70CBF4",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "RYR",
+      "iata": "FR",
+      "name": "Ryanair",
+      "callsign": "RYANAIR",
+      "kind": "passenger",
+      "network": "point_to_point",
+      "bases": [
+        {
+          "airport": "EDDB",
+          "weight": 0.3
+        },
+        {
+          "airport": "EDSB",
+          "weight": 0.15
+        },
+        {
+          "airport": "EDJA",
+          "weight": 0.15
+        },
+        {
+          "airport": "EDLV",
+          "weight": 0.15
+        },
+        {
+          "airport": "EDFH",
+          "weight": 0.15
+        },
+        {
+          "airport": "EDDK",
+          "weight": 0.1
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "B738",
+          "share": 0.6
+        },
+        {
+          "aircraft": "B38M",
+          "share": 0.4
+        }
+      ],
+      "colour": "#073590",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "EZY",
+      "iata": "U2",
+      "name": "easyJet",
+      "callsign": "EASY",
+      "kind": "passenger",
+      "network": "point_to_point",
+      "bases": [
+        {
+          "airport": "EDDB",
+          "weight": 0.6
+        },
+        {
+          "airport": "LSGG",
+          "weight": 0.2
+        },
+        {
+          "airport": "LIMC",
+          "weight": 0.2
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "A319",
+          "share": 0.3
+        },
+        {
+          "aircraft": "A320",
+          "share": 0.4
+        },
+        {
+          "aircraft": "A20N",
+          "share": 0.2
+        },
+        {
+          "aircraft": "A21N",
+          "share": 0.1
+        }
+      ],
+      "colour": "#FF6600",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "WZZ",
+      "iata": "W6",
+      "name": "Wizz Air",
+      "callsign": "WIZZ AIR",
+      "kind": "passenger",
+      "network": "point_to_point",
+      "bases": [
+        {
+          "airport": "LHBP",
+          "weight": 0.35
+        },
+        {
+          "airport": "LROP",
+          "weight": 0.25
+        },
+        {
+          "airport": "EPWA",
+          "weight": 0.2
+        },
+        {
+          "airport": "LIRF",
+          "weight": 0.2
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "A321",
+          "share": 0.4
+        },
+        {
+          "aircraft": "A21N",
+          "share": 0.6
+        }
+      ],
+      "colour": "#C6007E",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "AFR",
+      "iata": "AF",
+      "name": "Air France",
+      "callsign": "AIRFRANS",
+      "kind": "passenger",
+      "network": "foreign_hub",
+      "bases": [
+        {
+          "airport": "LFPG",
+          "weight": 1.0
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "A319",
+          "share": 0.2
+        },
+        {
+          "aircraft": "A320",
+          "share": 0.3
+        },
+        {
+          "aircraft": "A20N",
+          "share": 0.2
+        },
+        {
+          "aircraft": "BCS3",
+          "share": 0.3
+        }
+      ],
+      "colour": "#002157",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "KLM",
+      "iata": "KL",
+      "name": "KLM Royal Dutch Airlines",
+      "callsign": "KLM",
+      "kind": "passenger",
+      "network": "foreign_hub",
+      "bases": [
+        {
+          "airport": "EHAM",
+          "weight": 1.0
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "E190",
+          "share": 0.3
+        },
+        {
+          "aircraft": "E195",
+          "share": 0.3
+        },
+        {
+          "aircraft": "B738",
+          "share": 0.4
+        }
+      ],
+      "colour": "#00A1DE",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "BAW",
+      "iata": "BA",
+      "name": "British Airways",
+      "callsign": "SPEEDBIRD",
+      "kind": "passenger",
+      "network": "foreign_hub",
+      "bases": [
+        {
+          "airport": "EGLL",
+          "weight": 1.0
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "A319",
+          "share": 0.2
+        },
+        {
+          "aircraft": "A320",
+          "share": 0.4
+        },
+        {
+          "aircraft": "A20N",
+          "share": 0.2
+        },
+        {
+          "aircraft": "A21N",
+          "share": 0.2
+        }
+      ],
+      "colour": "#075AAA",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "SWR",
+      "iata": "LX",
+      "name": "Swiss International Air Lines",
+      "callsign": "SWISS",
+      "kind": "passenger",
+      "network": "foreign_hub",
+      "bases": [
+        {
+          "airport": "LSZH",
+          "weight": 0.85
+        },
+        {
+          "airport": "LSGG",
+          "weight": 0.15
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "BCS3",
+          "share": 0.5
+        },
+        {
+          "aircraft": "A320",
+          "share": 0.25
+        },
+        {
+          "aircraft": "A21N",
+          "share": 0.25
+        }
+      ],
+      "colour": "#E30613",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "AUA",
+      "iata": "OS",
+      "name": "Austrian Airlines",
+      "callsign": "AUSTRIAN",
+      "kind": "passenger",
+      "network": "foreign_hub",
+      "bases": [
+        {
+          "airport": "LOWW",
+          "weight": 1.0
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "A320",
+          "share": 0.5
+        },
+        {
+          "aircraft": "E195",
+          "share": 0.5
+        }
+      ],
+      "colour": "#EE1C25",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "SAS",
+      "iata": "SK",
+      "name": "SAS Scandinavian Airlines",
+      "callsign": "SCANDINAVIAN",
+      "kind": "passenger",
+      "network": "foreign_hub",
+      "bases": [
+        {
+          "airport": "EKCH",
+          "weight": 0.45
+        },
+        {
+          "airport": "ESSA",
+          "weight": 0.3
+        },
+        {
+          "airport": "ENGM",
+          "weight": 0.25
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "A20N",
+          "share": 0.6
+        },
+        {
+          "aircraft": "CRJ9",
+          "share": 0.4
+        }
+      ],
+      "colour": "#000E6E",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "THY",
+      "iata": "TK",
+      "name": "Turkish Airlines",
+      "callsign": "TURKISH",
+      "kind": "passenger",
+      "network": "foreign_hub",
+      "bases": [
+        {
+          "airport": "LTFM",
+          "weight": 1.0
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "A321",
+          "share": 0.4
+        },
+        {
+          "aircraft": "A21N",
+          "share": 0.3
+        },
+        {
+          "aircraft": "B38M",
+          "share": 0.3
+        }
+      ],
+      "colour": "#C8102E",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "LOT",
+      "iata": "LO",
+      "name": "LOT Polish Airlines",
+      "callsign": "POLLOT",
+      "kind": "passenger",
+      "network": "foreign_hub",
+      "bases": [
+        {
+          "airport": "EPWA",
+          "weight": 1.0
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "E195",
+          "share": 0.4
+        },
+        {
+          "aircraft": "B38M",
+          "share": 0.3
+        },
+        {
+          "aircraft": "DH8D",
+          "share": 0.3
+        }
+      ],
+      "colour": "#0B2A62",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "IBE",
+      "iata": "IB",
+      "name": "Iberia",
+      "callsign": "IBERIA",
+      "kind": "passenger",
+      "network": "foreign_hub",
+      "bases": [
+        {
+          "airport": "LEMD",
+          "weight": 1.0
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "A20N",
+          "share": 0.5
+        },
+        {
+          "aircraft": "A21N",
+          "share": 0.5
+        }
+      ],
+      "colour": "#D7192D",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "ITY",
+      "iata": "AZ",
+      "name": "ITA Airways",
+      "callsign": "ITARROW",
+      "kind": "passenger",
+      "network": "foreign_hub",
+      "bases": [
+        {
+          "airport": "LIRF",
+          "weight": 1.0
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "A20N",
+          "share": 0.5
+        },
+        {
+          "aircraft": "A320",
+          "share": 0.3
+        },
+        {
+          "aircraft": "A21N",
+          "share": 0.2
+        }
+      ],
+      "colour": "#0D2A6B",
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "BCS",
+      "iata": "QY",
+      "name": "European Air Transport Leipzig (DHL)",
+      "callsign": "EUROTRANS",
+      "kind": "cargo",
+      "network": "hub",
+      "bases": [
+        {
+          "airport": "EDDP",
+          "weight": 0.8
+        },
+        {
+          "airport": "EGNX",
+          "weight": 0.2
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "B752",
+          "share": 0.4
+        },
+        {
+          "aircraft": "A306",
+          "share": 0.2
+        },
+        {
+          "aircraft": "B763",
+          "share": 0.3
+        },
+        {
+          "aircraft": "B77L",
+          "share": 0.1
+        }
+      ],
+      "colour": "#FFCC00",
+      "source": "Hubs and freighter fleet as published by the carrier for 2025 operations, rounded; base weights estimate each hub's share of German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "UPS",
+      "iata": "5X",
+      "name": "UPS Airlines",
+      "callsign": "UPS",
+      "kind": "cargo",
+      "network": "hub",
+      "bases": [
+        {
+          "airport": "EDDK",
+          "weight": 1.0
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "B763",
+          "share": 0.5
+        },
+        {
+          "aircraft": "A306",
+          "share": 0.3
+        },
+        {
+          "aircraft": "B77L",
+          "share": 0.2
+        }
+      ],
+      "colour": "#351C15",
+      "source": "Hubs and freighter fleet as published by the carrier for 2025 operations, rounded; base weights estimate each hub's share of German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "FDX",
+      "iata": "FX",
+      "name": "FedEx Express",
+      "callsign": "FEDEX",
+      "kind": "cargo",
+      "network": "foreign_hub",
+      "bases": [
+        {
+          "airport": "LFPG",
+          "weight": 1.0
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "B763",
+          "share": 0.5
+        },
+        {
+          "aircraft": "B77L",
+          "share": 0.3
+        },
+        {
+          "aircraft": "A306",
+          "share": 0.2
+        }
+      ],
+      "colour": "#4D148C",
+      "source": "Hubs and freighter fleet as published by the carrier for 2025 operations, rounded; base weights estimate each hub's share of German-related flying. Review before relying on exact figures."
+    },
+    {
+      "icao": "BOX",
+      "iata": "3S",
+      "name": "AeroLogic",
+      "callsign": "GERMAN CARGO",
+      "kind": "cargo",
+      "network": "hub",
+      "bases": [
+        {
+          "airport": "EDDP",
+          "weight": 0.6
+        },
+        {
+          "airport": "EDDF",
+          "weight": 0.4
+        }
+      ],
+      "fleet": [
+        {
+          "aircraft": "B77L",
+          "share": 1.0
+        }
+      ],
+      "colour": "#0E3E86",
+      "source": "Hubs and freighter fleet as published by the carrier for 2025 operations, rounded; base weights estimate each hub's share of German-related flying. Review before relying on exact figures."
+    }
+  ]
+}
