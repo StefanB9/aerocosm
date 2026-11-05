@@ -45,7 +45,7 @@ The viewer zooms continuously from country level down to a single airport.
 | D23 | Web: two wasm builds (WebGPU and WebGL2) and a JS loader that picks WebGPU when an adapter is available, else WebGL2; built by a script around `cargo` + `wasm-bindgen` instead of `trunk` | Bevy selects WebGL at compile time (`cfg(feature = "webgl")` changes uniform buffers and pipeline caching), so runtime choice needs two binaries |
 | D24 | Own camera controller (drag with inertia, cursor-anchored zoom, pinch) with pure, tested maths | Bevy 0.20's `PanCamera` has no inertia or pinch |
 | D25 | Fixed local origin: Web Mercator in `f64`, minus Germany's centre, rendered in `f32` (~0.1 m precision) | Enough for M1 at runway zoom; camera-relative re-basing when the world grows |
-| D26 | World, basemap and aircraft files are embedded with `include_str!` | Same code path on desktop and web, no loading state |
+| D26 | World and basemap files (and the Inter font) are embedded with `include_str!`/`include_bytes!`; the aircraft catalog joins them in M2, when the viewer first needs it | Same code path on desktop and web, no loading state |
 
 ## Research findings (2026-11-05)
 
