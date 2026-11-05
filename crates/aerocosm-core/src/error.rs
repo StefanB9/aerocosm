@@ -94,6 +94,35 @@ pub enum CoreError {
         /// The rejected text.
         input: String,
     },
+
+    /// An airport definition is inconsistent.
+    #[error("invalid airport {ident}: {reason}")]
+    InvalidAirport {
+        /// Ident of the rejected airport.
+        ident: String,
+        /// What is wrong.
+        reason: &'static str,
+    },
+
+    /// A runway end is inconsistent.
+    #[error("invalid runway end {designator}: {reason}")]
+    InvalidRunwayEnd {
+        /// Designator of the rejected end.
+        designator: String,
+        /// What is wrong.
+        reason: &'static str,
+    },
+
+    /// A runway definition is inconsistent.
+    #[error("invalid runway {designator} at {airport}: {reason}")]
+    InvalidRunway {
+        /// Ident of the runway's airport.
+        airport: String,
+        /// Runway name, e.g. `07C/25C`.
+        designator: String,
+        /// What is wrong.
+        reason: &'static str,
+    },
 }
 
 #[cfg(test)]
@@ -172,5 +201,33 @@ mod tests {
             input: "eddf".to_owned(),
         };
         assert_eq!(error.to_string(), "invalid ICAO airport code: \"eddf\"");
+    }
+
+    #[test]
+    fn test_core_error_invalid_airport_display() {
+        let error = CoreError::InvalidAirport {
+            ident: "EDDF".to_owned(),
+            reason: "bad name",
+        };
+        assert_eq!(error.to_string(), "invalid airport EDDF: bad name");
+    }
+
+    #[test]
+    fn test_core_error_invalid_runway_end_display() {
+        let error = CoreError::InvalidRunwayEnd {
+            designator: "07L".to_owned(),
+            reason: "bad",
+        };
+        assert_eq!(error.to_string(), "invalid runway end 07L: bad");
+    }
+
+    #[test]
+    fn test_core_error_invalid_runway_display() {
+        let error = CoreError::InvalidRunway {
+            airport: "EDDF".to_owned(),
+            designator: "07C/25C".to_owned(),
+            reason: "bad",
+        };
+        assert_eq!(error.to_string(), "invalid runway 07C/25C at EDDF: bad");
     }
 }
