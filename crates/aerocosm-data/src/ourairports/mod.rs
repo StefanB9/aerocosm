@@ -63,6 +63,12 @@ impl Fallbacks {
     pub(crate) fn count(&mut self, reason: &'static str) {
         *self.0.entry(reason).or_default() += 1;
     }
+
+    fn merge(&mut self, other: Self) {
+        for (reason, count) in other.0 {
+            *self.0.entry(reason).or_default() += count;
+        }
+    }
 }
 
 /// What the import did, for logging and review.
@@ -98,13 +104,16 @@ pub fn import_world<R: Read>(
     let mut fallbacks = Fallbacks::default();
     let mut skipped: BTreeMap<&'static str, usize> = BTreeMap::new();
 
-    // OurAirports ident → converted airport (whose ident may be its ICAO code).
-    let mut airports: HashMap<String, AirportDefinition> = HashMap::new();
+    // OurAirports ident → converted airport (whose ident may be its ICAO code),
+    // with the fallbacks its conversion needed; those only count if the airport
+    // is written.
+    let mut airports: HashMap<String, (AirportDefinition, Fallbacks)> = HashMap::new();
     let mut seen = HashSet::new();
     for record in read_csv::<AirportRecord>(sources.airports, "airports.csv")? {
-        if let Some(airport) = convert_airport(&record, settings.country, &mut fallbacks)? {
+        let mut airport_fallbacks = Fallbacks::default();
+        if let Some(airport) = convert_airport(&record, settings.country, &mut airport_fallbacks)? {
             if seen.insert(airport.ident) {
-                airports.insert(record.ident, airport);
+                airports.insert(record.ident, (airport, airport_fallbacks));
             } else {
                 *skipped.entry("duplicate ident").or_default() += 1;
             }
@@ -113,7 +122,7 @@ pub fn import_world<R: Read>(
 
     let mut runways = Vec::new();
     for record in read_csv::<RunwayRecord>(sources.runways, "runways.csv")? {
-        let Some(airport) = airports.get(&record.airport_ident) else {
+        let Some((airport, _)) = airports.get(&record.airport_ident) else {
             continue;
         };
         match convert_runway(&record, airport, settings.declination, &mut fallbacks)? {
@@ -123,12 +132,16 @@ pub fn import_world<R: Read>(
     }
 
     let with_runways: HashSet<AirportIdent> = runways.iter().map(|runway| runway.airport).collect();
-    let mut airports: Vec<AirportDefinition> = airports.into_values().collect();
-    let before = airports.len();
-    airports.retain(|airport| with_runways.contains(&airport.ident));
-    if before > airports.len() {
-        *skipped.entry("airport without runways").or_default() += before - airports.len();
+    let mut kept = Vec::with_capacity(airports.len());
+    for (airport, airport_fallbacks) in airports.into_values() {
+        if with_runways.contains(&airport.ident) {
+            fallbacks.merge(airport_fallbacks);
+            kept.push(airport);
+        } else {
+            *skipped.entry("airport without runways").or_default() += 1;
+        }
     }
+    let mut airports = kept;
     airports.sort_by_key(|airport| airport.ident);
     runways.sort_by_key(|runway| (runway.airport, runway.ends[0].designator()));
 
@@ -192,7 +205,7 @@ mod tests {
             "4,DE-0062,small_airport,Local Field,51.5,10.5,600,EU,DE,DE-TH,Elsewhere,no,,,,,,,",
             "5,EDXX,heliport,Some Heliport,50.0,9.0,300,EU,DE,DE-HE,,no,,,,,,,",
             "6,LFPG,large_airport,Charles de Gaulle,49.0,2.5,392,EU,FR,FR-IDF,Paris,yes,LFPG,CDG,LFPG,,,,",
-            "7,EDNR,medium_airport,No Runways,48.0,11.0,1500,EU,DE,DE-BY,,yes,EDNR,,EDNR,,,,",
+            "7,EDNR,medium_airport,No Runways,48.0,11.0,,EU,DE,DE-BY,,yes,EDNR,,EDNR,,,,",
             "8,EDMX,closed,Closed Field,48.0,11.0,1500,EU,DE,DE-BY,,no,,,,,,,",
         ]
         .join("\n")
