@@ -46,10 +46,13 @@ dependencies = [
  "aerocosm-basemap",
  "aerocosm-core",
  "anyhow",
+ "clap",
  "csv",
  "proptest",
  "serde",
  "serde_json",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
