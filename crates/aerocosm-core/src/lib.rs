@@ -7,6 +7,7 @@ pub mod geo;
 pub mod id;
 pub mod pacing;
 pub mod rng;
+pub mod schedule;
 pub mod sim;
 pub mod time;
 pub mod traffic;
