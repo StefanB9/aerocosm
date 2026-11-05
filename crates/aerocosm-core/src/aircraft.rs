@@ -54,6 +54,9 @@ pub struct AircraftTypeDefinition {
     pub range: NauticalMiles,
     /// Take-off field length at maximum take-off weight, sea level, ISA.
     pub min_runway_length: Meters,
+    /// A pure freighter: carries cargo and has no seats (D39).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub freighter: bool,
     /// Where the figures come from.
     pub source: String,
 }
@@ -76,8 +79,8 @@ impl AircraftType {
         if d.name.is_empty() || d.source.is_empty() {
             return Err(invalid("name and source must be non-empty").into());
         }
-        if d.seats == 0 {
-            return Err(invalid("seats must be positive").into());
+        if (d.seats == 0) != d.freighter {
+            return Err(invalid("passenger types need seats, freighters none").into());
         }
         if d.approach_speed.value() <= 0.0 || d.approach_speed >= d.cruise_speed {
             return Err(invalid("approach speed must be positive and below cruise speed").into());
@@ -147,6 +150,11 @@ impl AircraftType {
     /// Take-off field length at maximum take-off weight.
     pub const fn min_runway_length(&self) -> Meters {
         self.definition.min_runway_length
+    }
+
+    /// Whether this is a pure freighter.
+    pub const fn is_freighter(&self) -> bool {
+        self.definition.freighter
     }
 
     /// Where the figures come from.
@@ -271,6 +279,7 @@ mod tests {
             approach_speed: Knots::new(136.0)?,
             range: NauticalMiles::new(3300.0)?,
             min_runway_length: Meters::new(2100.0)?,
+            freighter: false,
             source: "test fixture".to_owned(),
         })
     }
@@ -310,7 +319,17 @@ mod tests {
     fn test_aircraft_type_new_rejects_implausible_values() -> Result<()> {
         let mut no_seats = a320()?;
         no_seats.seats = 0;
-        assert_eq!(reason(no_seats)?, "seats must be positive");
+        assert_eq!(
+            reason(no_seats)?,
+            "passenger types need seats, freighters none"
+        );
+
+        let mut seated_freighter = a320()?;
+        seated_freighter.freighter = true;
+        assert_eq!(
+            reason(seated_freighter)?,
+            "passenger types need seats, freighters none"
+        );
 
         let mut slow = a320()?;
         slow.cruise_speed = Knots::new(120.0)?;
@@ -392,11 +411,29 @@ mod tests {
     }
 
     #[test]
+    fn test_freighter_has_no_seats_and_flag_round_trips() -> Result<()> {
+        let mut freighter = a320()?;
+        freighter.freighter = true;
+        freighter.seats = 0;
+        let aircraft = AircraftType::new(freighter.clone())?;
+        assert!(aircraft.is_freighter());
+        let json = serde_json::to_string(&freighter).context("serialise")?;
+        assert!(json.contains("\"freighter\":true"), "{json}");
+        let passenger = serde_json::to_string(&a320()?).context("serialise")?;
+        assert!(
+            !passenger.contains("freighter"),
+            "omitted when false: {passenger}"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn test_shipped_catalog_is_valid_and_complete() -> Result<()> {
         let catalog = AircraftCatalog::from_json(CATALOG).context("assets/aircraft/types.json")?;
         let expected = [
             "A319", "A320", "A20N", "A321", "A21N", "B738", "B38M", "BCS3", "E190", "E195", "CRJ9",
-            "AT76", "DH8D", "A333", "A359", "B789", "B77W", "A388", "B748",
+            "AT76", "DH8D", "A333", "A359", "B789", "B77W", "A388", "B748", "A306", "B752", "B763",
+            "B77L",
         ];
         assert_eq!(catalog.len(), expected.len());
         for code in expected {
