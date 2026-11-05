@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 
-use crate::{RngSeed, SimDuration, SimTime};
+use crate::{RngSeed, SimDuration, SimTime, world::World};
 
 /// Length of one simulation step.
 pub const TICK: SimDuration = SimDuration::from_secs(1);
@@ -28,19 +28,26 @@ impl SimConfig {
 /// so identical configs and inputs always produce identical states.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Simulation {
+    world: World,
     time: SimTime,
     seed: RngSeed,
     ticks: u64,
 }
 
 impl Simulation {
-    /// A simulation at the start of its run.
-    pub const fn new(config: SimConfig) -> Self {
+    /// A simulation of `world` at the start of its run.
+    pub const fn new(config: SimConfig, world: World) -> Self {
         Self {
+            world,
             time: config.start,
             seed: config.seed,
             ticks: 0,
         }
+    }
+
+    /// The static world being simulated.
+    pub const fn world(&self) -> &World {
+        &self.world
     }
 
     /// The current simulated time.
@@ -96,13 +103,17 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
+    use crate::world::{FORMAT_VERSION, WorldDefinition};
 
     fn start() -> Result<SimTime> {
         "2026-11-05T00:00:00Z".parse()
     }
 
     fn simulation() -> Result<Simulation> {
-        Ok(Simulation::new(SimConfig::new(start()?, RngSeed::new(42))))
+        Ok(Simulation::new(
+            SimConfig::new(start()?, RngSeed::new(42)),
+            World::empty(),
+        ))
     }
 
     #[test]
@@ -111,6 +122,22 @@ mod tests {
         assert_eq!(sim.time(), start()?);
         assert_eq!(sim.ticks(), 0);
         assert_eq!(sim.seed(), RngSeed::new(42));
+        Ok(())
+    }
+
+    #[test]
+    fn test_simulation_owns_world() -> Result<()> {
+        let json = WorldDefinition {
+            format_version: FORMAT_VERSION,
+            airports: Vec::new(),
+            runways: Vec::new(),
+        }
+        .to_json_pretty()?;
+        let sim = Simulation::new(
+            SimConfig::new(start()?, RngSeed::new(1)),
+            World::from_json(&json)?,
+        );
+        assert_eq!(sim.world().airport_count(), 0);
         Ok(())
     }
 
@@ -158,7 +185,10 @@ mod tests {
 
     #[test]
     fn test_simulation_step_at_end_of_time_fails_cleanly() {
-        let mut sim = Simulation::new(SimConfig::new(SimTime::MAX, RngSeed::new(0)));
+        let mut sim = Simulation::new(
+            SimConfig::new(SimTime::MAX, RngSeed::new(0)),
+            World::empty(),
+        );
         let before = sim.clone();
         assert!(sim.step().is_err());
         assert_eq!(sim, before, "a failed step must not change state");
@@ -180,7 +210,7 @@ mod tests {
         #[test]
         fn test_simulation_run_until_lands_within_one_tick(offset_ms in 0_i64..86_400_000) {
             let start = start().map_err(|e| TestCaseError::fail(e.to_string()))?;
-            let mut sim = Simulation::new(SimConfig::new(start, RngSeed::new(1)));
+            let mut sim = Simulation::new(SimConfig::new(start, RngSeed::new(1)), World::empty());
             let end = start
                 .checked_add(SimDuration::from_millis(offset_ms))
                 .map_err(|e| TestCaseError::fail(e.to_string()))?;
