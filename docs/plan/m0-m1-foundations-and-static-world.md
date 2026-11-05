@@ -42,6 +42,10 @@ The viewer zooms continuously from country level down to a single airport.
 | D20 | Aircraft types live in a hand-curated catalog (`assets/aircraft/types.json`, `AircraftCatalog`) separate from the generated world file | Different sources and lifecycles: the importer regenerates geography; the catalog is edited by hand |
 | D21 | Basemap file types live in a small `aerocosm-basemap` crate (written by `aerocosm-data`, read by the viewer) | Keeps the viewer independent of importer dependencies and the core free of map-drawing data |
 | D22 | Airport ident = OurAirports `icao_code` when valid, else the OurAirports ident; `icao` is set only when the ident is an ICAO code | Some airfields have local idents (`DE-0004`) but real ICAO codes (`EDUG`); keeps ICAO lookups complete |
+| D23 | Web: two wasm builds (WebGPU and WebGL2) and a JS loader that picks WebGPU when an adapter is available, else WebGL2; built by a script around `cargo` + `wasm-bindgen` instead of `trunk` | Bevy selects WebGL at compile time (`cfg(feature = "webgl")` changes uniform buffers and pipeline caching), so runtime choice needs two binaries |
+| D24 | Own camera controller (drag with inertia, cursor-anchored zoom, pinch) with pure, tested maths | Bevy 0.20's `PanCamera` has no inertia or pinch |
+| D25 | Fixed local origin: Web Mercator in `f64`, minus Germany's centre, rendered in `f32` (~0.1 m precision) | Enough for M1 at runway zoom; camera-relative re-basing when the world grows |
+| D26 | World, basemap and aircraft files are embedded with `include_str!` | Same code path on desktop and web, no loading state |
 
 ## Research findings (2026-11-05)
 
@@ -162,8 +166,7 @@ for validation (randomly corrupted definitions are always rejected).
 
 ### Viewer (`aerocosm-viewer`, Bevy 0.20)
 
-- **Projection:** Web Mercator in `f64`; floating origin (entities placed relative to camera
-  focus) so runway-scale zoom has no `f32` jitter.
+- **Projection:** Web Mercator in `f64` with a fixed local origin at Germany's centre (D25).
 - **Camera:** drag-pan with inertia, cursor-anchored wheel zoom, pinch zoom on touch, zoom
   limits from Germany-wide to ~zoom 16.
 - **Basemap:** meshes tessellated once at startup (`lyon_tessellation`): land, neighbours,
@@ -175,8 +178,10 @@ for validation (randomly corrupted definitions are always rejected).
   until M2); hover highlight; selection panel with airport details and runway list.
 - **Style:** minimalist dark theme (deep navy land/water contrast, soft borders, single
   accent colour), Inter font, anti-aliasing (MSAA), smooth transitions.
-- **Web:** `wasm32-unknown-unknown` via `trunk`; verify `.cargo/config.toml` flags (see
-  findings) and adjust per-target if needed.
+- **Web:** `wasm32-unknown-unknown`, WebGPU and WebGL2 builds with a runtime loader (D23).
+  Verified: the existing `.cargo/config.toml` flags build core for wasm unchanged.
+- **Lines:** borders, state lines and rivers are drawn with Bevy gizmos (screen-space widths,
+  crisp at every zoom); land and lakes are meshes tessellated once.
 - **Tests:** proptest for project/unproject round-trip; headless `App` (`MinimalPlugins`)
   tests for camera clamping, LOD thresholds, selection; Playwright screenshot of the wasm
   build in headless Chromium as the visual check.
