@@ -85,6 +85,15 @@ pub enum CoreError {
         /// What is wrong with the configuration.
         reason: &'static str,
     },
+
+    /// An aviation code or identifier is malformed.
+    #[error("invalid {kind}: {input:?}")]
+    InvalidCode {
+        /// What kind of code was expected.
+        kind: &'static str,
+        /// The rejected text.
+        input: String,
+    },
 }
 
 #[cfg(test)]
@@ -154,5 +163,14 @@ mod tests {
             error.to_string(),
             "invalid pacer configuration: tick must be positive"
         );
+    }
+
+    #[test]
+    fn test_core_error_invalid_code_display() {
+        let error = CoreError::InvalidCode {
+            kind: "ICAO airport code",
+            input: "eddf".to_owned(),
+        };
+        assert_eq!(error.to_string(), "invalid ICAO airport code: \"eddf\"");
     }
 }

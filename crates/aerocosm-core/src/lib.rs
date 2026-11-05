@@ -8,6 +8,7 @@ pub mod rng;
 pub mod sim;
 pub mod time;
 pub mod units;
+pub mod world;
 
 pub use error::CoreError;
 pub use geo::LatLon;
