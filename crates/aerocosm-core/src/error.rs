@@ -149,6 +149,20 @@ pub enum CoreError {
         supported: u32,
     },
 
+    /// A time zone name is not in the IANA database.
+    #[error("unknown time zone {name:?}")]
+    UnknownTimeZone {
+        /// The rejected name.
+        name: String,
+    },
+
+    /// A local time of day is out of range.
+    #[error("local minute of day {minute} is outside 0..1440")]
+    InvalidLocalTime {
+        /// The rejected minute.
+        minute: u16,
+    },
+
     /// An aircraft type definition is implausible.
     #[error("invalid aircraft type {code}: {reason}")]
     InvalidAircraftType {
@@ -316,5 +330,22 @@ mod tests {
             code: "A320".to_owned(),
         };
         assert_eq!(error.to_string(), "duplicate aircraft type A320");
+    }
+
+    #[test]
+    fn test_core_error_unknown_time_zone_display() {
+        let error = CoreError::UnknownTimeZone {
+            name: "Mars/Olympus".to_owned(),
+        };
+        assert_eq!(error.to_string(), "unknown time zone \"Mars/Olympus\"");
+    }
+
+    #[test]
+    fn test_core_error_invalid_local_time_display() {
+        let error = CoreError::InvalidLocalTime { minute: 1440 };
+        assert_eq!(
+            error.to_string(),
+            "local minute of day 1440 is outside 0..1440"
+        );
     }
 }
