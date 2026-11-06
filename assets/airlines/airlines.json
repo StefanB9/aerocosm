@@ -11,11 +11,11 @@
       "bases": [
         {
           "airport": "EDDF",
-          "weight": 0.6
+          "weight": 0.45
         },
         {
           "airport": "EDDM",
-          "weight": 0.4
+          "weight": 0.45
         }
       ],
       "fleet": [
@@ -61,7 +61,7 @@
         }
       ],
       "colour": "#05164D",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "CLH",
@@ -73,11 +73,11 @@
       "bases": [
         {
           "airport": "EDDF",
-          "weight": 0.5
+          "weight": 0.15
         },
         {
           "airport": "EDDM",
-          "weight": 0.5
+          "weight": 0.2
         }
       ],
       "fleet": [
@@ -95,7 +95,7 @@
         }
       ],
       "colour": "#05164D",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "EWG",
@@ -107,23 +107,23 @@
       "bases": [
         {
           "airport": "EDDL",
-          "weight": 0.3
+          "weight": 0.35
         },
         {
           "airport": "EDDK",
-          "weight": 0.25
+          "weight": 0.45
         },
         {
           "airport": "EDDH",
-          "weight": 0.15
+          "weight": 0.3
         },
         {
           "airport": "EDDS",
-          "weight": 0.15
+          "weight": 0.4
         },
         {
           "airport": "EDDB",
-          "weight": 0.15
+          "weight": 0.12
         }
       ],
       "fleet": [
@@ -141,7 +141,7 @@
         }
       ],
       "colour": "#A6005B",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "OCN",
@@ -153,11 +153,11 @@
       "bases": [
         {
           "airport": "EDDF",
-          "weight": 0.7
+          "weight": 0.05
         },
         {
           "airport": "EDDM",
-          "weight": 0.3
+          "weight": 0.04
         }
       ],
       "fleet": [
@@ -175,7 +175,7 @@
         }
       ],
       "colour": "#0B2E5B",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "CFG",
@@ -187,23 +187,23 @@
       "bases": [
         {
           "airport": "EDDF",
-          "weight": 0.5
+          "weight": 0.08
         },
         {
           "airport": "EDDL",
-          "weight": 0.15
+          "weight": 0.06
         },
         {
           "airport": "EDDM",
-          "weight": 0.15
+          "weight": 0.05
         },
         {
           "airport": "EDDH",
-          "weight": 0.1
+          "weight": 0.05
         },
         {
           "airport": "EDDS",
-          "weight": 0.1
+          "weight": 0.05
         }
       ],
       "fleet": [
@@ -221,7 +221,7 @@
         }
       ],
       "colour": "#FDB813",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "TUI",
@@ -233,23 +233,23 @@
       "bases": [
         {
           "airport": "EDDV",
-          "weight": 0.3
-        },
-        {
-          "airport": "EDDL",
           "weight": 0.25
         },
         {
+          "airport": "EDDL",
+          "weight": 0.08
+        },
+        {
           "airport": "EDDK",
-          "weight": 0.15
+          "weight": 0.05
         },
         {
           "airport": "EDDS",
-          "weight": 0.15
+          "weight": 0.06
         },
         {
           "airport": "EDDF",
-          "weight": 0.15
+          "weight": 0.02
         }
       ],
       "fleet": [
@@ -263,7 +263,7 @@
         }
       ],
       "colour": "#70CBF4",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "RYR",
@@ -275,23 +275,23 @@
       "bases": [
         {
           "airport": "EDDB",
-          "weight": 0.3
+          "weight": 0.2
         },
         {
           "airport": "EDSB",
-          "weight": 0.15
+          "weight": 0.6
         },
         {
           "airport": "EDJA",
-          "weight": 0.15
+          "weight": 0.4
         },
         {
           "airport": "EDLV",
-          "weight": 0.15
+          "weight": 0.6
         },
         {
           "airport": "EDFH",
-          "weight": 0.15
+          "weight": 0.8
         },
         {
           "airport": "EDDK",
@@ -309,7 +309,7 @@
         }
       ],
       "colour": "#073590",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "EZY",
@@ -321,15 +321,15 @@
       "bases": [
         {
           "airport": "EDDB",
-          "weight": 0.6
+          "weight": 0.25
         },
         {
           "airport": "LSGG",
-          "weight": 0.2
+          "weight": 0.4
         },
         {
           "airport": "LIMC",
-          "weight": 0.2
+          "weight": 0.3
         }
       ],
       "fleet": [
@@ -351,7 +351,7 @@
         }
       ],
       "colour": "#FF6600",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "WZZ",
@@ -363,11 +363,11 @@
       "bases": [
         {
           "airport": "LHBP",
-          "weight": 0.35
+          "weight": 0.5
         },
         {
           "airport": "LROP",
-          "weight": 0.25
+          "weight": 0.4
         },
         {
           "airport": "EPWA",
@@ -389,7 +389,7 @@
         }
       ],
       "colour": "#C6007E",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "AFR",
@@ -401,7 +401,7 @@
       "bases": [
         {
           "airport": "LFPG",
-          "weight": 1.0
+          "weight": 0.8
         }
       ],
       "fleet": [
@@ -423,7 +423,7 @@
         }
       ],
       "colour": "#002157",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "KLM",
@@ -435,7 +435,7 @@
       "bases": [
         {
           "airport": "EHAM",
-          "weight": 1.0
+          "weight": 0.9
         }
       ],
       "fleet": [
@@ -453,7 +453,7 @@
         }
       ],
       "colour": "#00A1DE",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "BAW",
@@ -465,7 +465,7 @@
       "bases": [
         {
           "airport": "EGLL",
-          "weight": 1.0
+          "weight": 0.7
         }
       ],
       "fleet": [
@@ -487,7 +487,7 @@
         }
       ],
       "colour": "#075AAA",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "SWR",
@@ -499,11 +499,11 @@
       "bases": [
         {
           "airport": "LSZH",
-          "weight": 0.85
+          "weight": 0.8
         },
         {
           "airport": "LSGG",
-          "weight": 0.15
+          "weight": 0.3
         }
       ],
       "fleet": [
@@ -521,7 +521,7 @@
         }
       ],
       "colour": "#E30613",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "AUA",
@@ -533,7 +533,7 @@
       "bases": [
         {
           "airport": "LOWW",
-          "weight": 1.0
+          "weight": 0.7
         }
       ],
       "fleet": [
@@ -547,7 +547,7 @@
         }
       ],
       "colour": "#EE1C25",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "SAS",
@@ -559,15 +559,15 @@
       "bases": [
         {
           "airport": "EKCH",
-          "weight": 0.45
+          "weight": 0.6
         },
         {
           "airport": "ESSA",
-          "weight": 0.3
+          "weight": 0.6
         },
         {
           "airport": "ENGM",
-          "weight": 0.25
+          "weight": 0.5
         }
       ],
       "fleet": [
@@ -581,7 +581,7 @@
         }
       ],
       "colour": "#000E6E",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "THY",
@@ -593,7 +593,7 @@
       "bases": [
         {
           "airport": "LTFM",
-          "weight": 1.0
+          "weight": 0.8
         }
       ],
       "fleet": [
@@ -611,7 +611,7 @@
         }
       ],
       "colour": "#C8102E",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "LOT",
@@ -623,7 +623,7 @@
       "bases": [
         {
           "airport": "EPWA",
-          "weight": 1.0
+          "weight": 0.6
         }
       ],
       "fleet": [
@@ -641,7 +641,7 @@
         }
       ],
       "colour": "#0B2A62",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "IBE",
@@ -653,7 +653,7 @@
       "bases": [
         {
           "airport": "LEMD",
-          "weight": 1.0
+          "weight": 0.6
         }
       ],
       "fleet": [
@@ -667,7 +667,7 @@
         }
       ],
       "colour": "#D7192D",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "ITY",
@@ -679,7 +679,7 @@
       "bases": [
         {
           "airport": "LIRF",
-          "weight": 1.0
+          "weight": 0.6
         }
       ],
       "fleet": [
@@ -697,7 +697,7 @@
         }
       ],
       "colour": "#0D2A6B",
-      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate each base's share of the carrier's German-related flying. Review before relying on exact figures."
+      "source": "Bases, network style and fleet mix as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each base. Review before relying on exact figures."
     },
     {
       "icao": "BCS",
@@ -709,11 +709,11 @@
       "bases": [
         {
           "airport": "EDDP",
-          "weight": 0.8
+          "weight": 0.7
         },
         {
           "airport": "EGNX",
-          "weight": 0.2
+          "weight": 0.6
         }
       ],
       "fleet": [
@@ -735,7 +735,7 @@
         }
       ],
       "colour": "#FFCC00",
-      "source": "Hubs and freighter fleet as published by the carrier for 2025 operations, rounded; base weights estimate each hub's share of German-related flying. Review before relying on exact figures."
+      "source": "Hubs and freighter fleet as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each hub. Review before relying on exact figures."
     },
     {
       "icao": "UPS",
@@ -747,7 +747,7 @@
       "bases": [
         {
           "airport": "EDDK",
-          "weight": 1.0
+          "weight": 0.7
         }
       ],
       "fleet": [
@@ -765,7 +765,7 @@
         }
       ],
       "colour": "#351C15",
-      "source": "Hubs and freighter fleet as published by the carrier for 2025 operations, rounded; base weights estimate each hub's share of German-related flying. Review before relying on exact figures."
+      "source": "Hubs and freighter fleet as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each hub. Review before relying on exact figures."
     },
     {
       "icao": "FDX",
@@ -777,7 +777,7 @@
       "bases": [
         {
           "airport": "LFPG",
-          "weight": 1.0
+          "weight": 0.6
         }
       ],
       "fleet": [
@@ -795,7 +795,7 @@
         }
       ],
       "colour": "#4D148C",
-      "source": "Hubs and freighter fleet as published by the carrier for 2025 operations, rounded; base weights estimate each hub's share of German-related flying. Review before relying on exact figures."
+      "source": "Hubs and freighter fleet as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each hub. Review before relying on exact figures."
     },
     {
       "icao": "BOX",
@@ -807,11 +807,11 @@
       "bases": [
         {
           "airport": "EDDP",
-          "weight": 0.6
+          "weight": 0.3
         },
         {
           "airport": "EDDF",
-          "weight": 0.4
+          "weight": 0.5
         }
       ],
       "fleet": [
@@ -821,7 +821,7 @@
         }
       ],
       "colour": "#0E3E86",
-      "source": "Hubs and freighter fleet as published by the carrier for 2025 operations, rounded; base weights estimate each hub's share of German-related flying. Review before relying on exact figures."
+      "source": "Hubs and freighter fleet as published by the carrier for 2025 operations, rounded; base weights estimate the carrier's share of departures at each hub. Review before relying on exact figures."
     }
   ]
 }
