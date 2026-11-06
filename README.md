@@ -3,12 +3,13 @@
 A complete aviation world in miniature: a deterministic simulation of real-world aviation,
 starting with Germany. Step 1 simulates; step 2 lets you intervene as a sandbox "god".
 
-Current state (milestone M1, M2 in progress): the simulation core, the German world (429
+Current state (M2 complete, M3 in progress): the simulation core, the German world (429
 aerodromes plus 23 European edge airports, 582 runways), a basemap of Germany and its
-neighbours, a Bevy viewer for desktop and browser, the M2 inputs (airline catalog, traffic
-calibration targets), a deterministic weekly schedule of about 56,000 flights flown by some
-2,000 tails, and flight operations: every tail flies its rotation phase by phase, from taxi to
-landing roll. The viewer does not draw aircraft yet; that is the last part of M2.
+neighbours, an airline catalog and traffic calibration targets with declared capacities and
+runway modes, a deterministic, slot-coordinated weekly schedule of about 56,000 flights flown
+by some 2,000 tails, flight operations from taxi to landing roll, and a Bevy viewer for desktop
+and browser showing the traffic with flight panels and departure boards. M3 adds runway
+separation, arrival sequencing, holding and ground delays (`docs/plan/m3-runway-and-flow.md`).
 
 Plans live in [`docs/plan/`](docs/plan/), data provenance in
 [`docs/data-sources.md`](docs/data-sources.md), engineering rules in [`CLAUDE.md`](CLAUDE.md).

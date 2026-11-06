@@ -17,6 +17,7 @@ mod generate;
 mod network;
 mod overflight;
 mod rotation;
+mod slots;
 mod timetable;
 mod trips;
 

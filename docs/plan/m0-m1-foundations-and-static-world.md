@@ -229,8 +229,10 @@ lists are pinned during implementation.
 - **M2 — Living sky:** airlines, fleets, gravity-model schedules, edge hubs, flight phase
   state machine, great-circle kinematics, aircraft rendering, flight strips, departure
   boards, 15k-aircraft benchmark.
-- **M3 — Airside realism v1:** runway occupancy and separation, arrival sequencing,
-  holding, gate capacity, delay propagation.
+- **M3 — Runway & flow** (`m3-runway-and-flow.md`): slot coordination, runway modes,
+  separation, arrival sequencing, holding, ATFM ground delay, procedures, delay statistics.
+- **M4 — Airport ground:** OSM stands and taxiways, stand assignment, taxi routing with full
+  ground control.
 - Later: demand & economy → weather → airport-level zoom (OSM aeroways, taxi routing) →
   realistic routes (airways, SID/STAR) → maintenance & crew → Europe → world → save/load
   & replay → step 2 god-mode commands.

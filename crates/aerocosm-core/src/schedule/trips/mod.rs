@@ -8,19 +8,15 @@ use anyhow::{Context, Result};
 use super::{
     FlightKind, FlightNumber,
     network::Service,
-    timetable::{
-        Profile, block_time, min_turnaround, offset_minutes, pick_weighted, sample_minute,
-        stochastic_round,
-    },
+    timetable::{block_time, min_turnaround, stochastic_round},
 };
-use crate::{
-    AircraftCatalog, AircraftType, Id, SimRng, SimTime, WakeCategory,
-    airline::{Airline, AirlineCatalog, Network},
-    time::Weekday,
-    traffic::{ClockTime, Curfew, TrafficTargets},
-    units::Meters,
-    world::{Airport, World},
-};
+use crate::{AircraftType, Id, SimRng, airline::Airline, time::Weekday, world::Airport};
+
+mod choice;
+mod context;
+
+use self::choice::{choose_aircraft, departure, ground_time};
+pub(crate) use self::context::TripContext;
 
 /// Minutes in a day.
 pub(crate) const DAY: u32 = 24 * 60;
@@ -32,125 +28,20 @@ pub(crate) const RUNWAY_MARGIN: f64 = 0.75;
 /// Tries to find departure times that respect every curfew before a slot is
 /// dropped.
 const PLACEMENT_ATTEMPTS: u32 = 20;
-/// Passenger wide-bodies only fly sectors at least this long…
-const WIDE_BODY_MIN_METERS: f64 = 1_200_000.0;
-/// …and regional aircraft at most this long, unless nothing else fits.
-const REGIONAL_MAX_METERS: f64 = 1_500_000.0;
-/// Point-to-point departures from this base-local time may stay overnight at
-/// the far end.
-const NIGHTSTOP_FROM: u32 = 19 * 60;
-/// Probability that a late departure becomes a nightstop.
-const NIGHTSTOP_CHANCE: f64 = 0.5;
-/// Nightstop returns leave between 06:00 and 07:30 far-end local time.
-const MORNING_RETURN: u32 = 6 * 60;
-const MORNING_SPREAD: u32 = 90;
-/// Hub flights leave this many minutes after a bank, plus up to
-/// [`BANK_SPREAD`].
-const BANK_OFFSET: u32 = 30;
-const BANK_SPREAD: u32 = 30;
-/// Extra ground time beyond the minimum turnaround, up to this many minutes.
-const GROUND_SPREAD: u32 = 30;
+/// Slot coordination shifts a drawn time in steps of this many minutes…
+const SHIFT_STEP: i64 = 5;
+/// …up to this far either way (D54).
+const MAX_SHIFT: i64 = 60;
+
+/// Offsets tried for a drawn time: 0, +5, -5, +10, -10, … minutes.
+fn shifts() -> impl Iterator<Item = i64> {
+    std::iter::once(0).chain(
+        (1..=MAX_SHIFT / SHIFT_STEP).flat_map(|step| [step * SHIFT_STEP, -step * SHIFT_STEP]),
+    )
+}
+
 /// Each airline's flight numbers start here.
 const FIRST_FLIGHT_NUMBER: u16 = 100;
-
-/// Lookups the trip builder needs, with zone offsets taken at a reference
-/// instant (D43).
-pub(crate) struct TripContext<'a> {
-    world: &'a World,
-    aircraft: &'a AircraftCatalog,
-    airlines: &'a AirlineCatalog,
-    weekday_factors: [f64; 7],
-    offsets: HashMap<Id<Airport>, i64>,
-    curfews: HashMap<Id<Airport>, Curfew>,
-    banks: HashMap<Id<Airport>, Vec<ClockTime>>,
-}
-
-impl<'a> TripContext<'a> {
-    /// Prepares offsets, curfews and banks for every airport with a known zone.
-    pub(crate) fn new(
-        world: &'a World,
-        aircraft: &'a AircraftCatalog,
-        airlines: &'a AirlineCatalog,
-        traffic: &TrafficTargets,
-        reference: SimTime,
-    ) -> Result<Self> {
-        let mut offsets = HashMap::new();
-        for (id, airport) in world.airports() {
-            if let Some(zone) = traffic.zone(airport.ident()) {
-                offsets.insert(id, i64::from(offset_minutes(zone, reference)));
-            }
-        }
-        let mut curfews = HashMap::new();
-        let mut banks = HashMap::new();
-        for target in traffic.airports() {
-            let id = world
-                .airport_by_ident(target.airport())
-                .with_context(|| format!("target airport {} not in the world", target.airport()))?;
-            if let Some(curfew) = target.curfew() {
-                curfews.insert(id, curfew);
-            }
-            if !target.banks().is_empty() {
-                banks.insert(id, target.banks().to_vec());
-            }
-        }
-        Ok(Self {
-            world,
-            aircraft,
-            airlines,
-            weekday_factors: *traffic.weekday_factors(),
-            offsets,
-            curfews,
-            banks,
-        })
-    }
-
-    fn airport(&self, id: Id<Airport>) -> Result<&'a Airport> {
-        self.world.airport(id).context("airport id out of range")
-    }
-
-    /// Great-circle distance between two airports.
-    pub(crate) fn distance(&self, a: Id<Airport>, b: Id<Airport>) -> Result<Meters> {
-        Ok(self
-            .airport(a)?
-            .location()
-            .distance_to(self.airport(b)?.location()))
-    }
-
-    /// Length of the airport's longest runway; zero without runways.
-    pub(crate) fn longest_runway(&self, airport: Id<Airport>) -> Meters {
-        self.world
-            .runways_of(airport)
-            .iter()
-            .map(crate::world::Runway::length)
-            .fold(Meters::default(), |a, b| if b > a { b } else { a })
-    }
-
-    /// The airport's night curfew, if any.
-    pub(crate) fn curfew(&self, airport: Id<Airport>) -> Option<Curfew> {
-        self.curfews.get(&airport).copied()
-    }
-
-    /// The airport's UTC offset at the reference instant, in minutes; zero
-    /// without a known zone.
-    pub(super) fn offset(&self, airport: Id<Airport>) -> i64 {
-        self.offsets.get(&airport).copied().unwrap_or(0)
-    }
-
-    /// Converts a base-local week minute to local time of day at `airport`.
-    pub(crate) fn local_minute(
-        &self,
-        base: Id<Airport>,
-        airport: Id<Airport>,
-        minute: u32,
-    ) -> ClockTime {
-        let local = i64::from(minute) - self.offset(base) + self.offset(airport);
-        // SAFETY: rem_euclid(1440) is in 0..1440, which fits u16 and is a valid
-        // clock time.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let minute_of_day = local.rem_euclid(i64::from(DAY)) as u16;
-        ClockTime::from_minute(minute_of_day).unwrap_or(ClockTime::MIDNIGHT)
-    }
-}
 
 /// One round trip of the week template, in base-local week minutes (D43).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -202,110 +93,6 @@ fn minutes(duration: crate::SimDuration) -> u32 {
     u32::try_from(duration.as_millis() / 60_000).unwrap_or(0)
 }
 
-/// One aircraft type per service, drawn from the airline's fleet mix among
-/// types that can fly the sector; size rules (no short-haul wide-bodies, no
-/// long-haul regionals) are relaxed only if nothing else fits.
-fn choose_aircraft(
-    ctx: &TripContext<'_>,
-    airline: &Airline,
-    service: &Service,
-    distance: Meters,
-    rng: &mut SimRng,
-) -> Option<Id<AircraftType>> {
-    let shortest_runway = ctx
-        .longest_runway(service.base)
-        .value()
-        .min(ctx.longest_runway(service.other).value());
-    let options: Vec<(Id<AircraftType>, &AircraftType, f64)> = airline
-        .fleet()
-        .iter()
-        .filter_map(|share| {
-            let id = ctx.aircraft.by_code(share.aircraft)?;
-            let aircraft = ctx.aircraft.get(id)?;
-            let flies = aircraft.range().to_meters().value() >= distance.value() * RANGE_MARGIN
-                && shortest_runway >= aircraft.min_runway_length().value() * RUNWAY_MARGIN;
-            flies.then_some((id, aircraft, share.share))
-        })
-        .collect();
-    let sized = |aircraft: &AircraftType| {
-        let wide = !aircraft.is_freighter()
-            && matches!(aircraft.wake(), WakeCategory::Heavy | WakeCategory::Super);
-        let regional = !aircraft.is_freighter() && aircraft.seats() <= 100;
-        let short_wide = wide && distance.value() < WIDE_BODY_MIN_METERS;
-        let long_regional = regional && distance.value() > REGIONAL_MAX_METERS;
-        !short_wide && !long_regional
-    };
-    let weights: Vec<f64> = options
-        .iter()
-        .map(|(_, aircraft, share)| if sized(aircraft) { *share } else { 0.0 })
-        .collect();
-    let index = pick_weighted(rng, &weights).or_else(|| {
-        let shares: Vec<f64> = options.iter().map(|(_, _, share)| *share).collect();
-        pick_weighted(rng, &shares)
-    })?;
-    Some(options[index].0)
-}
-
-/// The departure time from the base for a slot, before curfew checks. Cargo
-/// flies at night (D39) but moves to the day after half the attempts, where a
-/// curfew closes the night (as at Frankfurt).
-fn departure(
-    ctx: &TripContext<'_>,
-    airline: &Airline,
-    service: &Service,
-    attempt: u32,
-    rng: &mut SimRng,
-) -> u32 {
-    if service.kind == FlightKind::Cargo && attempt < PLACEMENT_ATTEMPTS / 2 {
-        return u32::from(sample_minute(rng, Profile::CargoNight));
-    }
-    if airline.network() == Network::Hub
-        && let Some(banks) = ctx.banks.get(&service.base)
-        && let Ok(index) = usize::try_from(
-            rng.below(u32::try_from(banks.len()).unwrap_or(1))
-                .unwrap_or(0),
-        )
-        && let Some(bank) = banks.get(index)
-    {
-        return (u32::from(bank.minute_of_day())
-            + BANK_OFFSET
-            + rng.below(BANK_SPREAD).unwrap_or(0))
-            % DAY;
-    }
-    u32::from(sample_minute(rng, Profile::PassengerDay))
-}
-
-/// Ground time at the far end: a turnaround, or for some late point-to-point
-/// departures a nightstop returning next morning far-end local time (D42).
-fn ground_time(
-    ctx: &TripContext<'_>,
-    airline: &Airline,
-    service: &Service,
-    depart: u32,
-    out_block: u32,
-    turnaround: u32,
-    rng: &mut SimRng,
-) -> u32 {
-    let ground = turnaround + rng.below(GROUND_SPREAD + 1).unwrap_or(0);
-    let nightstop = service.kind == FlightKind::Passenger
-        && airline.network() != Network::Hub
-        && depart >= NIGHTSTOP_FROM
-        && rng.next_f64() < NIGHTSTOP_CHANCE;
-    if !nightstop {
-        return ground;
-    }
-    // Arrival in far-end local minutes on an absolute scale, then the next
-    // 06:00-07:30.
-    let arrive =
-        i64::from(depart + out_block) - ctx.offset(service.base) + ctx.offset(service.other);
-    let wanted = i64::from(MORNING_RETURN + rng.below(MORNING_SPREAD).unwrap_or(0));
-    let mut morning = arrive.div_euclid(i64::from(DAY)) * i64::from(DAY) + wanted;
-    while morning < arrive + i64::from(turnaround) {
-        morning += i64::from(DAY);
-    }
-    u32::try_from(morning - arrive).unwrap_or(ground)
-}
-
 /// Builds every service's round trips for the week template, drawing from
 /// `rng`.
 pub(crate) fn build_trips(
@@ -316,6 +103,7 @@ pub(crate) fn build_trips(
     let mut trips = Vec::with_capacity(services.len() * 10);
     let mut dropped = 0;
     let mut next_number: HashMap<Id<Airline>, u16> = HashMap::new();
+    let mut books = ctx.slot_books();
     for service in services {
         let airline = ctx
             .airlines
@@ -341,36 +129,39 @@ pub(crate) fn build_trips(
         let block = minutes(block_time(distance, aircraft));
         let turnaround = minutes(min_turnaround(aircraft));
         for slot in 0..slots {
-            let days = counts.iter().filter(|count| **count > slot).count();
+            let days: Vec<u32> = (0_u32..)
+                .zip(&counts)
+                .filter(|(_, count)| **count > slot)
+                .map(|(day, _)| day)
+                .collect();
             let placed = (0..PLACEMENT_ATTEMPTS).find_map(|attempt| {
                 let depart = departure(ctx, airline, service, attempt, rng);
                 let ground = ground_time(ctx, airline, service, depart, block, turnaround, rng);
-                let trip = RoundTrip {
-                    airline: service.airline,
-                    base: service.base,
-                    other: service.other,
-                    aircraft: aircraft_id,
-                    numbers: (FlightNumber::new(0), FlightNumber::new(0)),
-                    start: depart,
-                    out_block: block,
-                    ground,
-                    back_block: block,
-                    base_turnaround: turnaround,
-                    kind: service.kind,
-                };
-                trip.events()
-                    .iter()
-                    .all(|(airport, minute)| {
-                        ctx.curfew(*airport).is_none_or(|c| {
-                            !c.contains(ctx.local_minute(service.base, *airport, *minute))
-                        })
-                    })
-                    .then_some(trip)
+                // Shift the drawn time before giving up on it (D54).
+                shifts().find_map(|shift| {
+                    let start = (i64::from(depart) + shift).rem_euclid(i64::from(DAY));
+                    let trip = RoundTrip {
+                        airline: service.airline,
+                        base: service.base,
+                        other: service.other,
+                        aircraft: aircraft_id,
+                        numbers: (FlightNumber::new(0), FlightNumber::new(0)),
+                        start: u32::try_from(start).ok()?,
+                        out_block: block,
+                        ground,
+                        back_block: block,
+                        base_turnaround: turnaround,
+                        kind: service.kind,
+                    };
+                    (ctx.curfew_free(&trip) && ctx.coordinated(&books, &trip, &days))
+                        .then_some(trip)
+                })
             });
             let Some(template) = placed else {
-                dropped += days;
+                dropped += days.len();
                 continue;
             };
+            ctx.book(&mut books, &template, &days);
             let number = next_number
                 .entry(service.airline)
                 .or_insert(FIRST_FLIGHT_NUMBER);
@@ -403,7 +194,7 @@ mod tests {
     use super::*;
     use crate::{
         RngSeed, StreamId,
-        schedule::{network::plan_services, timetable::Profile},
+        schedule::{network::plan_services, rotation::WEEK, timetable::Profile},
         test_data::{Data, data},
     };
 
@@ -552,6 +343,52 @@ mod tests {
             "{} dropped of {placed}",
             outcome.dropped
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_coordinated_airports_stay_within_capacity() -> Result<()> {
+        let (data, outcome) = build(6)?;
+        let ctx = context(&data)?;
+        let mut checked = 0;
+        for target in data.traffic.airports() {
+            let Some(capacity) = target.capacity() else {
+                continue;
+            };
+            let airport = data
+                .world
+                .airport_by_ident(target.airport())
+                .context("airport")?;
+            let minutes: Vec<u32> = outcome
+                .trips
+                .iter()
+                .flat_map(|trip| {
+                    trip.events()
+                        .into_iter()
+                        .map(move |event| (trip.base, event))
+                })
+                .filter(|(_, (at, _))| *at == airport)
+                .map(|(base, (_, minute))| ctx.local_week_minute(base, airport, minute))
+                .collect();
+            let window = u32::from(capacity.window_minutes);
+            for start in (0..WEEK).step_by(usize::try_from(window)?) {
+                let since = |m: &&u32| (**m + WEEK - start) % WEEK;
+                let in_window = minutes.iter().filter(|m| since(m) < window).count();
+                let in_hour = minutes.iter().filter(|m| since(m) < 60).count();
+                assert!(
+                    in_window <= usize::from(capacity.per_window),
+                    "{}: {in_window} in the window from minute {start}",
+                    target.airport()
+                );
+                assert!(
+                    in_hour <= usize::from(capacity.per_hour),
+                    "{}: {in_hour} in the hour from minute {start}",
+                    target.airport()
+                );
+            }
+            checked += 1;
+        }
+        assert!(checked >= 5);
         Ok(())
     }
 }

@@ -1,6 +1,7 @@
 //! Choosing the runway in use (D31).
 
 use crate::{
+    traffic::angle_between,
     units::{Degrees, Meters},
     world::Runway,
 };
@@ -15,12 +16,6 @@ pub(crate) const PREVAILING_WIND: Degrees = Degrees::from_raw(250.0);
 pub(crate) struct RunwayChoice {
     pub(crate) runway: usize,
     pub(crate) end: usize,
-}
-
-/// Smallest angle between two directions, `0..=180` degrees.
-fn angle_between(a: Degrees, b: Degrees) -> f64 {
-    let difference = (a.value() - b.value()).rem_euclid(360.0);
-    difference.min(360.0 - difference)
 }
 
 /// The runway end best aligned into `wind_from` among runways at least
