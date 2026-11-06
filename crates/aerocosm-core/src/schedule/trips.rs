@@ -130,7 +130,9 @@ impl<'a> TripContext<'a> {
         self.curfews.get(&airport).copied()
     }
 
-    fn offset(&self, airport: Id<Airport>) -> i64 {
+    /// The airport's UTC offset at the reference instant, in minutes; zero
+    /// without a known zone.
+    pub(super) fn offset(&self, airport: Id<Airport>) -> i64 {
         self.offsets.get(&airport).copied().unwrap_or(0)
     }
 
@@ -244,9 +246,17 @@ fn choose_aircraft(
     Some(options[index].0)
 }
 
-/// The departure time from the base for a slot, before curfew checks.
-fn departure(ctx: &TripContext<'_>, airline: &Airline, service: &Service, rng: &mut SimRng) -> u32 {
-    if service.kind == FlightKind::Cargo {
+/// The departure time from the base for a slot, before curfew checks. Cargo
+/// flies at night (D39) but moves to the day after half the attempts, where a
+/// curfew closes the night (as at Frankfurt).
+fn departure(
+    ctx: &TripContext<'_>,
+    airline: &Airline,
+    service: &Service,
+    attempt: u32,
+    rng: &mut SimRng,
+) -> u32 {
+    if service.kind == FlightKind::Cargo && attempt < PLACEMENT_ATTEMPTS / 2 {
         return u32::from(sample_minute(rng, Profile::CargoNight));
     }
     if airline.network() == Network::Hub
@@ -332,8 +342,8 @@ pub(crate) fn build_trips(
         let turnaround = minutes(min_turnaround(aircraft));
         for slot in 0..slots {
             let days = counts.iter().filter(|count| **count > slot).count();
-            let placed = (0..PLACEMENT_ATTEMPTS).find_map(|_| {
-                let depart = departure(ctx, airline, service, rng);
+            let placed = (0..PLACEMENT_ATTEMPTS).find_map(|attempt| {
+                let depart = departure(ctx, airline, service, attempt, rng);
                 let ground = ground_time(ctx, airline, service, depart, block, turnaround, rng);
                 let trip = RoundTrip {
                     airline: service.airline,
@@ -486,19 +496,52 @@ mod tests {
     }
 
     #[test]
-    fn test_cargo_departs_at_night() -> Result<()> {
-        let (_, outcome) = build(4)?;
+    fn test_cargo_departs_at_night_without_curfews() -> Result<()> {
+        let (data, outcome) = build(4)?;
+        let ctx = context(&data)?;
         let night = Profile::CargoNight.weights();
         let cargo: Vec<&RoundTrip> = outcome
             .trips
             .iter()
             .filter(|t| t.kind == FlightKind::Cargo)
+            .filter(|t| ctx.curfew(t.base).is_none() && ctx.curfew(t.other).is_none())
             .collect();
         assert_ne!(cargo.len(), 0);
         for trip in cargo {
             let hour = usize::try_from(trip.start % DAY / 60).context("hour")?;
             assert!(night[hour] > 0.0, "cargo departure at hour {hour}");
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_cargo_at_curfew_airports_moves_to_the_day() -> Result<()> {
+        let data = data()?;
+        let frankfurt = data
+            .world
+            .airport_by_ident("EDDF".parse()?)
+            .context("EDDF")?;
+        let touches = |kind: FlightKind, base: Id<Airport>, other: Id<Airport>| {
+            kind == FlightKind::Cargo && (base == frankfurt || other == frankfurt)
+        };
+        let services = plan_services(&data.world, &data.airlines, &data.traffic)?;
+        let wanted: f64 = services
+            .iter()
+            .filter(|s| touches(s.kind, s.base, s.other))
+            .map(|s| s.daily * 7.0)
+            .sum();
+        let mut rng = RngSeed::new(9).stream(StreamId::Scheduling);
+        let outcome = build_trips(&context(&data)?, &services, &mut rng)?;
+        let placed = outcome
+            .trips
+            .iter()
+            .filter(|t| touches(t.kind, t.base, t.other))
+            .count();
+        assert!(wanted > 10.0, "{wanted}");
+        assert!(
+            f64::from(u32::try_from(placed)?) >= wanted * 0.9,
+            "{placed} of {wanted:.0} placed"
+        );
         Ok(())
     }
 
