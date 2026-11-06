@@ -15,8 +15,7 @@ pub(crate) fn arrival_distance(leader: WakeCategory, follower: WakeCategory) -> 
     let miles = match (leader, follower) {
         (Super, Light) => 8.0,
         (Super, Medium) => 7.0,
-        (Super, Heavy) => 6.0,
-        (Heavy, Light) => 6.0,
+        (Super, Heavy) | (Heavy, Light) => 6.0,
         (Heavy, Medium) | (Medium, Light) => 5.0,
         (Super | Heavy, Heavy | Super) => 4.0,
         _ => 3.0,
