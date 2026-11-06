@@ -40,11 +40,13 @@ aerocosm/                              (workspace root)
     │       │                          → rotation (tails)
     │       ├── ops/                   Flight operations (plan M2 PR 3): fleet/ (per-tail
     │       │                          controller, warm/cold start), motion.rs (scalar
-    │       │                          kinematics), path.rs (leg geometry), runway.rs, tail.rs
+    │       │                          kinematics), path.rs (leg geometry), procedure.rs
+    │       │                          (climb-out, final intercepts), runway.rs (modes), tail.rs
     │       │                          (delays, taxi), timeline.rs (week → UTC), view.rs
     │       ├── scenario.rs            Scenario: world + optional traffic inputs (D45)
     │       ├── units.rs               Meters, Feet, NauticalMiles, Knots, Degrees, …
-    │       ├── geo/                   LatLon, great-circle maths, Segment (walked by distance)
+    │       ├── geo/                   LatLon, great-circle maths, Segment and Route (waypoints
+    │       │                          with arc-rounded corners), both walked by distance
     │       ├── rng.rs                 RngSeed, SimRng — per-subsystem ChaCha8 streams
     │       ├── pacing.rs              WallClock trait, SimSpeed, Pacer
     │       ├── sim.rs                 Simulation (owns the Scenario and operations), 1 s ticks
