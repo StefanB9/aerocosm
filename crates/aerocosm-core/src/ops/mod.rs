@@ -8,6 +8,7 @@
 mod motion;
 mod path;
 mod runway;
+mod tail;
 mod timeline;
 
 /// What an aircraft is doing on a leg, in the order it happens.
