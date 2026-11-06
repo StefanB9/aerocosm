@@ -5,184 +5,37 @@ use std::collections::HashSet;
 use anyhow::{Context, Result};
 
 use super::{
-    AirportGroundDefinition, EdgeKind, GroundName,
+    AirportGroundDefinition,
     definition::{EdgeDefinition, Point, StandDefinition},
+    elements::{Edge, Exit, HoldingPosition, Node, Stand, stand_base},
 };
 use crate::{
     CoreError, Id, LatLon,
-    units::{Degrees, Meters},
+    units::Meters,
     world::{Airport, RunwayDesignator, RunwayEnd, World},
 };
 
-/// A junction or end point of the network.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Node {
-    position: LatLon,
-}
-
-impl Node {
-    /// Where it is.
-    pub const fn position(&self) -> LatLon {
-        self.position
-    }
-}
-
-/// A stretch of pavement between two nodes.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Edge {
-    from: Id<Node>,
-    to: Id<Node>,
-    kind: EdgeKind,
-    name: Option<GroundName>,
-    oneway: bool,
-    max_wingspan: Option<Meters>,
-    /// The whole polyline, both nodes included.
-    points: Vec<LatLon>,
-    length: Meters,
-}
-
-impl Edge {
-    /// Start node.
-    pub const fn from(&self) -> Id<Node> {
-        self.from
-    }
-
-    /// End node.
-    pub const fn to(&self) -> Id<Node> {
-        self.to
-    }
-
-    /// Pavement kind.
-    pub const fn kind(&self) -> EdgeKind {
-        self.kind
-    }
-
-    /// Taxiway or runway name, if mapped.
-    pub const fn name(&self) -> Option<GroundName> {
-        self.name
-    }
-
-    /// Only to be taxied from [`Self::from`] to [`Self::to`].
-    pub const fn oneway(&self) -> bool {
-        self.oneway
-    }
-
-    /// Largest wingspan allowed, where published.
-    pub const fn max_wingspan(&self) -> Option<Meters> {
-        self.max_wingspan
-    }
-
-    /// The polyline from [`Self::from`] to [`Self::to`].
-    pub fn points(&self) -> &[LatLon] {
-        &self.points
-    }
-
-    /// Length along the polyline.
-    pub const fn length(&self) -> Meters {
-        self.length
-    }
-}
-
-/// A parking stand.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Stand {
-    name: GroundName,
-    node: Id<Node>,
-    heading: Degrees,
-    max_wingspan: Meters,
-    area: Option<GroundName>,
-}
-
-impl Stand {
-    /// Designation, e.g. "V155".
-    pub const fn name(&self) -> GroundName {
-        self.name
-    }
-
-    /// The node a parked aircraft stands on.
-    pub const fn node(&self) -> Id<Node> {
-        self.node
-    }
-
-    /// True heading of a parked aircraft.
-    pub const fn heading(&self) -> Degrees {
-        self.heading
-    }
-
-    /// Largest wingspan that fits.
-    pub const fn max_wingspan(&self) -> Meters {
-        self.max_wingspan
-    }
-
-    /// Apron or terminal, if known.
-    pub const fn area(&self) -> Option<GroundName> {
-        self.area
-    }
-}
-
-/// Where departures from a runway end wait before lining up.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct HoldingPosition {
-    node: Id<Node>,
-    runway: RunwayDesignator,
-}
-
-impl HoldingPosition {
-    /// The node on the taxiway.
-    pub const fn node(&self) -> Id<Node> {
-        self.node
-    }
-
-    /// The runway end departures line up at.
-    pub const fn runway(&self) -> RunwayDesignator {
-        self.runway
-    }
-}
-
-/// Where landings on a runway end can turn off.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Exit {
-    runway: RunwayDesignator,
-    node: Id<Node>,
-    distance: Meters,
-    angle: Degrees,
-}
-
-impl Exit {
-    /// The landing runway end.
-    pub const fn runway(&self) -> RunwayDesignator {
-        self.runway
-    }
-
-    /// The node on the runway centreline.
-    pub const fn node(&self) -> Id<Node> {
-        self.node
-    }
-
-    /// Distance from the landing threshold.
-    pub const fn distance(&self) -> Meters {
-        self.distance
-    }
-
-    /// Turn off the landing direction.
-    pub const fn angle(&self) -> Degrees {
-        self.angle
-    }
-}
+/// Variants of a stand lie within this distance of it, m.
+const VARIANT_REACH: f64 = 60.0;
+/// Metres per degree of latitude, for the flat frame of route estimates.
+const METRES_PER_DEGREE: f64 = 111_195.0;
 
 /// An airport's taxi network with stands, holding positions and exits.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AirportGround {
-    airport: Id<Airport>,
-    nodes: Vec<Node>,
-    edges: Vec<Edge>,
+    pub(super) airport: Id<Airport>,
+    pub(super) nodes: Vec<Node>,
+    pub(super) edges: Vec<Edge>,
     /// `links[link_starts[n]..link_starts[n + 1]]` are the edges at node `n`.
-    link_starts: Vec<u32>,
-    links: Vec<Id<Edge>>,
-    stands: Vec<Stand>,
-    holding_positions: Vec<HoldingPosition>,
-    exits: Vec<Exit>,
-    aprons: Vec<Vec<LatLon>>,
+    pub(super) link_starts: Vec<u32>,
+    pub(super) links: Vec<Id<Edge>>,
+    pub(super) stands: Vec<Stand>,
+    /// For each stand, its variants nearby: only one of them is used at a
+    /// time.
+    pub(super) variants: Vec<Vec<Id<Stand>>>,
+    pub(super) holding_positions: Vec<HoldingPosition>,
+    pub(super) exits: Vec<Exit>,
+    pub(super) aprons: Vec<Vec<LatLon>>,
 }
 
 /// Checks a definition's numbers against the airport, for error messages.
@@ -235,10 +88,20 @@ impl AirportGround {
             ident: &ident,
             nodes: definition.nodes.len(),
         };
+        let origin = definition.nodes.first().copied().unwrap_or([0.0, 0.0]);
+        let east = METRES_PER_DEGREE * origin[0].to_radians().cos();
         let nodes = definition
             .nodes
             .iter()
-            .map(|&point| check.point(point).map(|position| Node { position }))
+            .map(|&point| {
+                check.point(point).map(|position| Node {
+                    position,
+                    xy: [
+                        (point[1] - origin[1]) * east,
+                        (point[0] - origin[0]) * METRES_PER_DEGREE,
+                    ],
+                })
+            })
             .collect::<Result<Vec<_>>>()?;
         let edges = definition
             .edges
@@ -300,6 +163,7 @@ impl AirportGround {
                     .collect::<Result<Vec<_>>>()
             })
             .collect::<Result<Vec<_>>>()?;
+        let variants = Self::find_variants(&nodes, &stands)?;
         Ok(Self {
             airport,
             nodes,
@@ -307,6 +171,7 @@ impl AirportGround {
             link_starts,
             links,
             stands,
+            variants,
             holding_positions,
             exits,
             aprons,
@@ -335,6 +200,25 @@ impl AirportGround {
             });
         }
         Ok(stands)
+    }
+
+    /// Stands sharing a base name (`05`, `05A`) within `VARIANT_REACH`.
+    fn find_variants(nodes: &[Node], stands: &[Stand]) -> Result<Vec<Vec<Id<Stand>>>> {
+        let mut variants = vec![Vec::new(); stands.len()];
+        for (i, stand) in stands.iter().enumerate() {
+            let base = stand_base(stand.name.as_str());
+            let here = nodes[stand.node.as_usize()].xy;
+            for (j, other) in stands.iter().enumerate() {
+                if i == j || stand_base(other.name.as_str()) != base {
+                    continue;
+                }
+                let there = nodes[other.node.as_usize()].xy;
+                if (there[0] - here[0]).hypot(there[1] - here[1]) <= VARIANT_REACH {
+                    variants[i].push(Id::from_usize(j).context("too many stands")?);
+                }
+            }
+        }
+        Ok(variants)
     }
 
     fn build_edge(check: &Checker<'_>, nodes: &[Node], edge: &EdgeDefinition) -> Result<Edge> {
@@ -430,6 +314,14 @@ impl AirportGround {
         &self.stands
     }
 
+    /// The variants of `stand` nearby, which cannot be used at the same time
+    /// as it.
+    pub fn variants(&self, stand: Id<Stand>) -> &[Id<Stand>] {
+        self.variants
+            .get(stand.as_usize())
+            .map_or(&[], Vec::as_slice)
+    }
+
     /// All runway holding positions.
     pub fn holding_positions(&self) -> &[HoldingPosition] {
         &self.holding_positions
@@ -451,7 +343,11 @@ mod tests {
     use anyhow::{Context, Result};
 
     use super::*;
-    use crate::{ground::definition::tests::sample, test_data::data};
+    use crate::{
+        ground::{EdgeKind, definition::tests::sample},
+        test_data::data,
+        units::Degrees,
+    };
 
     fn world() -> Result<World> {
         Ok(data()?.world)
@@ -496,6 +392,32 @@ mod tests {
         assert_eq!(ground.holding_positions()[0].runway(), "25C".parse()?);
         assert_eq!(ground.exits()[0].node(), Id::new(2));
         assert_eq!(ground.aprons()[0].len(), 3);
+        Ok(())
+    }
+
+    #[test]
+    fn test_stand_variants_block_each_other() -> Result<()> {
+        let mut definition = sample()?;
+        definition.nodes.push([50.0301, 8.560]);
+        definition.nodes.push([50.0300, 8.5603]);
+        let mut variant = definition.stands[0].clone();
+        variant.name = "A14L".parse()?;
+        variant.node = 3;
+        let mut far = definition.stands[0].clone();
+        far.name = "A14R".parse()?;
+        far.node = 2;
+        let mut other = definition.stands[0].clone();
+        other.name = "A15".parse()?;
+        other.node = 4;
+        definition.stands.extend([variant, far, other]);
+        let ground = AirportGround::new(definition, &world()?)?;
+        // A14 and A14L are 11 m apart; A14R shares the name but is 330 m
+        // away; A15 is another stand.
+        assert_eq!(ground.variants(Id::new(0)), &[Id::new(1)]);
+        assert_eq!(ground.variants(Id::new(1)), &[Id::new(0)]);
+        assert_eq!(ground.variants(Id::new(2)), &[] as &[Id<Stand>]);
+        assert_eq!(ground.variants(Id::new(3)), &[] as &[Id<Stand>]);
+        assert_eq!(ground.variants(Id::new(9)), &[] as &[Id<Stand>]);
         Ok(())
     }
 

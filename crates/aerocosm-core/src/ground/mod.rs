@@ -10,12 +10,16 @@ use crate::{
 
 mod airport;
 mod definition;
+mod elements;
+mod route;
 
-pub use airport::{AirportGround, Edge, Exit, HoldingPosition, Node, Stand};
+pub use airport::AirportGround;
 pub use definition::{
     AirportGroundDefinition, EdgeDefinition, EdgeKind, ExitDefinition, FORMAT_VERSION,
     GroundDefinition, HoldingPositionDefinition, Point, StandDefinition,
 };
+pub use elements::{Edge, Exit, HoldingPosition, Node, Stand, stand_base};
+pub use route::GroundRoute;
 
 pub use crate::world::codes::GroundName;
 
