@@ -83,7 +83,8 @@ into tails (D42, D43). Stages live in separate modules (`demand`, `routes`, `tim
    derived and reported, D38) with minimum turnaround by size
    class (regional 25 min, narrow-body 35 min, wide-body 90 min); every tail ends the day where
    the next day starts.
-6a. **Cargo:** cargo carriers' flights are placed at night in local time (D39).
+6a. **Cargo:** cargo carriers' flights are placed at night in local time (D39); where a curfew
+   closes the night (Frankfurt), they move to the day.
 7. **Overflights:** edge-pair routes whose great circle crosses the German airspace polygon,
    gravity-weighted and scaled to the overflight target; foreign carriers, own rotations at
    edge airports.

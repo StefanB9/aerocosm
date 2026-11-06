@@ -5,8 +5,9 @@ starting with Germany. Step 1 simulates; step 2 lets you intervene as a sandbox 
 
 Current state (milestone M1, M2 in progress): the simulation core, the German world (429
 aerodromes plus 23 European edge airports, 582 runways), a basemap of Germany and its
-neighbours, a Bevy viewer for desktop and browser, and the M2 inputs: airline catalog and
-traffic calibration targets. Nothing flies yet — schedules and flights arrive later in M2.
+neighbours, a Bevy viewer for desktop and browser, the M2 inputs (airline catalog, traffic
+calibration targets) and a deterministic weekly schedule of about 56,000 flights flown by some
+2,000 tails. Nothing flies yet — flight operations and their display arrive later in M2.
 
 Plans live in [`docs/plan/`](docs/plan/), data provenance in
 [`docs/data-sources.md`](docs/data-sources.md), engineering rules in [`CLAUDE.md`](CLAUDE.md).
@@ -75,6 +76,13 @@ cargo nextest run --workspace
 
 The first viewer build compiles Bevy and takes several minutes. Guard tests load the
 committed asset files, so a broken regeneration or hand edit fails here.
+
+The schedule generator's checks on the real data (movement targets per airport, rotation
+continuity, curfews, aircraft feasibility, overflights, determinism) run on their own with:
+
+```bash
+cargo nextest run -p aerocosm-core --test schedule
+```
 
 ## Headless simulation
 

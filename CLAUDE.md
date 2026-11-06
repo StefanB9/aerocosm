@@ -22,6 +22,7 @@ aerocosm/                              (workspace root)
 └── crates/
     ├── aerocosm-core/                 (library — deterministic simulation, no I/O, no UI)
     │   ├── benches/core.rs            Criterion micro-benchmarks
+    │   ├── tests/schedule.rs          Schedule generation on the shipped data
     │   └── src/
     │       ├── lib.rs                 Module declarations + re-exports
     │       ├── error.rs               CoreError (thiserror)
@@ -31,6 +32,9 @@ aerocosm/                              (workspace root)
     │       ├── time/                  SimTime, SimDuration, CivilDateTime (integer ms, UTC);
     │       │                          zone.rs: IANA zones via jiff's bundled tzdb, Weekday
     │       ├── traffic/               TrafficTargets: movement targets, curfews, banks, airspace
+    │       ├── schedule/              Weekly schedule (plan M2 PR 2): generate composes demand
+    │       │                          (gravity + fitting) → network (services) → trips
+    │       │                          (aircraft, times, curfews) → rotation (tails)
     │       ├── units.rs               Meters, Feet, NauticalMiles, Knots, Degrees, …
     │       ├── geo/                   LatLon, great-circle maths
     │       ├── rng.rs                 RngSeed, SimRng — per-subsystem ChaCha8 streams
