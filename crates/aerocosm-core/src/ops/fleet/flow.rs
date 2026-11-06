@@ -19,6 +19,9 @@ const HORIZON: f64 = 200_000.0;
 const HOLD_DISTANCE: f64 = 64_820.0;
 /// Shorter holds are not worth it: the gate at the fix takes the rest.
 const MIN_HOLD_SECONDS: f64 = 30.0;
+/// Descents ask for approach clearance within this distance of the fix, m:
+/// more than a tick's flight at any descent speed.
+const ASKING_DISTANCE: f64 = 500.0;
 /// Landing time predictions step this many seconds.
 const PREDICTION_STEP: f64 = 10.0;
 /// Predictions give up after this many steps (a day).
@@ -155,15 +158,20 @@ impl Operations {
         now: SimTime,
         dt: f64,
     ) -> Result<Option<Event>> {
-        self.book(index, leg, motion, now)?;
-        let profile = self.profiles[index];
-        let asking = matches!(
-            motion.phase(),
-            Phase::Queue | Phase::Descent | Phase::Holding
-        );
-        if !asking {
-            return Ok(motion.advance_free(&profile, dt));
+        // The common case first: most aircraft neither book nor ask for
+        // anything this tick.
+        let phase = motion.phase();
+        let enroute = matches!(phase, Phase::Climb | Phase::Cruise | Phase::Descent);
+        let remaining = self.profiles[index].enroute_length() - motion.along();
+        if remaining <= HORIZON && enroute && !self.flows[index].booked {
+            self.book(index, leg, motion, now)?;
         }
+        let asking = matches!(phase, Phase::Queue | Phase::Holding)
+            || (phase == Phase::Descent && remaining <= ASKING_DISTANCE);
+        if !asking {
+            return Ok(motion.advance_free(&self.profiles[index], dt));
+        }
+        let profile = self.profiles[index];
         let flow = self.resolve(index, leg)?;
         let wake: WakeCategory = self.wakes[index];
         let at_fix = motion.along() >= profile.enroute_length() - 1.0;

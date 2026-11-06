@@ -48,10 +48,9 @@ impl Timeline {
 
     /// The first booked landing strictly after `time`.
     pub(crate) fn next_after(&self, time: SimTime) -> Option<SimTime> {
-        self.slots
-            .iter()
-            .map(|slot| slot.time)
-            .find(|slot| *slot > time)
+        // Slots are in time order; queued departures ask every tick.
+        let index = self.slots.partition_point(|slot| slot.time <= time);
+        self.slots.get(index).map(|slot| slot.time)
     }
 
     /// Forgets landings before `time`.

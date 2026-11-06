@@ -7,6 +7,16 @@ mod profile;
 pub(crate) use self::profile::{Profile, ProfileInputs};
 use super::Phase;
 
+/// The hold point when no hold is planned.
+const NO_HOLD: f64 = f64::INFINITY;
+
+/// Narrows a value for compact storage; taxi times and speed factors need
+/// no more than f32 precision.
+#[allow(clippy::cast_possible_truncation)]
+const fn compact(value: f64) -> f32 {
+    value as f32
+}
+
 /// Take-off acceleration along the runway, m/s².
 const TAKEOFF_ACCELERATION: f64 = 2.0;
 /// Braking deceleration after touchdown, m/s².
@@ -56,29 +66,31 @@ pub(crate) struct Motion {
     speed: f64,
     /// Time spent in a timed phase (taxi), s.
     elapsed: f64,
-    taxi_out: f64,
-    taxi_in: f64,
+    /// Taxi times, s; f32 keeps the motion compact for the per-tick loop.
+    taxi_out: f32,
+    taxi_in: f32,
     /// Fraction of the normal speed flown in cruise and descent.
-    speed_factor: f64,
+    speed_factor: f32,
     /// Route distance at which to enter a planned hold.
-    hold_at: Option<f64>,
+    /// [`NO_HOLD`] when none is planned.
+    hold_at: f64,
     /// Level of the planned or current hold, m.
     hold_altitude: f64,
 }
 
 impl Motion {
     /// Pushes back at the origin gate with the given taxi times, s.
-    pub(crate) const fn start(profile: &Profile, taxi_out: f64, taxi_in: f64) -> Self {
+    pub(crate) fn start(profile: &Profile, taxi_out: f64, taxi_in: f64) -> Self {
         Self {
             phase: Phase::TaxiOut,
             along: 0.0,
             altitude: profile.inputs.origin_elevation,
             speed: 0.0,
             elapsed: 0.0,
-            taxi_out,
-            taxi_in,
+            taxi_out: compact(taxi_out),
+            taxi_in: compact(taxi_in),
             speed_factor: 1.0,
-            hold_at: None,
+            hold_at: NO_HOLD,
             hold_altitude: 0.0,
         }
     }
@@ -94,34 +106,34 @@ impl Motion {
             taxi_out: 0.0,
             taxi_in: 0.0,
             speed_factor: 1.0,
-            hold_at: None,
+            hold_at: NO_HOLD,
             hold_altitude: 0.0,
         }
     }
 
     /// Flies cruise and descent at `factor` of the normal speed (speed
     /// control by the arrival manager).
-    pub(crate) const fn set_speed_factor(&mut self, factor: f64) {
-        self.speed_factor = factor;
+    pub(crate) fn set_speed_factor(&mut self, factor: f64) {
+        self.speed_factor = compact(factor);
     }
 
     /// The current speed factor.
     #[cfg(test)]
-    pub(crate) const fn speed_factor(&self) -> f64 {
-        self.speed_factor
+    pub(crate) fn speed_factor(&self) -> f64 {
+        f64::from(self.speed_factor)
     }
 
     /// Holds at route distance `at` (m along the en-route part) at `altitude`
     /// (m) until released.
-    pub(crate) const fn plan_hold(&mut self, at: f64, altitude: f64) {
-        self.hold_at = Some(at);
+    pub(crate) fn plan_hold(&mut self, at: f64, altitude: f64) {
+        self.hold_at = at;
         self.hold_altitude = altitude;
     }
 
     /// Whether a hold is planned and not yet left.
     #[cfg(test)]
-    pub(crate) const fn has_hold(&self) -> bool {
-        self.hold_at.is_some()
+    pub(crate) fn has_hold(&self) -> bool {
+        self.hold_at < NO_HOLD
     }
 
     /// Seconds spent in the current hold.
@@ -142,7 +154,7 @@ impl Motion {
 
     /// Whether the planned hold starts within the next `step` metres.
     fn hold_due(&self, step: f64) -> Option<f64> {
-        self.hold_at.filter(|at| self.along + step >= *at)
+        (self.hold_at < NO_HOLD && self.along + step >= self.hold_at).then_some(self.hold_at)
     }
 
     /// Advances with every clearance granted, as when nothing controls the
@@ -189,7 +201,7 @@ impl Motion {
         match self.phase {
             Phase::Boarding | Phase::Arrived => None,
             Phase::TaxiOut => {
-                if self.taxi(dt, self.taxi_out, inputs.taxi_out_length) {
+                if self.taxi(dt, f64::from(self.taxi_out), inputs.taxi_out_length) {
                     self.enter(Phase::Queue);
                     self.speed = 0.0;
                 }
@@ -216,7 +228,7 @@ impl Motion {
                 None
             }
             Phase::TaxiIn => {
-                if !self.taxi(dt, self.taxi_in, inputs.taxi_in_length) {
+                if !self.taxi(dt, f64::from(self.taxi_in), inputs.taxi_in_length) {
                     return None;
                 }
                 self.enter(Phase::Arrived);

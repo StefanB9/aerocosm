@@ -19,7 +19,7 @@ impl Motion {
             self.altitude = (self.altitude - inputs.descent_rate * dt).max(self.hold_altitude);
         }
         if clearance(Request::LeaveHold) {
-            self.hold_at = None;
+            self.hold_at = super::NO_HOLD;
             self.phase = Phase::Descent;
         }
         None
@@ -61,7 +61,7 @@ impl Motion {
     /// Level cruise until the top of descent.
     pub(super) fn cruise(&mut self, p: &Profile, dt: f64) -> Option<Event> {
         let inputs = &p.inputs;
-        self.speed = inputs.cruise_speed * self.speed_factor;
+        self.speed = inputs.cruise_speed * f64::from(self.speed_factor);
         if let Some(at) = self.hold_due(self.speed * dt) {
             self.enter_hold(at);
             return None;
@@ -87,7 +87,7 @@ impl Motion {
         let progress = ((self.altitude - p.faf_altitude) / span).clamp(0.0, 1.0);
         self.speed = (p.descent_exit_speed
             + (inputs.cruise_speed - p.descent_exit_speed) * progress)
-            * self.speed_factor;
+            * f64::from(self.speed_factor);
         let step = self.speed * dt;
         if let Some(at) = self.hold_due(step) {
             self.enter_hold(at);

@@ -4,8 +4,6 @@ mod arrival;
 mod separation;
 mod sequence;
 
-use std::collections::{HashMap, HashSet};
-
 pub(crate) use self::{
     arrival::plan_arrival,
     separation::{arrival_spacing, departure_spacing},
@@ -50,9 +48,13 @@ pub(crate) fn level_altitude(level: usize) -> f64 {
 /// Runway control at the sequenced airports (D56, D57, D61).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Control {
-    sequenced: HashSet<Id<Airport>>,
-    runways: HashMap<RunwayKey, RunwayState>,
-    stacks: HashMap<Id<Airport>, Vec<bool>>,
+    /// Per airport index: whether it is controlled. Dense tables, because
+    /// every queued and holding aircraft looks its runway up every tick.
+    sequenced: Vec<bool>,
+    /// Per airport index, per runway index.
+    runways: Vec<Vec<RunwayState>>,
+    /// Per airport index: holding levels in use.
+    stacks: Vec<Vec<bool>>,
 }
 
 fn after(time: SimTime, spacing: SimDuration) -> SimTime {
@@ -63,18 +65,39 @@ impl Control {
     /// Controls the runways of `airports`.
     pub(crate) fn new(airports: impl IntoIterator<Item = Id<Airport>>) -> Self {
         Self {
-            sequenced: airports.into_iter().collect(),
+            sequenced: {
+                let mut sequenced = Vec::new();
+                for airport in airports {
+                    let index = airport.as_usize();
+                    if sequenced.len() <= index {
+                        sequenced.resize(index + 1, false);
+                    }
+                    sequenced[index] = true;
+                }
+                sequenced
+            },
             ..Self::default()
         }
     }
 
     /// Whether `airport`'s runways are controlled.
     pub(crate) fn is_sequenced(&self, airport: Id<Airport>) -> bool {
-        self.sequenced.contains(&airport)
+        self.sequenced
+            .get(airport.as_usize())
+            .copied()
+            .unwrap_or(false)
     }
 
     fn runway(&mut self, key: RunwayKey) -> &mut RunwayState {
-        self.runways.entry(key).or_default()
+        let airport = key.airport.as_usize();
+        if self.runways.len() <= airport {
+            self.runways.resize_with(airport + 1, Vec::new);
+        }
+        let runways = &mut self.runways[airport];
+        if runways.len() <= key.runway {
+            runways.resize_with(key.runway + 1, RunwayState::default);
+        }
+        &mut runways[key.runway]
     }
 
     /// Whether an aircraft of `wake` may take off at `now`: the runway is
@@ -151,14 +174,18 @@ impl Control {
 
     /// Forgets booked landings before `time`.
     pub(crate) fn prune(&mut self, time: SimTime) {
-        for runway in self.runways.values_mut() {
+        for runway in self.runways.iter_mut().flatten() {
             runway.timeline.prune(time);
         }
     }
 
     /// The lowest free holding level over `airport`.
     pub(crate) fn take_level(&mut self, airport: Id<Airport>) -> usize {
-        let stack = self.stacks.entry(airport).or_default();
+        let index = airport.as_usize();
+        if self.stacks.len() <= index {
+            self.stacks.resize_with(index + 1, Vec::new);
+        }
+        let stack = &mut self.stacks[index];
         let level = stack.iter().position(|used| !used).unwrap_or(stack.len());
         if level == stack.len() {
             stack.push(true);
@@ -172,7 +199,7 @@ impl Control {
     pub(crate) fn release_level(&mut self, airport: Id<Airport>, level: usize) {
         if let Some(used) = self
             .stacks
-            .get_mut(&airport)
+            .get_mut(airport.as_usize())
             .and_then(|stack| stack.get_mut(level))
         {
             *used = false;

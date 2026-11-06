@@ -218,54 +218,57 @@ impl Operations {
     }
 
     fn step_tail(&mut self, scenario: &Scenario, index: usize, now: SimTime) -> Result<()> {
-        let mut tail = self.tails[index];
-        match tail.motion {
+        // Only the motion changes on most ticks; the rest of the tail's state
+        // is read in place and rewritten only when a leg changes.
+        match self.tails[index].motion {
             None => {
-                if now >= tail.boarding_from {
-                    let planned = self.plan(scenario, index, tail.leg)?;
-                    tail.motion = Some(Motion::boarding(&planned.profile));
+                if now >= self.tails[index].boarding_from {
+                    let planned = self.plan(scenario, index, self.tails[index].leg)?;
+                    self.tails[index].motion = Some(Motion::boarding(&planned.profile));
                     self.install(index, planned);
                 }
             }
             Some(motion) if motion.phase() == Phase::Boarding => {
-                if now >= tail.off_block {
-                    let flight = *self.flight(index, tail.leg)?;
+                if now >= self.tails[index].off_block {
+                    let flight = *self.flight(index, self.tails[index].leg)?;
                     let (origin, destination) = (
                         self.is_major(flight.origin()),
                         self.is_major(flight.destination()),
                     );
                     let out = draw_taxi_out(&mut self.rng, origin)?;
                     let back = draw_taxi_in(&mut self.rng, destination)?;
+                    let tail = &mut self.tails[index];
                     tail.off_block = now;
                     tail.motion = Some(Motion::start(&self.profiles[index], out, back));
                 }
             }
             Some(mut motion) => {
-                let event = self.fly(index, tail.leg, &mut motion, now, TICK.as_secs_f64())?;
-                tail.motion = Some(motion);
+                let leg = self.tails[index].leg;
+                let event = self.fly(index, leg, &mut motion, now, TICK.as_secs_f64())?;
+                self.tails[index].motion = Some(motion);
                 // Most ticks have no event; only events need the flight.
                 match event {
                     Some(Event::Takeoff) => {
                         self.airborne += 1;
-                        let origin = self.flight(index, tail.leg)?.origin();
+                        let origin = self.flight(index, leg)?.origin();
                         self.count(origin);
                     }
                     Some(Event::Landing) => {
                         self.airborne = self.airborne.saturating_sub(1);
-                        self.touched_down(index, tail.leg, now)?;
-                        let destination = self.flight(index, tail.leg)?.destination();
+                        self.touched_down(index, leg, now)?;
+                        let destination = self.flight(index, leg)?.destination();
                         self.count(destination);
                     }
                     Some(Event::Arrived) => {
                         self.flights_flown += 1;
                         self.paths[index] = None;
-                        tail = self.next_tail_leg(index, &tail, add(now, TICK)?)?;
+                        let tail = self.tails[index];
+                        self.tails[index] = self.next_tail_leg(index, &tail, add(now, TICK)?)?;
                     }
                     None => {}
                 }
             }
         }
-        self.tails[index] = tail;
         Ok(())
     }
 
