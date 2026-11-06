@@ -4,7 +4,11 @@
 use anyhow::{Context, Result};
 
 use crate::{
-    AircraftCatalog, airline::AirlineCatalog, schedule::ScheduleInputs, traffic::TrafficTargets,
+    AircraftCatalog,
+    airline::AirlineCatalog,
+    ground::{GroundDefinition, GroundNetwork},
+    schedule::ScheduleInputs,
+    traffic::TrafficTargets,
     world::World,
 };
 
@@ -38,6 +42,7 @@ impl Traffic {
 pub struct Scenario {
     world: World,
     traffic: Option<Traffic>,
+    ground: GroundNetwork,
 }
 
 impl Scenario {
@@ -46,6 +51,7 @@ impl Scenario {
         Self {
             world,
             traffic: None,
+            ground: GroundNetwork::empty(),
         }
     }
 
@@ -71,7 +77,21 @@ impl Scenario {
                 airlines,
                 targets,
             }),
+            ground: GroundNetwork::empty(),
         })
+    }
+
+    /// The scenario with airport ground layouts (plan M4), validated against
+    /// its world. Airports without a layout keep straight-line ground.
+    pub fn with_ground(mut self, definition: GroundDefinition) -> Result<Self> {
+        self.ground = GroundNetwork::from_definition(definition, &self.world)
+            .context("ground layouts do not match the world")?;
+        Ok(self)
+    }
+
+    /// The airport ground layouts.
+    pub const fn ground(&self) -> &GroundNetwork {
+        &self.ground
     }
 
     /// The static world.
@@ -136,6 +156,32 @@ mod tests {
         let result =
             Scenario::with_traffic(World::empty(), data.aircraft, data.airlines, data.traffic);
         assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_scenario_carries_a_ground_network() -> Result<()> {
+        let data = data()?;
+        let scenario = Scenario::new(data.world);
+        assert_eq!(scenario.ground().airports().len(), 0);
+        let definition = crate::ground::GroundDefinition {
+            format_version: crate::ground::FORMAT_VERSION,
+            attribution: "© OpenStreetMap contributors".to_owned(),
+            airports: vec![crate::ground::definition_sample()?],
+        };
+        let scenario = scenario.with_ground(definition)?;
+        assert_eq!(scenario.ground().airports().len(), 1);
+        assert_eq!(
+            scenario.ground().attribution(),
+            "© OpenStreetMap contributors"
+        );
+        // Layouts are checked against the scenario's own world.
+        let mismatched = crate::ground::GroundDefinition {
+            format_version: crate::ground::FORMAT_VERSION,
+            attribution: String::new(),
+            airports: vec![crate::ground::definition_sample()?],
+        };
+        assert!(Scenario::empty().with_ground(mismatched).is_err());
         Ok(())
     }
 }

@@ -16,7 +16,7 @@ use aerocosm_core::{
 use aerocosm_data::{
     import_all,
     natural_earth::NaturalEarthSources,
-    osm::{OsmSource, import_ground},
+    osm::{OsmSource, ground_airports, import_ground, overpass_query},
     ourairports::OurAirportsSources,
 };
 use anyhow::{Context, Result};
@@ -24,7 +24,7 @@ use clap::Parser;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use crate::cli::{Cli, Command, GroundArgs, ImportArgs};
+use crate::cli::{Cli, Command, GroundArgs, ImportArgs, QueriesArgs};
 
 /// Where each input dataset file is expected.
 struct InputPaths {
@@ -75,7 +75,35 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Import(args) => import(&args),
         Command::Ground(args) => ground(&args),
+        Command::Queries(args) => queries(&args),
     }
+}
+
+/// One `IDENT<TAB>query` line per airport with a ground layout.
+fn query_lines(world: &World, traffic: &TrafficTargets) -> Result<String> {
+    let airports = ground_airports(world, traffic);
+    let mut lines = String::with_capacity(airports.len() * 320);
+    for airport in airports {
+        lines.push_str(airport.as_str());
+        lines.push('\t');
+        lines.push_str(&overpass_query(world, airport)?);
+        lines.push('\n');
+    }
+    Ok(lines)
+}
+
+fn queries(args: &QueriesArgs) -> Result<()> {
+    let paths = GroundPaths::new(&args.assets);
+    let read = |path: &Path| {
+        fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))
+    };
+    let world = World::from_json(&read(&paths.world)?).context("invalid world file")?;
+    let traffic =
+        TrafficTargets::from_json(&read(&paths.traffic)?).context("invalid traffic file")?;
+    let lines = query_lines(&world, &traffic)?;
+    fs::write(&args.out, &lines).with_context(|| format!("cannot write {}", args.out.display()))?;
+    info!(path = %args.out.display(), airports = lines.lines().count(), "wrote queries");
+    Ok(())
 }
 
 /// The asset files the ground import reads and writes.
@@ -251,6 +279,20 @@ mod tests {
         );
         assert_eq!(source_airport(Path::new("dl/EDDF.tmp")), None);
         assert_eq!(source_airport(Path::new("dl/notes.json")), None);
+    }
+
+    #[test]
+    fn test_query_lines_are_tab_separated() -> Result<()> {
+        let world = World::from_json(include_str!("../../../assets/world/germany.world.json"))?;
+        let traffic =
+            TrafficTargets::from_json(include_str!("../../../assets/traffic/germany.json"))?;
+        let lines = query_lines(&world, &traffic)?;
+        assert_eq!(lines.lines().count(), 24);
+        let first = lines.lines().next().context("a line")?;
+        let (ident, query) = first.split_once('\t').context("a tab")?;
+        assert_eq!(ident.len(), 4);
+        assert!(query.starts_with("[out:json]"));
+        Ok(())
     }
 
     #[test]

@@ -7,6 +7,7 @@ mod layout;
 mod local;
 mod names;
 mod overpass;
+mod query;
 mod runways;
 mod stands;
 
@@ -18,6 +19,8 @@ use aerocosm_core::{
     world::{World, codes::AirportIdent},
 };
 use anyhow::{Context, Result};
+
+pub use self::query::{ground_airports, overpass_query};
 
 /// Attribution the `ODbL` requires for the ground file (plan M4 D65).
 pub const ATTRIBUTION: &str = "© OpenStreetMap contributors";

@@ -20,6 +20,8 @@ pub(crate) enum Command {
     Import(ImportArgs),
     /// Import airport ground layouts from Overpass downloads (plan M4).
     Ground(GroundArgs),
+    /// Write the Overpass query of every airport with a ground layout.
+    Queries(QueriesArgs),
 }
 
 /// Options for [`Command::Import`].
@@ -48,6 +50,17 @@ pub(crate) struct GroundArgs {
     /// Also write each rejected layout to `<dir>/<IDENT>.ground.json`.
     #[arg(long)]
     pub(crate) rejected: Option<PathBuf>,
+}
+
+/// Options for [`Command::Queries`].
+#[derive(Debug, Args)]
+pub(crate) struct QueriesArgs {
+    /// Asset directory to read `world/` and `traffic/` from.
+    #[arg(long, default_value = "assets")]
+    pub(crate) assets: PathBuf,
+    /// File to write, one `IDENT<TAB>query` line per airport.
+    #[arg(long)]
+    pub(crate) out: PathBuf,
 }
 
 #[cfg(test)]
@@ -91,6 +104,18 @@ mod tests {
         assert_eq!(args.assets, Path::new("assets"));
         assert_eq!(args.rejected, None);
         assert!(Cli::try_parse_from(["aerocosm-data", "ground"]).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_cli_queries_arguments() -> Result<()> {
+        let cli = Cli::try_parse_from(["aerocosm-data", "queries", "--out", "q.tsv"])
+            .context("must parse")?;
+        let Command::Queries(args) = cli.command else {
+            anyhow::bail!("expected the queries command");
+        };
+        assert_eq!(args.out, Path::new("q.tsv"));
+        assert_eq!(args.assets, Path::new("assets"));
         Ok(())
     }
 

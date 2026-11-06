@@ -19,6 +19,12 @@ pub use definition::{
 
 pub use crate::world::codes::GroundName;
 
+/// A one-airport layout at Frankfurt, for tests elsewhere in the crate.
+#[cfg(test)]
+pub(crate) fn definition_sample() -> Result<AirportGroundDefinition> {
+    definition::tests::sample()
+}
+
 /// The ground layouts of all mapped airports, indexed by airport.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct GroundNetwork {
@@ -30,8 +36,12 @@ pub struct GroundNetwork {
 
 impl GroundNetwork {
     /// No mapped airports.
-    pub fn empty() -> Self {
-        Self::default()
+    pub const fn empty() -> Self {
+        Self {
+            attribution: String::new(),
+            grounds: Vec::new(),
+            by_airport: Vec::new(),
+        }
     }
 
     /// Validates every airport's layout against `world`.
