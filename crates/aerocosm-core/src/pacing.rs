@@ -154,6 +154,14 @@ impl Pacer {
         self.speed = speed;
     }
 
+    /// How far real time has progressed into the next tick, `0..1`: viewers
+    /// interpolate between the last two tick states by it.
+    #[allow(clippy::cast_precision_loss)]
+    pub fn tick_fraction(&self) -> f64 {
+        // Both values are below 2^53 for any sane tick length.
+        self.carry_nanos as f64 / self.tick_nanos as f64
+    }
+
     /// Number of ticks to run this frame. Call once per frame.
     pub fn ticks_due(&mut self, clock: &impl WallClock) -> u32 {
         let now = clock.now();
@@ -166,7 +174,8 @@ impl Pacer {
             return self.max_ticks_per_frame;
         };
         if multiplier == 0 {
-            self.carry_nanos = 0;
+            // Paused time does not count, but the remainder of the current
+            // tick is kept so that resuming continues smoothly.
             return 0;
         }
         let owed = self.carry_nanos + elapsed.as_nanos() * u128::from(multiplier);
@@ -283,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pacer_paused_yields_nothing_and_drops_backlog() -> Result<()> {
+    fn test_pacer_paused_yields_nothing_and_keeps_only_the_remainder() -> Result<()> {
         let clock = ManualClock::new();
         let mut pacer = pacer(1000)?;
         pacer.set_speed(SimSpeed::X1);
@@ -297,9 +306,32 @@ mod tests {
         clock.advance(Duration::from_millis(200));
         assert_eq!(
             pacer.ticks_due(&clock),
-            0,
-            "paused time and old remainder must not count"
+            1,
+            "paused time must not count; the sub-tick remainder carries"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_pacer_tick_fraction_tracks_the_remainder() -> Result<()> {
+        let clock = ManualClock::new();
+        let mut pacer = pacer(1000)?;
+        pacer.set_speed(SimSpeed::X1);
+        pacer.ticks_due(&clock);
+        assert!(pacer.tick_fraction().abs() < 1e-12);
+        clock.advance(Duration::from_millis(1_250));
+        assert_eq!(pacer.ticks_due(&clock), 1);
+        assert!((pacer.tick_fraction() - 0.25).abs() < 1e-12);
+        pacer.set_speed(SimSpeed::Paused);
+        clock.advance(Duration::from_secs(5));
+        pacer.ticks_due(&clock);
+        assert!(
+            (pacer.tick_fraction() - 0.25).abs() < 1e-12,
+            "held while paused"
+        );
+        pacer.set_speed(SimSpeed::Max);
+        pacer.ticks_due(&clock);
+        assert!(pacer.tick_fraction().abs() < 1e-12);
         Ok(())
     }
 
