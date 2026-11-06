@@ -115,7 +115,8 @@ curfews, range/runway feasibility, determinism (same seed ⇒ identical schedule
   (`FlightView`: id, callsign, airline, type, position, altitude, heading, ground speed, phase,
   origin, destination, times).
 - **Performance:** criterion benchmark with 15k concurrent airborne flights; target < 1 ms per
-  tick in release (~60 ns per aircraft), result recorded in the PR.
+  tick in release (~60 ns per aircraft), result recorded in the PR. Measured: 787 µs for
+  15,483 airborne aircraft (German targets scaled 23-fold, warm start at midday).
 - **CLI:** `aerocosm run` reports flights flown, peak airborne and per-airport movements, and
   checks them against the targets.
 
