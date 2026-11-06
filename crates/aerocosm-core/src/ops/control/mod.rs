@@ -4,5 +4,6 @@
 // operations use runway control (removed in that commit).
 #![cfg_attr(not(test), allow(dead_code))]
 
+mod arrival;
 mod separation;
 mod sequence;
