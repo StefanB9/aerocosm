@@ -3,6 +3,9 @@
 
 mod control;
 mod fleet;
+// Temporary until operations hold aircraft (removed in that commit).
+#[cfg_attr(not(test), allow(dead_code))]
+mod hold;
 mod motion;
 mod path;
 mod procedure;
