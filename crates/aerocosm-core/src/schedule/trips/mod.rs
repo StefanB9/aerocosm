@@ -126,7 +126,16 @@ pub(crate) fn build_trips(
             .aircraft
             .get(aircraft_id)
             .context("aircraft id out of range")?;
-        let block = minutes(block_time(distance, aircraft));
+        let out_block = minutes(block_time(
+            distance,
+            aircraft,
+            ctx.taxi(service.base, service.other),
+        ));
+        let back_block = minutes(block_time(
+            distance,
+            aircraft,
+            ctx.taxi(service.other, service.base),
+        ));
         let turnaround = minutes(min_turnaround(aircraft));
         for slot in 0..slots {
             let days: Vec<u32> = (0_u32..)
@@ -136,7 +145,7 @@ pub(crate) fn build_trips(
                 .collect();
             let placed = (0..PLACEMENT_ATTEMPTS).find_map(|attempt| {
                 let depart = departure(ctx, airline, service, attempt, rng);
-                let ground = ground_time(ctx, airline, service, depart, block, turnaround, rng);
+                let ground = ground_time(ctx, airline, service, depart, out_block, turnaround, rng);
                 // Shift the drawn time before giving up on it (D54).
                 shifts().find_map(|shift| {
                     let start = (i64::from(depart) + shift).rem_euclid(i64::from(DAY));
@@ -147,9 +156,9 @@ pub(crate) fn build_trips(
                         aircraft: aircraft_id,
                         numbers: (FlightNumber::new(0), FlightNumber::new(0)),
                         start: u32::try_from(start).ok()?,
-                        out_block: block,
+                        out_block,
                         ground,
-                        back_block: block,
+                        back_block,
                         base_turnaround: turnaround,
                         kind: service.kind,
                     };
@@ -194,7 +203,11 @@ mod tests {
     use super::*;
     use crate::{
         RngSeed, StreamId,
-        schedule::{network::plan_services, rotation::WEEK, timetable::Profile},
+        schedule::{
+            network::plan_services,
+            rotation::WEEK,
+            timetable::{Profile, TaxiMinutes},
+        },
         test_data::{Data, data},
     };
 
@@ -206,6 +219,34 @@ mod tests {
             &data.traffic,
             "2026-11-05T12:00:00Z".parse()?,
         )
+    }
+
+    #[test]
+    fn test_context_taxi_minutes_default_or_mapped() -> Result<()> {
+        let data = data()?;
+        let frankfurt = data
+            .world
+            .airport_by_ident("EDDF".parse()?)
+            .context("EDDF")?;
+        let munich = data
+            .world
+            .airport_by_ident("EDDM".parse()?)
+            .context("EDDM")?;
+        let plain = context(&data)?;
+        assert_eq!(plain.taxi(frankfurt, munich), TaxiMinutes::DEFAULT);
+        let mut table = vec![None; data.world.airport_count()];
+        table[frankfurt.as_usize()] = Some(crate::ground::TaxiTimes {
+            out: crate::SimDuration::from_secs(600),
+            back: crate::SimDuration::from_secs(420),
+        });
+        let mapped = context(&data)?.with_taxi(&table);
+        let taxi = mapped.taxi(frankfurt, munich);
+        assert!((taxi.out - 10.0).abs() < 1e-9);
+        assert!((taxi.back - TaxiMinutes::DEFAULT.back).abs() < 1e-9);
+        let back = mapped.taxi(munich, frankfurt);
+        assert!((back.out - TaxiMinutes::DEFAULT.out).abs() < 1e-9);
+        assert!((back.back - 7.0).abs() < 1e-9);
+        Ok(())
     }
 
     fn build(seed: u64) -> Result<(Data, TripsOutcome)> {

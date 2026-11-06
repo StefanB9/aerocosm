@@ -13,6 +13,7 @@ mod areas;
 mod definition;
 mod elements;
 mod route;
+mod taxi;
 
 pub use airport::AirportGround;
 pub use areas::{
@@ -25,6 +26,7 @@ pub use definition::{
 };
 pub use elements::{Edge, Exit, HoldingPosition, Node, Stand, stand_base};
 pub use route::GroundRoute;
+pub use taxi::{PUSHBACK_TIME, RAPID_EXIT, TAXI_SPEED, TaxiTimes};
 
 pub use crate::world::codes::GroundName;
 

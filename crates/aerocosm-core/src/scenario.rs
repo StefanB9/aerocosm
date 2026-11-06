@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use crate::{
     AircraftCatalog,
     airline::AirlineCatalog,
-    ground::{GroundDefinition, GroundNetwork, StandAreas, StandAreasDefinition},
+    ground::{GroundDefinition, GroundNetwork, StandAreas, StandAreasDefinition, TaxiTimes},
     schedule::ScheduleInputs,
     traffic::TrafficTargets,
     world::World,
@@ -44,6 +44,8 @@ pub struct Scenario {
     traffic: Option<Traffic>,
     ground: GroundNetwork,
     areas: StandAreas,
+    /// Typical taxi times by airport index; empty without ground layouts.
+    taxi: Vec<Option<TaxiTimes>>,
 }
 
 impl Scenario {
@@ -54,6 +56,7 @@ impl Scenario {
             traffic: None,
             ground: GroundNetwork::empty(),
             areas: StandAreas::empty(),
+            taxi: Vec::new(),
         }
     }
 
@@ -81,6 +84,7 @@ impl Scenario {
             }),
             ground: GroundNetwork::empty(),
             areas: StandAreas::empty(),
+            taxi: Vec::new(),
         })
     }
 
@@ -89,6 +93,8 @@ impl Scenario {
     pub fn with_ground(mut self, definition: GroundDefinition) -> Result<Self> {
         self.ground = GroundNetwork::from_definition(definition, &self.world)
             .context("ground layouts do not match the world")?;
+        let targets = self.traffic.as_ref().map(|traffic| &traffic.targets);
+        self.taxi = self.ground.taxi_times(&self.world, targets);
         Ok(self)
     }
 
@@ -102,6 +108,12 @@ impl Scenario {
     /// The curated stand areas.
     pub const fn stand_areas(&self) -> &StandAreas {
         &self.areas
+    }
+
+    /// Typical taxi times by airport index (plan M4 D73); empty without
+    /// ground layouts.
+    pub fn taxi_times(&self) -> &[Option<TaxiTimes>] {
+        &self.taxi
     }
 
     /// The airport ground layouts.
@@ -131,6 +143,7 @@ impl Scenario {
             &traffic.targets,
         )
         .ok()
+        .map(|inputs| inputs.with_taxi(&self.taxi))
     }
 }
 
@@ -215,6 +228,24 @@ mod tests {
         let scenario = scenario.with_stand_areas(definition.clone())?;
         assert_ne!(scenario.stand_areas().areas(frankfurt).len(), 0);
         assert!(Scenario::empty().with_stand_areas(definition).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_scenario_with_ground_feeds_taxi_times_to_schedules() -> Result<()> {
+        let data = data()?;
+        let frankfurt = data
+            .world
+            .airport_by_ident("EDDF".parse()?)
+            .ok_or_else(|| anyhow::anyhow!("EDDF"))?;
+        let plain = Scenario::with_traffic(data.world, data.aircraft, data.airlines, data.traffic)?;
+        assert_eq!(plain.taxi_times().len(), 0);
+        let mapped = plain.with_ground(crate::ground::GroundDefinition::from_json(
+            include_str!("../../../assets/ground/germany.ground.json"),
+        )?)?;
+        let times = mapped.taxi_times();
+        assert!(times[frankfurt.as_usize()].is_some());
+        assert!(mapped.schedule_inputs().is_some());
         Ok(())
     }
 }

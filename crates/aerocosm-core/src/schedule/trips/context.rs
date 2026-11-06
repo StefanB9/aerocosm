@@ -9,7 +9,12 @@ use super::{DAY, RoundTrip};
 use crate::{
     AircraftCatalog, Id, SimTime,
     airline::AirlineCatalog,
-    schedule::{rotation::WEEK, slots::SlotBook, timetable::offset_minutes},
+    ground::TaxiTimes,
+    schedule::{
+        rotation::WEEK,
+        slots::SlotBook,
+        timetable::{TaxiMinutes, offset_minutes},
+    },
     traffic::{Capacity, ClockTime, Curfew, TrafficTargets},
     units::Meters,
     world::{Airport, World},
@@ -26,6 +31,8 @@ pub(crate) struct TripContext<'a> {
     curfews: HashMap<Id<Airport>, Curfew>,
     pub(super) banks: HashMap<Id<Airport>, Vec<ClockTime>>,
     capacities: HashMap<Id<Airport>, Capacity>,
+    /// Typical taxi minutes at mapped airports (plan M4 D73).
+    taxi: HashMap<Id<Airport>, (f64, f64)>,
 }
 
 impl<'a> TripContext<'a> {
@@ -69,7 +76,34 @@ impl<'a> TripContext<'a> {
             curfews,
             banks,
             capacities,
+            taxi: HashMap::new(),
         })
+    }
+
+    /// The context with typical taxi times by airport index (plan M4 D73).
+    pub(crate) fn with_taxi(mut self, table: &[Option<TaxiTimes>]) -> Self {
+        let minutes = |d: crate::SimDuration| d.as_secs_f64() / 60.0;
+        for (index, times) in table.iter().enumerate() {
+            if let (Some(times), Ok(id)) = (times, Id::<Airport>::from_usize(index)) {
+                self.taxi
+                    .insert(id, (minutes(times.out), minutes(times.back)));
+            }
+        }
+        self
+    }
+
+    /// Taxi minutes a block from `from` to `to` allows.
+    pub(crate) fn taxi(&self, from: Id<Airport>, to: Id<Airport>) -> TaxiMinutes {
+        TaxiMinutes {
+            out: self
+                .taxi
+                .get(&from)
+                .map_or(TaxiMinutes::DEFAULT.out, |t| t.0),
+            back: self
+                .taxi
+                .get(&to)
+                .map_or(TaxiMinutes::DEFAULT.back, |t| t.1),
+        }
     }
 
     /// Converts a base-local week minute to the local week minute at
