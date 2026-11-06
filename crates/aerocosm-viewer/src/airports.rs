@@ -12,15 +12,10 @@ use bevy::{
 };
 
 use crate::{
-    camera::{CameraRig, PointerState},
-    data::OVERLAY_LAYER,
-    lod, picking,
-    projection::MapProjection,
+    camera::CameraRig, data::OVERLAY_LAYER, lod, projection::MapProjection, selection::Selection,
     theme,
 };
 
-/// Pointer reach for hovering a symbol, in pixels.
-const HOVER_REACH: f32 = 12.0;
 /// Selection ring radius, relative to the symbol radius.
 pub(crate) const SELECTED_RING: f32 = 2.4;
 /// Halo around a symbol, relative to its radius, for contrast against lines.
@@ -30,13 +25,6 @@ const HALO: f32 = 1.45;
 #[derive(Resource)]
 pub(crate) struct WorldView {
     pub(crate) world: World,
-}
-
-/// Which airport the pointer is over and which one is selected.
-#[derive(Resource, Default, Debug, PartialEq, Eq)]
-pub(crate) struct Selection {
-    pub(crate) hovered: Option<Id<Airport>>,
-    pub(crate) selected: Option<Id<Airport>>,
 }
 
 /// An airport symbol.
@@ -63,7 +51,7 @@ impl Plugin for AirportsPlugin {
                 (
                     update_symbols,
                     update_runways,
-                    hover_and_select.after(crate::camera::CameraSet),
+                    crate::selection::hover_and_select.after(crate::camera::CameraSet),
                     draw_selection,
                 ),
             );
@@ -229,39 +217,6 @@ fn update_runways(
     }
 }
 
-fn hover_and_select(
-    rig: Option<Res<CameraRig>>,
-    pointer: Res<PointerState>,
-    symbols: Query<(&AirportSymbol, &Visibility)>,
-    mut selection: ResMut<Selection>,
-) {
-    let Some(rig) = rig else {
-        return;
-    };
-    let hovered = match pointer.cursor {
-        Some(cursor) if !pointer.over_ui => picking::nearest(
-            symbols
-                .iter()
-                .filter(|(_, visibility)| **visibility != Visibility::Hidden)
-                .map(|(symbol, _)| {
-                    (
-                        symbol.id,
-                        rig.state.world_to_screen(symbol.position, pointer.viewport),
-                    )
-                }),
-            cursor,
-            HOVER_REACH,
-        ),
-        _ => None,
-    };
-    if selection.hovered != hovered {
-        selection.hovered = hovered;
-    }
-    if pointer.clicked {
-        selection.selected = hovered;
-    }
-}
-
 fn draw_selection(
     rig: Option<Res<CameraRig>>,
     selection: Res<Selection>,
@@ -274,14 +229,14 @@ fn draw_selection(
     let scale = rig.state.scale();
     for symbol in &symbols {
         let radius = lod::glyph_radius(symbol.kind) * scale;
-        if Some(symbol.id) == selection.selected {
+        if Some(symbol.id) == selection.selected_airport() {
             gizmos.circle_2d(symbol.position, radius * SELECTED_RING, theme::ACCENT);
             gizmos.circle_2d(
                 symbol.position,
                 radius * 2.0,
                 theme::ACCENT.with_alpha(0.35),
             );
-        } else if Some(symbol.id) == selection.hovered {
+        } else if Some(symbol.id) == selection.hovered_airport() {
             gizmos.circle_2d(symbol.position, radius * 2.0, theme::TEXT.with_alpha(0.6));
         }
     }
@@ -330,67 +285,6 @@ mod tests {
             (d - a).length() / stretch
         );
         Ok(())
-    }
-
-    fn selection_app(cursor: Option<Vec2>, clicked: bool) -> App {
-        use crate::camera::{
-            CameraRig,
-            controller::{CameraLimits, CameraState},
-        };
-        let mut app = App::new();
-        app.insert_resource(CameraRig::new(
-            CameraState::new(Vec2::ZERO, 10.0),
-            CameraLimits {
-                bounds: Rect::new(-1e6, -1e6, 1e6, 1e6),
-                min_scale: 1.0,
-                max_scale: 100.0,
-            },
-        ))
-        .insert_resource(PointerState {
-            cursor,
-            clicked,
-            over_ui: false,
-            viewport: Vec2::new(800.0, 600.0),
-        })
-        .init_resource::<Selection>()
-        .add_systems(Update, hover_and_select);
-        // At scale 10 the screen centre (400, 300) is world (0, 0); this symbol
-        // is 50 px right.
-        app.world_mut().spawn((
-            AirportSymbol {
-                id: Id::new(7),
-                kind: AirportKind::Major,
-                position: Vec2::new(500.0, 0.0),
-            },
-            Visibility::Inherited,
-        ));
-        app
-    }
-
-    #[test]
-    fn test_hover_and_click_select_symbol_under_cursor() {
-        let mut app = selection_app(Some(Vec2::new(452.0, 301.0)), true);
-        app.update();
-        let selection = app.world().resource::<Selection>();
-        assert_eq!(selection.hovered, Some(Id::new(7)));
-        assert_eq!(selection.selected, Some(Id::new(7)));
-    }
-
-    #[test]
-    fn test_click_on_empty_map_clears_selection() {
-        let mut app = selection_app(Some(Vec2::new(100.0, 100.0)), true);
-        app.world_mut().resource_mut::<Selection>().selected = Some(Id::new(7));
-        app.update();
-        let selection = app.world().resource::<Selection>();
-        assert_eq!(selection.hovered, None);
-        assert_eq!(selection.selected, None);
-    }
-
-    #[test]
-    fn test_hover_without_click_keeps_selection() {
-        let mut app = selection_app(Some(Vec2::new(452.0, 301.0)), false);
-        app.update();
-        assert_eq!(app.world().resource::<Selection>().selected, None);
     }
 
     #[test]

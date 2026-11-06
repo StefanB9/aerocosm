@@ -105,6 +105,8 @@ pub(crate) fn display_length(pixels: f32, meters: f32, scale: f32, units_per_met
 
 /// Fraction of the way from `origin` to `destination`, measured along the
 /// direct line, `0..=1`.
+// Temporary until the flight panel shows it (removed in that commit).
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn progress(origin: Vec2, destination: Vec2, position: Vec2) -> f32 {
     let route = destination - origin;
     let length = route.length_squared();

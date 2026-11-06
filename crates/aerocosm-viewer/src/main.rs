@@ -5,20 +5,18 @@
 // two pedantic lints fire on idiomatic code throughout this crate only (plan D11).
 #![allow(clippy::needless_pass_by_value, clippy::too_many_arguments)]
 
+mod aircraft;
 mod airports;
 mod camera;
 mod data;
 mod driver;
-// Temporary until the aircraft layer uses it (removed in that commit).
-#[cfg_attr(not(test), allow(dead_code))]
 mod flights;
 mod labels;
 mod lod;
 mod map;
 mod picking;
 mod projection;
-// Temporary until the aircraft layer draws them (removed in that commit).
-#[cfg_attr(not(test), allow(dead_code))]
+mod selection;
 mod silhouette;
 mod tessellate;
 mod theme;
@@ -29,7 +27,10 @@ use anyhow::{Context, Result};
 use bevy::{
     DefaultPlugins,
     app::{App, PluginGroup, Startup, Update},
-    ecs::system::{Res, ResMut},
+    ecs::{
+        schedule::IntoScheduleConfigs,
+        system::{Res, ResMut},
+    },
     log::error,
     time::{Real, Time},
     utils::default,
@@ -37,9 +38,10 @@ use bevy::{
 };
 
 use crate::{
+    aircraft::AircraftPlugin,
     airports::{AirportsPlugin, WorldView},
     camera::CameraPlugin,
-    driver::SimDriver,
+    driver::{SimDriver, SimSet},
     map::MapPlugin,
     projection::MapProjection,
     ui::UiPlugin,
@@ -76,8 +78,14 @@ fn main() -> Result<()> {
         .insert_resource(WorldView { world })
         .insert_resource(driver)
         .add_systems(Startup, data::setup_fonts)
-        .add_plugins((CameraPlugin, MapPlugin, AirportsPlugin, UiPlugin))
-        .add_systems(Update, drive_simulation)
+        .add_plugins((
+            CameraPlugin,
+            MapPlugin,
+            AirportsPlugin,
+            AircraftPlugin,
+            UiPlugin,
+        ))
+        .add_systems(Update, drive_simulation.in_set(SimSet))
         .run();
     Ok(())
 }

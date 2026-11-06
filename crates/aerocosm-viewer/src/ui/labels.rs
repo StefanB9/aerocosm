@@ -8,12 +8,13 @@ use aerocosm_core::{
 use bevy::{picking::Pickable, prelude::*, ui::ComputedNode};
 
 use crate::{
-    airports::{Selection, WorldView},
+    airports::WorldView,
     camera::{CameraRig, PointerState},
     data::{Fonts, MapData},
     labels::{LabelCandidate, place_labels},
     lod,
     projection::MapProjection,
+    selection::Selection,
     theme,
 };
 
@@ -209,7 +210,7 @@ fn place(
     // The selected airport's label goes first so it is always shown.
     let selected = order.0.iter().copied().find(|entity| {
         labels.get(*entity).is_ok_and(|(label, _, _, _)| {
-            matches!(label.subject, Subject::Airport(id, _) if Some(id) == selection.selected)
+            matches!(label.subject, Subject::Airport(id, _) if Some(id) == selection.selected_airport())
         })
     });
     let others = order
@@ -222,7 +223,7 @@ fn place(
             continue;
         };
         let (visible, gap) = match label.subject {
-            Subject::Airport(id, kind) if Some(id) == selection.selected => (
+            Subject::Airport(id, kind) if Some(id) == selection.selected_airport() => (
                 true,
                 Some(lod::glyph_radius(kind) * crate::airports::SELECTED_RING + SELECTED_GAP),
             ),

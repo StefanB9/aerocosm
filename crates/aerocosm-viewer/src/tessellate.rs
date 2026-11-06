@@ -61,8 +61,6 @@ pub(crate) fn fill_polygons<'a>(
 }
 
 /// Triangulates one simple closed outline given in local units.
-// Temporary until the aircraft layer draws silhouettes (removed in that commit).
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn fill_outline(outline: &[Vec2]) -> Result<Triangles> {
     let mut buffers: VertexBuffers<[f32; 2], u32> = VertexBuffers::new();
     let mut builder = LyonPath::builder();
