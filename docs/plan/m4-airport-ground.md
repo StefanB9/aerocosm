@@ -80,6 +80,18 @@ small components are cut off by the query box or are disconnected service areas.
 - No conflicts yet: aircraft may overlap on the ground.
 - **Tests:** route continuity and validity, stand suitability, exits reachable by type,
   schedule targets still within tolerance, determinism.
+- *Implemented in PR 2:*
+  - The aircraft catalog gains wingspans (format 2).
+  - Stands are taken when a tail's first leg boards (or at the start) and on touchdown,
+    nearest the exit. When nothing suitable is free an arrival shares a stand until PR 3's
+    waiting spots.
+  - Routes cost runways ×4 and other stands' lead-ins ×20.
+  - Routed taxiing averages 5 m/s (about 10 kt). Pushback is 1 m/s along the lead-in plus
+    60 s of engine start.
+  - Rapid exits (≤ 45°) are taken at 15 m/s, others at 8 m/s, with touchdown assumed 300 m
+    past the threshold.
+  - Departures still queue at the runway entry; holding short before line-up comes with
+    ground control in PR 3.
 
 ## PR 3 — Ground control
 
