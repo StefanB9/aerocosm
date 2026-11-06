@@ -249,8 +249,14 @@ impl Operations {
     }
 
     /// The time the next step simulates.
+    #[cfg(test)]
     pub(crate) const fn time(&self) -> SimTime {
         self.time
+    }
+
+    /// The schedule being flown.
+    pub(crate) const fn schedule(&self) -> &Schedule {
+        &self.schedule
     }
 
     /// Aircraft currently off the ground.

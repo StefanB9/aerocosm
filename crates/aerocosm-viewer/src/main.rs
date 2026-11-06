@@ -18,7 +18,7 @@ mod tessellate;
 mod theme;
 mod ui;
 
-use aerocosm_core::{RngSeed, SimConfig, SimTime, Simulation};
+use aerocosm_core::{RngSeed, Scenario, SimConfig, SimTime, Simulation};
 use anyhow::{Context, Result};
 use bevy::{
     DefaultPlugins,
@@ -50,7 +50,10 @@ fn main() -> Result<()> {
     // The viewer and the simulation each keep a copy of the static world; it is
     // small and never mutated, and this keeps the core free of shared-ownership
     // types.
-    let simulation = Simulation::new(SimConfig::new(start, RngSeed::new(0)), world.clone());
+    let simulation = Simulation::new(
+        SimConfig::new(start, RngSeed::new(0)),
+        Scenario::new(world.clone()),
+    )?;
     let driver = SimDriver::new(simulation)?;
 
     App::new()

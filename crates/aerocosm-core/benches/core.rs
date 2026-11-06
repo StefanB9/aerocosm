@@ -6,9 +6,8 @@
 use std::hint::black_box;
 
 use aerocosm_core::{
-    LatLon, RngSeed, SimConfig, SimTime, Simulation,
+    LatLon, RngSeed, Scenario, SimConfig, SimTime, Simulation,
     units::{Degrees, Meters},
-    world::World,
 };
 use anyhow::Result;
 use criterion::{Criterion, criterion_group, criterion_main};
@@ -55,8 +54,8 @@ fn bench_simulation(c: &mut Criterion) {
     };
     c.bench_function("sim/run_ticks_1h", |b| {
         b.iter(|| {
-            let mut sim = Simulation::new(SimConfig::new(f.start, RngSeed::new(1)), World::empty());
-            black_box(sim.run_ticks(black_box(3600)))
+            let sim = Simulation::new(SimConfig::new(f.start, RngSeed::new(1)), Scenario::empty());
+            black_box(sim.and_then(|mut sim| sim.run_ticks(black_box(3600))))
         });
     });
 }

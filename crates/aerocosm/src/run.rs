@@ -5,7 +5,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use aerocosm_core::{SimConfig, SimTime, Simulation, WallClock, WallInstant, world::World};
+use aerocosm_core::{
+    Scenario, SimConfig, SimTime, Simulation, WallClock, WallInstant, world::World,
+};
 use anyhow::{Context, Result};
 
 use crate::cli::RunArgs;
@@ -49,7 +51,8 @@ pub(crate) fn run(args: &RunArgs, world: World, clock: &impl WallClock) -> Resul
         .start
         .checked_add(args.duration)
         .with_context(|| format!("{} + {} is out of range", args.start, args.duration))?;
-    let mut simulation = Simulation::new(SimConfig::new(args.start, args.seed), world);
+    let mut simulation =
+        Simulation::new(SimConfig::new(args.start, args.seed), Scenario::new(world))?;
     let started = clock.now();
     let ticks = simulation
         .run_until(end)

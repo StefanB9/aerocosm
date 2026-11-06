@@ -84,11 +84,13 @@ impl Profile {
     }
 
     /// The leg's cruise altitude, m.
+    #[cfg(test)]
     pub(crate) const fn cruise_altitude(&self) -> f64 {
         self.cruise_altitude
     }
 
     /// Altitude at the final approach fix, m.
+    #[cfg(test)]
     pub(crate) const fn faf_altitude(&self) -> f64 {
         self.faf_altitude
     }

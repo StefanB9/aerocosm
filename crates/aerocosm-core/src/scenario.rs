@@ -85,8 +85,6 @@ impl Scenario {
     }
 
     /// Inputs for schedule generation, if the scenario has traffic.
-    // Temporary until the simulation generates its schedule (removed in that commit).
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn schedule_inputs(&self) -> Option<ScheduleInputs<'_>> {
         let traffic = self.traffic.as_ref()?;
         // SAFETY: the references were checked in `with_traffic`, and the

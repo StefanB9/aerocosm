@@ -25,5 +25,6 @@ pub use geo::LatLon;
 pub use id::Id;
 pub use pacing::{Pacer, SimSpeed, WallClock, WallInstant};
 pub use rng::{RngSeed, SimRng, StreamId};
+pub use scenario::Scenario;
 pub use sim::{SimConfig, Simulation, TICK};
 pub use time::{CivilDateTime, SimDuration, SimTime};
