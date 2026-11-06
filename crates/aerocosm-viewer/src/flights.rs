@@ -26,18 +26,27 @@ pub(crate) enum PhaseBand {
     Cruise,
     /// Descending and on approach.
     Descent,
+    /// Flying a holding pattern.
+    Holding,
 }
 
 impl PhaseBand {
     /// All bands.
-    pub(crate) const ALL: [Self; 4] = [Self::Ground, Self::Climb, Self::Cruise, Self::Descent];
+    pub(crate) const ALL: [Self; 5] = [
+        Self::Ground,
+        Self::Climb,
+        Self::Cruise,
+        Self::Descent,
+        Self::Holding,
+    ];
 
     /// The band of a phase.
     pub(crate) const fn of(phase: Phase) -> Self {
         match phase {
             Phase::Climb => Self::Climb,
             Phase::Cruise => Self::Cruise,
-            Phase::Holding | Phase::Descent | Phase::Approach => Self::Descent,
+            Phase::Holding => Self::Holding,
+            Phase::Descent | Phase::Approach => Self::Descent,
             Phase::Boarding
             | Phase::TaxiOut
             | Phase::Queue
@@ -60,6 +69,7 @@ impl PhaseBand {
             Self::Climb => Color::srgb(0.45, 0.85, 0.55),
             Self::Cruise => Color::srgb(0.55, 0.80, 1.00),
             Self::Descent => Color::srgb(0.98, 0.47, 0.56),
+            Self::Holding => Color::srgb(0.74, 0.58, 1.00),
         }
     }
 }
@@ -199,6 +209,8 @@ mod tests {
         assert_eq!(PhaseBand::of(Phase::Climb), PhaseBand::Climb);
         assert_eq!(PhaseBand::of(Phase::Cruise), PhaseBand::Cruise);
         assert_eq!(PhaseBand::of(Phase::Approach), PhaseBand::Descent);
+        assert_eq!(PhaseBand::of(Phase::Holding), PhaseBand::Holding);
+        assert_eq!(PhaseBand::of(Phase::Queue), PhaseBand::Ground);
         assert_eq!(PhaseBand::of(Phase::TaxiIn), PhaseBand::Ground);
         assert!(
             PhaseBand::ALL

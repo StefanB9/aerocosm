@@ -16,6 +16,7 @@ mod lod;
 mod map;
 mod picking;
 mod projection;
+mod runway_use;
 mod selection;
 mod silhouette;
 mod tessellate;
@@ -44,6 +45,7 @@ use crate::{
     driver::{SimDriver, SimSet},
     map::MapPlugin,
     projection::MapProjection,
+    runway_use::RunwayUsePlugin,
     ui::UiPlugin,
 };
 
@@ -83,6 +85,7 @@ fn main() -> Result<()> {
             MapPlugin,
             AirportsPlugin,
             AircraftPlugin,
+            RunwayUsePlugin,
             UiPlugin,
         ))
         .add_systems(Update, drive_simulation.in_set(SimSet))

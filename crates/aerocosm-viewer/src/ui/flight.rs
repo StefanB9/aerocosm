@@ -2,7 +2,9 @@
 
 use std::fmt::Write as _;
 
-use aerocosm_core::{Id, LatLon, Scenario, ops::FlightView, schedule::Tail, world::Airport};
+use aerocosm_core::{
+    Id, LatLon, Scenario, SimTime, ops::FlightView, schedule::Tail, time::Zone, world::Airport,
+};
 use bevy::{
     app::{App, Plugin, Startup, Update},
     camera::visibility::Visibility,
@@ -97,6 +99,76 @@ pub(crate) struct FlightLines {
     pub(crate) progress: f32,
     pub(crate) departure: String,
     pub(crate) arrival: String,
+    /// Holding, slot, sequencing and speed control, when they apply.
+    pub(crate) notes: Vec<String>,
+}
+
+/// A hold to mention in the flight panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HoldNote {
+    /// In a stack, expected out at the given time.
+    Until(SimTime),
+    /// Orbiting at the final fix, waiting for the approach.
+    AtFix,
+}
+
+impl HoldNote {
+    fn of(hold: aerocosm_core::ops::Holding) -> Self {
+        hold.until().map_or(Self::AtFix, Self::Until)
+    }
+}
+
+/// Lines about flow control: a hold, a slot at the origin, the booked
+/// landing and speed control.
+pub(crate) fn notes(
+    origin_zone: Option<&Zone>,
+    destination_zone: Option<&Zone>,
+    holding: Option<HoldNote>,
+    slot_time: Option<SimTime>,
+    expected_landing: Option<SimTime>,
+    speed_factor: f64,
+) -> Vec<String> {
+    let mut notes = Vec::with_capacity(4);
+    match holding {
+        Some(HoldNote::Until(until)) => notes.push(format!(
+            "Holding, expected out {}",
+            format::local_clock(destination_zone, until)
+        )),
+        Some(HoldNote::AtFix) => notes.push("Holding at the final fix".to_owned()),
+        None => {}
+    }
+    if let Some(slot) = slot_time {
+        notes.push(format!(
+            "Slot (CTOT) {}",
+            format::local_clock(origin_zone, slot)
+        ));
+    }
+    if let Some(landing) = expected_landing {
+        notes.push(format!(
+            "Expected landing {}",
+            format::local_clock(destination_zone, landing)
+        ));
+    }
+    if speed_factor < 0.995 {
+        // A few percent; the rounding is exact enough for display.
+        #[allow(clippy::cast_possible_truncation)]
+        let percent = ((1.0 - speed_factor) * 100.0).round() as i32;
+        notes.push(format!("Speed control −{percent} %"));
+    }
+    notes
+}
+
+/// The note for an aircraft orbiting at the final fix.
+#[cfg(test)]
+fn notes_at_fix(destination_zone: Option<&Zone>) -> Vec<String> {
+    notes(
+        None,
+        destination_zone,
+        Some(HoldNote::AtFix),
+        None,
+        None,
+        1.0,
+    )
 }
 
 /// IATA code if there is one, else the identifier.
@@ -167,6 +239,15 @@ pub(crate) fn flight_lines(scenario: &Scenario, view: &FlightView) -> Option<Fli
         progress: progress(origin.location(), destination.location(), view.position()),
         departure,
         arrival,
+        notes: notes(
+            origin_zone,
+            destination_zone,
+            view.holding().map(HoldNote::of),
+            view.slot_time(),
+            view.expected_landing()
+                .filter(|_| view.phase().is_airborne()),
+            view.speed_factor(),
+        ),
     })
 }
 
@@ -282,6 +363,9 @@ fn spawn_lines(
         text(fonts, lines.arrival, 12.0, theme::TEXT_MUTED),
         ChildOf(panel),
     ));
+    for note in lines.notes {
+        commands.spawn((strong(fonts, note, 12.0, theme::ACCENT), ChildOf(panel)));
+    }
     let label = if following {
         "Following · F"
     } else {
@@ -429,6 +513,34 @@ mod tests {
     }
 
     #[test]
+    fn test_notes_for_holding_slots_speed_and_sequence() -> Result<()> {
+        let zone = aerocosm_core::time::Zone::new("Europe/Berlin")?;
+        let at: aerocosm_core::SimTime = "2026-11-05T07:42:00Z".parse()?;
+        let notes = notes(
+            Some(&zone),
+            Some(&zone),
+            Some(HoldNote::Until(at)),
+            Some(at),
+            Some(at),
+            0.92,
+        );
+        assert_eq!(
+            notes,
+            vec![
+                "Holding, expected out 08:42".to_owned(),
+                "Slot (CTOT) 08:42".to_owned(),
+                "Expected landing 08:42".to_owned(),
+                "Speed control −8 %".to_owned(),
+            ]
+        );
+        assert_eq!(
+            notes_at_fix(Some(&zone)),
+            vec!["Holding at the final fix".to_owned()]
+        );
+        Ok(())
+    }
+
+    #[test]
     fn test_toggled_follows_and_unfollows_the_selection() {
         let (a, b) = (Id::new(1), Id::new(2));
         assert_eq!(toggled(None, Some(a)), Some(a));
@@ -457,6 +569,10 @@ mod tests {
         assert!((0.0..=1.0).contains(&lines.progress));
         assert!(lines.departure.starts_with("Departure "));
         assert!(lines.arrival.starts_with("Arrival "));
+        assert!(
+            lines.notes.is_empty(),
+            "nothing special for an unhindered cruise"
+        );
         Ok(())
     }
 }
