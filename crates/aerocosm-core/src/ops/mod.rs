@@ -4,8 +4,6 @@
 mod fleet;
 mod motion;
 mod path;
-// Temporary until leg paths use it (removed in that commit).
-#[cfg_attr(not(test), allow(dead_code))]
 mod procedure;
 mod runway;
 mod tail;

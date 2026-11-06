@@ -9,6 +9,10 @@ use crate::{
     units::{Degrees, Meters},
 };
 
+/// Straight pieces shorter than this (metres) are dropped: a corner's arc may
+/// use up a whole leg.
+const MIN_LINE: f64 = 0.01;
+
 /// Corners turning less than this are left sharp.
 const MIN_TURN_DEGREES: f64 = 1.0;
 
@@ -68,6 +72,14 @@ impl Leg {
     }
 }
 
+/// Appends the great circle from `from` to `to` unless it is negligibly short.
+fn push_line(legs: &mut Vec<Leg>, from: LatLon, to: LatLon) -> Result<()> {
+    if from.distance_to(to).value() >= MIN_LINE {
+        legs.push(Leg::Line(Segment::new(from, to)?));
+    }
+    Ok(())
+}
+
 /// Signed turn from course `a` to course `b`, degrees in `(-180, 180]`,
 /// positive clockwise.
 fn turn(a: Degrees, b: Degrees) -> f64 {
@@ -99,7 +111,7 @@ impl Route {
         let mut from = points[0];
         for (index, corner) in points.iter().enumerate().skip(1) {
             let Some(next) = points.get(index + 1) else {
-                legs.push(Leg::Line(Segment::new(from, *corner)?));
+                push_line(&mut legs, from, *corner)?;
                 break;
             };
             let incoming =
@@ -107,7 +119,7 @@ impl Route {
             let outgoing = corner.initial_bearing_to(*next);
             let angle = turn(incoming, outgoing);
             if angle.abs() < MIN_TURN_DEGREES {
-                legs.push(Leg::Line(Segment::new(from, *corner)?));
+                push_line(&mut legs, from, *corner)?;
                 from = *corner;
                 continue;
             }
@@ -134,11 +146,14 @@ impl Route {
                 start: center.initial_bearing_to(entry).value(),
                 sweep: angle,
             };
-            legs.push(Leg::Line(Segment::new(from, entry)?));
+            push_line(&mut legs, from, entry)?;
             // The next leg starts where the arc really ends, which keeps the
             // route continuous on the sphere.
             from = arc.point_at(arc.length());
             legs.push(arc);
+        }
+        if legs.is_empty() {
+            legs.push(Leg::Line(Segment::new(points[0], points[0])?));
         }
         let mut starts = Vec::with_capacity(legs.len());
         let mut length = 0.0;
@@ -243,15 +258,18 @@ mod tests {
         #[test]
         fn test_routes_are_continuous_and_smooth(
             lat in 45.0_f64..55.0, lon in 2.0_f64..16.0,
-            legs in prop::collection::vec((0.0_f64..360.0, 3_000.0_f64..80_000.0), 1..5),
+            first in 0.0_f64..360.0,
+            legs in prop::collection::vec((-150.0_f64..150.0, 3_000.0_f64..80_000.0), 1..5),
             radius in 500.0_f64..4_000.0,
         ) {
             let fail = |e: anyhow::Error| TestCaseError::fail(format!("{e:#}"));
             let mut points = vec![LatLon::new(lat, lon).map_err(fail)?];
-            for (course, distance) in &legs {
+            let mut heading = first;
+            for (turn_by, distance) in &legs {
+                heading = (heading + turn_by).rem_euclid(360.0);
                 let last = points[points.len() - 1];
                 points.push(last.destination(
-                    Degrees::new(*course).map_err(fail)?,
+                    Degrees::new(heading).map_err(fail)?,
                     Meters::new(*distance).map_err(fail)?,
                 ));
             }
@@ -272,9 +290,9 @@ mod tests {
                 // Moving `step` along the route moves at most `step` on the ground.
                 prop_assert!(previous.distance_to(here).value() <= step + 0.5);
                 let next = route.bearing_at(along);
-                // No course jumps: at most the turn a `step` of arc allows, plus slack
-                // for corners too tight to round fully.
-                prop_assert!(turn(course, next).abs() < 179.0);
+                // No course jumps: corners of up to 150° on legs of 3 km or more
+                // leave arcs of at least ~400 m radius, about 7° per step.
+                prop_assert!(turn(course, next).abs() < 20.0, "{:?}", (course, next));
                 previous = here;
                 course = next;
             }
