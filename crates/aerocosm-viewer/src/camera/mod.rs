@@ -60,6 +60,11 @@ pub(crate) struct CameraRig {
 }
 
 impl CameraRig {
+    /// Whether the map is being dragged.
+    pub(crate) const fn dragging(&self) -> bool {
+        self.drag.is_some()
+    }
+
     /// A rig at `state`; the home view defaults to the whole of
     /// `limits.bounds`.
     pub(crate) fn new(state: CameraState, limits: CameraLimits) -> Self {

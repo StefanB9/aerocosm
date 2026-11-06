@@ -39,7 +39,6 @@ impl MapProjection {
     }
 
     /// The point mapped to `(0, 0)`.
-    #[cfg(test)]
     pub(crate) const fn origin(&self) -> LatLon {
         self.origin
     }

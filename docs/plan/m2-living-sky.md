@@ -35,6 +35,10 @@ separation, delay propagation).
 | D46 | Determinism is per platform: std floating-point maths, identical runs on the same build and target | No extra dependency or cost in the hot loop; revisit for networked or cross-platform replays |
 | D47 | Ground positions without stand/taxiway data: boarding at the airport reference point, taxi as a straight line between it and the runway threshold (out) or the end of the landing roll (in) | Visible ground traffic at airport zoom; stands and taxiways arrive in M3 |
 | D48 | Operations run per tail (a dense `Vec` of tails, each flying its weekly rotation week after week) rather than per flight; airborne state stores distance flown along precomputed segments, and positions are evaluated only when viewed | No activation churn; the per-tick update has no trigonometry, which keeps 15k aircraft well under 1 ms |
+| D49 | Aircraft are coloured by phase (ground, climb, cruise, descent); the selected flight's panel and trail use the airline colour | The traffic flow reads at a glance; airline identity where it is looked at |
+| D50 | The viewer interpolates each aircraft between its previous and current tick position by the time since the last tick; the core is unchanged | Smooth motion at airport zoom and any speed, at most one tick of lag |
+| D51 | Trails (last ~2 simulated minutes) for every visible airborne aircraft beyond country zoom; at country zoom only for the hovered and selected flight | Shows flows where they are legible without ~800 lines of clutter |
+| D52 | The viewer starts at a fixed instant in the morning wave, Thu 5 Nov 2026 07:00 UTC (08:00 local), warm | Deterministic and identical on desktop and web, with a busy sky at once |
 
 ## Calibration facts (to be cited in `docs/data-sources.md`)
 

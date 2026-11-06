@@ -10,6 +10,7 @@ mod timeline;
 mod view;
 
 pub(crate) use fleet::Operations;
+pub use fleet::board::{BoardEntry, BoardKind, FlightStatus};
 pub use view::{Callsign, FlightView};
 
 /// What an aircraft is doing on a leg, in the order it happens.

@@ -4,10 +4,14 @@ use std::time::Duration;
 
 use aerocosm_core::{Pacer, SimSpeed, SimTime, Simulation, TICK, WallClock, WallInstant};
 use anyhow::{Context, Result};
-use bevy::ecs::resource::Resource;
+use bevy::ecs::{resource::Resource, schedule::SystemSet};
 
 /// At most this many ticks per frame; `Max` speed runs exactly this many.
 const MAX_TICKS_PER_FRAME: u32 = 2000;
+
+/// Systems that advance the simulation; readers of its state run after.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct SimSet;
 
 /// The simulation plus the pacer that decides how far to advance it each frame.
 #[derive(Resource)]
@@ -44,9 +48,20 @@ impl SimDriver {
         self.pacer.speed()
     }
 
+    /// How far real time has progressed into the next tick, `0..1` (D50).
+    pub(crate) fn tick_fraction(&self) -> f64 {
+        self.pacer.tick_fraction()
+    }
+
     /// Changes the speed from the next frame on.
     pub(crate) const fn set_speed(&mut self, speed: SimSpeed) {
         self.pacer.set_speed(speed);
+    }
+
+    /// Runs `count` ticks regardless of speed.
+    #[cfg(test)]
+    pub(crate) fn run_ticks(&mut self, count: u32) -> Result<()> {
+        self.simulation.run_ticks(count)
     }
 
     /// Runs the ticks due by `elapsed`, the real time since the app started.

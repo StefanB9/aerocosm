@@ -2,16 +2,13 @@
 
 use aerocosm_core::{
     Id,
+    ops::BoardKind,
     world::{Airport, AirportKind, GeometrySource, Surface},
 };
 use bevy::prelude::*;
 
-use super::{card, strong, text};
-use crate::{
-    airports::{Selection, WorldView},
-    data::Fonts,
-    theme,
-};
+use super::{boards::spawn_board, card, strong, text};
+use crate::{airports::WorldView, data::Fonts, selection::Selection, theme};
 
 /// Shows details of the selected airport.
 pub(super) struct PanelPlugin;
@@ -84,17 +81,20 @@ fn refresh_panel(
     // Hover changes also touch `Selection`; rebuild only when the selected
     // airport changes. The panel starts hidden with nothing selected, which
     // matches the initial `None`.
-    if *shown == selection.selected {
+    if *shown == selection.selected_airport() {
         return;
     }
-    *shown = selection.selected;
+    *shown = selection.selected_airport();
     let (panel, mut node) = panel.into_inner();
     commands.entity(panel).despawn_children();
-    let Some(airport) = selection.selected.and_then(|id| view.world.airport(id)) else {
+    let Some(airport) = selection
+        .selected_airport()
+        .and_then(|id| view.world.airport(id))
+    else {
         node.display = Display::None;
         return;
     };
-    let Some(id) = selection.selected else {
+    let Some(id) = selection.selected_airport() else {
         return;
     };
     node.display = Display::Flex;
@@ -125,6 +125,9 @@ fn refresh_panel(
         ),
         ChildOf(panel),
     ));
+    for kind in [BoardKind::Departures, BoardKind::Arrivals] {
+        spawn_board(&mut commands, &fonts, panel, id, kind);
+    }
     let runways = view.world.runways_of(id);
     commands.spawn((
         Node {

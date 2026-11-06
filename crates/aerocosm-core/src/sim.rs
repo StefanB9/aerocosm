@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 
 use crate::{
     Id, RngSeed, SimDuration, SimTime,
-    ops::{FlightView, Operations, StartMode},
+    ops::{BoardEntry, BoardKind, FlightView, Operations, StartMode},
     scenario::Scenario,
     schedule::{Schedule, ScheduleConfig, generate},
     world::{Airport, World},
@@ -106,6 +106,16 @@ impl Simulation {
     /// Every boarding or moving flight.
     pub fn flights(&self) -> impl Iterator<Item = FlightView> + '_ {
         self.operations.iter().flat_map(Operations::flights)
+    }
+
+    /// Up to `count` of `airport`'s departures or arrivals from a quarter of an
+    /// hour ago onwards, with their status; empty without traffic.
+    pub fn board(&self, airport: Id<Airport>, kind: BoardKind, count: usize) -> Vec<BoardEntry> {
+        self.operations
+            .as_ref()
+            .map_or_else(Vec::new, |operations| {
+                operations.board(airport, kind, count)
+            })
     }
 
     /// Aircraft currently off the ground.

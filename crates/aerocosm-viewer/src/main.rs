@@ -5,25 +5,32 @@
 // two pedantic lints fire on idiomatic code throughout this crate only (plan D11).
 #![allow(clippy::needless_pass_by_value, clippy::too_many_arguments)]
 
+mod aircraft;
 mod airports;
 mod camera;
 mod data;
 mod driver;
+mod flights;
 mod labels;
 mod lod;
 mod map;
 mod picking;
 mod projection;
+mod selection;
+mod silhouette;
 mod tessellate;
 mod theme;
 mod ui;
 
-use aerocosm_core::{RngSeed, Scenario, SimConfig, SimTime, Simulation};
+use aerocosm_core::{RngSeed, SimConfig, SimTime, Simulation};
 use anyhow::{Context, Result};
 use bevy::{
     DefaultPlugins,
     app::{App, PluginGroup, Startup, Update},
-    ecs::system::{Res, ResMut},
+    ecs::{
+        schedule::IntoScheduleConfigs,
+        system::{Res, ResMut},
+    },
     log::error,
     time::{Real, Time},
     utils::default,
@@ -31,29 +38,27 @@ use bevy::{
 };
 
 use crate::{
+    aircraft::AircraftPlugin,
     airports::{AirportsPlugin, WorldView},
     camera::CameraPlugin,
-    driver::SimDriver,
+    driver::{SimDriver, SimSet},
     map::MapPlugin,
     projection::MapProjection,
     ui::UiPlugin,
 };
 
-/// Simulated start time. The browser has no portable wall-clock date in `std`,
-/// so the viewer starts at a fixed morning; later milestones make this
-/// configurable.
-const START: &str = "2026-11-05T06:00:00Z";
+/// Simulated start time (D52): a fixed instant in the morning wave, 08:00 in
+/// Germany, identical on desktop and web.
+const START: &str = "2026-11-05T07:00:00Z";
 
 fn main() -> Result<()> {
-    let (world, map) = data::load()?;
+    let (scenario, map) = data::load()?;
     let start: SimTime = START.parse().context("invalid start time")?;
     // The viewer and the simulation each keep a copy of the static world; it is
     // small and never mutated, and this keeps the core free of shared-ownership
     // types.
-    let simulation = Simulation::new(
-        SimConfig::new(start, RngSeed::new(0)),
-        Scenario::new(world.clone()),
-    )?;
+    let world = scenario.world().clone();
+    let simulation = Simulation::new(SimConfig::new(start, RngSeed::new(0)), scenario)?;
     let driver = SimDriver::new(simulation)?;
 
     App::new()
@@ -73,8 +78,14 @@ fn main() -> Result<()> {
         .insert_resource(WorldView { world })
         .insert_resource(driver)
         .add_systems(Startup, data::setup_fonts)
-        .add_plugins((CameraPlugin, MapPlugin, AirportsPlugin, UiPlugin))
-        .add_systems(Update, drive_simulation)
+        .add_plugins((
+            CameraPlugin,
+            MapPlugin,
+            AirportsPlugin,
+            AircraftPlugin,
+            UiPlugin,
+        ))
+        .add_systems(Update, drive_simulation.in_set(SimSet))
         .run();
     Ok(())
 }

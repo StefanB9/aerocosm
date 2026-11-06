@@ -133,7 +133,9 @@ For a smoother experience use `cargo run --release -p aerocosm-viewer` (slower t
 | Arrow keys or WASD | Pan |
 | `+` / `-` | Zoom in / out |
 | Home | Back to the whole of Germany |
-| Click an airport | Select it and open its panel |
+| Click an airport | Select it and open its panel with departure and arrival boards |
+| Click an aircraft | Select it and open the flight panel |
+| `F` / Follow button | Follow the selected flight with the camera (dragging stops it) |
 | Click empty map / Escape | Clear the selection |
 | Space | Pause / resume |
 | `,` / `.` | Slower / faster |
@@ -145,8 +147,9 @@ For a smoother experience use `cargo run --release -p aerocosm-viewer` (slower t
    borders, lakes and major rivers are visible; there is no hard map edge anywhere.
 2. **Labels:** major airports show IATA codes (FRA, MUC, BER, …) and big cities their names
    (Berlin, Hamburg, Frankfurt, Munich, Amsterdam, Prague, …); no labels overlap.
-3. **Clock:** the top bar starts at `Thu 5 Nov 2026 06:00:00 UTC` and advances one simulated
-   minute per real second at 60×.
+3. **Clock:** the top bar starts at `Thu 5 Nov 2026 07:00:00 UTC` (08:00 in Germany) and
+   advances one simulated minute per real second at 60×; next to it the airborne count (about
+   500 at the start, rising through the morning).
 4. **Speed:** click each speed button — the active one is highlighted and the clock rate
    changes; `Pause` stops it; Space toggles pause and resumes the previous speed; `,` and `.`
    step through the speeds.
@@ -163,6 +166,24 @@ For a smoother experience use `cargo run --release -p aerocosm-viewer` (slower t
 9. **Cursor readout:** the bottom right shows the latitude and longitude under the pointer.
 10. **Keyboard:** arrows/WASD pan, `+`/`-` zoom, Home returns to Germany.
 11. **UI vs map:** clicking the speed buttons never pans the map or deselects an airport.
+12. **Traffic at country zoom:** several hundred aircraft are in the air at once, each a small
+    silhouette (regional, narrow-body, wide-body or A380) pointing along its course, green
+    when climbing, light blue in cruise and coral when descending. Aircraft on the ground are
+    hidden; there are no trails except for the hovered or selected flight.
+13. **Traffic at airport zoom:** zoom into Frankfurt — grey aircraft board at the airport
+    point, taxi in straight lines to and from the runway in use (25R with the westerly wind),
+    take off and land; airborne aircraft leave fading two-minute trails; once zoomed in far
+    enough, aircraft are drawn to their true size. At 1× motion is smooth, not stepped.
+14. **Flight panel:** click an aircraft (pause first to make it easier) — an accent ring and
+    its callsign appear next to it, and the panel shows callsign, airline (in its colour) and
+    type, route with airport names, phase, flight level or altitude and ground speed, a
+    progress bar, and departure and arrival in local time with any delay. Its trail turns to
+    the airline colour.
+15. **Follow:** press `F` or the Follow button — the camera stays on the aircraft while zooming;
+    dragging the map, Escape or selecting something else stops following.
+16. **Boards:** the airport panel lists the next six departures and arrivals in local time
+    with callsign, other airport and status (Scheduled, Boarding, Departed, Landed, or
+    "Delayed +n min" in amber); they update every simulated minute.
 
 ## Browser viewer
 

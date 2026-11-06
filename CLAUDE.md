@@ -61,9 +61,12 @@ aerocosm/                              (workspace root)
     │       ├── projection.rs          Web Mercator around a fixed local origin
     │       ├── camera/                Two layered cameras; controller.rs = pure camera maths
     │       ├── map.rs, airports.rs    Basemap meshes/gizmo lines; airport symbols, runways
+    │       ├── aircraft.rs            Aircraft sprites, tick interpolation, trails (systems)
+    │       ├── flights.rs, silhouette.rs  Pure: phase colours, blending, trails; outlines
+    │       ├── selection.rs           Selection of an airport or flight, picking
     │       ├── lod.rs, labels.rs,     Pure logic: level of detail, label placement,
     │       │   picking.rs, ...        hit-testing, tessellation, simulation driver
-    │       └── ui/                    Top bar, airport panel, map labels
+    │       └── ui/                    Top bar, airport panel + boards, flight panel, labels
     ├── xtask/                         (binary — project tooling: `cargo xtask web build|serve`)
     └── aerocosm/                      (binary — headless CLI runner, tracing setup)
         └── src/

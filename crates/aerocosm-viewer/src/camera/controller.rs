@@ -162,6 +162,13 @@ impl CameraState {
         }
     }
 
+    /// Centres on `target` at the current zoom and stops any coasting.
+    pub(crate) fn follow(&mut self, target: Vec2, limits: &CameraLimits) {
+        self.center = target;
+        self.velocity = Vec2::ZERO;
+        self.clamp(limits);
+    }
+
     /// Pulls the scale within `limits` and moves the centre so the visible area
     /// stays inside the bounds; on an axis where the view is wider than the
     /// bounds, it is centred.
@@ -204,6 +211,25 @@ mod tests {
 
     fn state(scale: f32) -> CameraState {
         CameraState::new(Vec2::new(10_000.0, -20_000.0), scale)
+    }
+
+    #[test]
+    fn test_follow_centres_and_stops_coasting() {
+        let limits = CameraLimits {
+            bounds: Rect::new(-1000.0, -1000.0, 1000.0, 1000.0),
+            min_scale: 0.1,
+            max_scale: 10.0,
+        };
+        let mut state = CameraState::new(Vec2::ZERO, 1.0);
+        state.release(Vec2::new(500.0, 0.0));
+        state.follow(Vec2::new(100.0, 50.0), &limits);
+        assert_eq!(state.center(), Vec2::new(100.0, 50.0));
+        state.step(0.1, Vec2::new(200.0, 200.0), &limits);
+        assert_eq!(
+            state.center(),
+            Vec2::new(100.0, 50.0),
+            "no coasting after follow"
+        );
     }
 
     #[test]
