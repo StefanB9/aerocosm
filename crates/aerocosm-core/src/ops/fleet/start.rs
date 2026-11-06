@@ -92,7 +92,7 @@ impl Operations {
             clock = add(clock, SimDuration::from_millis(dt_millis(dt)))?;
         }
         if motion.phase() != Phase::Arrived {
-            self.legs[index] = Some(planned);
+            self.install(index, &planned);
             return Ok(TailOps {
                 leg,
                 week,
@@ -115,7 +115,7 @@ impl Operations {
         if boarding_from <= start {
             let planned = self.plan(scenario, index, next)?;
             tail.motion = Some(Motion::boarding(&planned.profile));
-            self.legs[index] = Some(planned);
+            self.install(index, &planned);
         }
         Ok(tail)
     }

@@ -21,7 +21,7 @@ pub(crate) const FINAL_LENGTH: f64 = 18_520.0;
 const GLIDE_SLOPE: f64 = 0.052_407_779;
 
 /// Everything a leg's profile is built from, in SI units.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(crate) struct ProfileInputs {
     /// Cruise true airspeed, m/s.
     pub(crate) cruise_speed: f64,
@@ -46,7 +46,7 @@ pub(crate) struct ProfileInputs {
 }
 
 /// A leg's precomputed speeds, altitudes and segment lengths.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(crate) struct Profile {
     inputs: ProfileInputs,
     rotate_speed: f64,

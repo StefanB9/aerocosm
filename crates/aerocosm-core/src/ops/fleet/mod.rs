@@ -9,8 +9,8 @@ use start::Rotation;
 
 use super::{
     Phase, StartMode,
-    motion::{Event, Motion},
-    path::{Leg, plan_leg},
+    motion::{Event, Motion, Profile},
+    path::{Leg, Path, plan_leg},
     tail::{draw_delay, draw_taxi_in, draw_taxi_out, next_leg, off_block},
     view::{Callsign, FlightView},
 };
@@ -46,8 +46,11 @@ pub(crate) struct Operations {
     time: SimTime,
     schedule: Schedule,
     tails: Vec<TailOps>,
-    /// The planned current leg of each tail, while it boards or flies.
-    legs: Vec<Option<Leg>>,
+    /// The geometry of each tail's current leg, while it boards or flies.
+    paths: Vec<Option<Path>>,
+    /// The profile of each tail's current leg, valid while it boards or
+    /// flies; kept apart from the geometry because every tick reads it.
+    profiles: Vec<Profile>,
     zones: Vec<Zone>,
     turnarounds: Vec<SimDuration>,
     callsigns: Vec<AirlineIcao>,
@@ -98,7 +101,8 @@ impl Operations {
         let mut operations = Self {
             time: start,
             tails: Vec::with_capacity(tail_count),
-            legs: vec![None; tail_count],
+            paths: vec![None; tail_count],
+            profiles: vec![Profile::default(); tail_count],
             zones,
             turnarounds,
             callsigns: traffic
@@ -178,7 +182,7 @@ impl Operations {
                 if now >= tail.boarding_from {
                     let planned = self.plan(scenario, index, tail.leg)?;
                     tail.motion = Some(Motion::boarding(&planned.profile));
-                    self.legs[index] = Some(planned);
+                    self.install(index, &planned);
                 }
             }
             Some(motion) if motion.phase() == Phase::Boarding => {
@@ -190,30 +194,28 @@ impl Operations {
                     );
                     let out = draw_taxi_out(&mut self.rng, origin)?;
                     let back = draw_taxi_in(&mut self.rng, destination)?;
-                    let planned = self.legs[index]
-                        .as_ref()
-                        .context("boarding without a leg")?;
                     tail.off_block = now;
-                    tail.motion = Some(Motion::start(&planned.profile, out, back));
+                    tail.motion = Some(Motion::start(&self.profiles[index], out, back));
                 }
             }
             Some(mut motion) => {
-                let planned = self.legs[index].as_ref().context("flying without a leg")?;
-                let event = motion.advance(&planned.profile, TICK.as_secs_f64());
+                let event = motion.advance(&self.profiles[index], TICK.as_secs_f64());
                 tail.motion = Some(motion);
-                let flight = *self.flight(index, tail.leg)?;
+                // Most ticks have no event; only events need the flight.
                 match event {
                     Some(Event::Takeoff) => {
                         self.airborne += 1;
-                        self.count(flight.origin());
+                        let origin = self.flight(index, tail.leg)?.origin();
+                        self.count(origin);
                     }
                     Some(Event::Landing) => {
                         self.airborne = self.airborne.saturating_sub(1);
-                        self.count(flight.destination());
+                        let destination = self.flight(index, tail.leg)?.destination();
+                        self.count(destination);
                     }
                     Some(Event::Arrived) => {
                         self.flights_flown += 1;
-                        self.legs[index] = None;
+                        self.paths[index] = None;
                         tail = self.next_tail_leg(index, &tail, add(now, TICK)?)?;
                     }
                     None => {}
@@ -222,6 +224,12 @@ impl Operations {
         }
         self.tails[index] = tail;
         Ok(())
+    }
+
+    /// Makes `leg` the tail's current leg.
+    fn install(&mut self, index: usize, leg: &Leg) {
+        self.paths[index] = Some(leg.path);
+        self.profiles[index] = leg.profile;
     }
 
     fn count(&mut self, airport: Id<Airport>) {
@@ -278,9 +286,9 @@ impl Operations {
     pub(crate) fn flights(&self) -> impl Iterator<Item = FlightView> + '_ {
         self.tails.iter().enumerate().filter_map(|(index, tail)| {
             let motion = tail.motion?;
-            let planned = self.legs.get(index)?.as_ref()?;
+            let path = self.paths.get(index)?.as_ref()?;
             let flight = self.flight(index, tail.leg).ok()?;
-            let (position, heading) = planned.path.locate(&motion);
+            let (position, heading) = path.locate(&motion);
             Some(FlightView {
                 tail: Id::<Tail>::from_usize(index).ok()?,
                 callsign: Callsign::new(
