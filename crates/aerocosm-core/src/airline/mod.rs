@@ -50,9 +50,10 @@ pub enum Network {
 pub struct Base {
     /// The airport.
     pub airport: AirportIdent,
-    /// Estimated share of the airport's departures flown by this airline (passenger or
-    /// cargo traffic respectively). Schedule generation splits a route between the airlines
-    /// based at either end in proportion to these weights.
+    /// Estimated share of the airport's departures flown by this airline
+    /// (passenger or cargo traffic respectively). Schedule generation splits a
+    /// route between the airlines based at either end in proportion to these
+    /// weights.
     pub weight: f64,
 }
 
