@@ -100,13 +100,12 @@ mod tests {
     }
 
     #[test]
-    fn test_climb_out_distance() -> Result<()> {
+    fn test_climb_out_distance() {
         // 2,000 ft at 5 m/s while flying 90 m/s: 11 km beats 4 NM.
         let long = climb_out_distance(5.0, 90.0);
         assert!((long.value() - 609.6 / 5.0 * 90.0).abs() < 1.0);
         // A steep climber still flies 4 NM first.
         assert!((climb_out_distance(30.0, 70.0).value() - 7_408.0).abs() < 1.0);
-        Ok(())
     }
 
     #[test]
