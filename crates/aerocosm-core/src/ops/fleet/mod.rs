@@ -201,7 +201,7 @@ impl Operations {
                 }
             }
             Some(mut motion) => {
-                let event = motion.advance(&self.profiles[index], TICK.as_secs_f64());
+                let event = motion.advance_free(&self.profiles[index], TICK.as_secs_f64());
                 tail.motion = Some(motion);
                 // Most ticks have no event; only events need the flight.
                 match event {

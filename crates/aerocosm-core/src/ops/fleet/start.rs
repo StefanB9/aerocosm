@@ -88,7 +88,7 @@ impl Operations {
         let mut clock = scheduled;
         while clock < start && motion.phase() != Phase::Arrived {
             let dt = seconds_between(clock, start).min(WARM_STEP);
-            motion.advance(&planned.profile, dt);
+            motion.advance_free(&planned.profile, dt);
             clock = add(clock, SimDuration::from_millis(dt_millis(dt)))?;
         }
         if motion.phase() != Phase::Arrived {

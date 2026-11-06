@@ -185,6 +185,15 @@ impl Path {
         let segment = match motion.phase() {
             Phase::Boarding => return at(&self.taxi_out, Meters::default()),
             Phase::TaxiOut => &self.taxi_out,
+            Phase::Queue => return at(&self.taxi_out, self.taxi_out.length()),
+            Phase::Holding => {
+                // A racetrack at the hold point, inbound along the route.
+                return super::hold::racetrack(
+                    self.enroute.point_at(along),
+                    self.enroute.bearing_at(along),
+                    motion.held_for(),
+                );
+            }
             Phase::TakeoffRoll => &self.takeoff,
             Phase::Climb | Phase::Cruise | Phase::Descent => {
                 return (self.enroute.point_at(along), self.enroute.bearing_at(along));
@@ -229,7 +238,7 @@ mod tests {
         let mut motion = Motion::start(&leg.profile, 480.0, 300.0);
         let (mut last, _) = leg.path.locate(&motion);
         for _ in 0..200_000 {
-            motion.advance(&leg.profile, dt);
+            motion.advance_free(&leg.profile, dt);
             let (here, heading) = leg.path.locate(&motion);
             let jump = last.distance_to(here).value();
             if jump > motion.speed().max(80.0) * dt * 1.5 + 5.0 {
