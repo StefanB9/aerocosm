@@ -1,6 +1,7 @@
 //! Flight operations: tails flying their weekly rotations, phase by phase
 //! (plan M2, PR 3).
 
+mod control;
 mod fleet;
 mod motion;
 mod path;
