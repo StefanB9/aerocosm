@@ -8,6 +8,7 @@ pub mod id;
 pub mod ops;
 pub mod pacing;
 pub mod rng;
+pub mod scenario;
 pub mod schedule;
 pub mod sim;
 pub mod time;
