@@ -1,13 +1,17 @@
 //! Micro-benchmarks for the hot paths of the core library.
 //!
-//! Run with `cargo bench -p aerocosm-core`. The M2 milestone adds the
-//! 15k-aircraft step benchmark that guards the global-scale performance target.
+//! Run with `cargo bench -p aerocosm-core --bench core --profile bench-unwind`.
+//! `ops/step_*` times one simulation tick with German traffic scaled up until
+//! about 15,000 aircraft are airborne: the plan's target is under 1 ms.
 
 use std::hint::black_box;
 
 use aerocosm_core::{
-    LatLon, RngSeed, Scenario, SimConfig, SimTime, Simulation,
+    AircraftCatalog, LatLon, RngSeed, Scenario, SimConfig, SimTime, Simulation,
+    airline::AirlineCatalog,
+    traffic::TrafficTargets,
     units::{Degrees, Meters},
+    world::World,
 };
 use anyhow::Result;
 use criterion::{Criterion, criterion_group, criterion_main};
@@ -60,5 +64,43 @@ fn bench_simulation(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_geo, bench_simulation);
+/// How much the German movement and overflight targets are scaled up.
+const TRAFFIC_SCALE: f64 = 23.0;
+
+/// The shipped scenario with every traffic target multiplied by `scale`.
+fn scaled_germany(scale: f64) -> Result<Scenario> {
+    let mut traffic =
+        TrafficTargets::from_json(include_str!("../../../assets/traffic/germany.json"))?
+            .to_definition();
+    for airport in &mut traffic.airports {
+        // Scaled yearly movements stay far below u32::MAX.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let scaled = (f64::from(airport.movements_per_year) * scale).round() as u32;
+        airport.movements_per_year = scaled;
+    }
+    traffic.overflights_per_day *= scale;
+    Scenario::with_traffic(
+        World::from_json(include_str!("../../../assets/world/germany.world.json"))?,
+        AircraftCatalog::from_json(include_str!("../../../assets/aircraft/types.json"))?,
+        AirlineCatalog::from_json(include_str!("../../../assets/airlines/airlines.json"))?,
+        TrafficTargets::from_definition(traffic)?,
+    )
+}
+
+fn bench_operations(c: &mut Criterion) {
+    let setup = || -> Result<Simulation> {
+        let start: SimTime = "2026-07-08T10:00:00Z".parse()?;
+        Simulation::new(
+            SimConfig::new(start, RngSeed::new(1)),
+            scaled_germany(TRAFFIC_SCALE)?,
+        )
+    };
+    let Ok(mut sim) = setup() else {
+        return;
+    };
+    let name = format!("ops/step_{}_airborne", sim.airborne());
+    c.bench_function(&name, |b| b.iter(|| black_box(sim.step())));
+}
+
+criterion_group!(benches, bench_geo, bench_simulation, bench_operations);
 criterion_main!(benches);
