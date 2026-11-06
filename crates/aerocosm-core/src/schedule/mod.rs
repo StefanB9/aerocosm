@@ -287,7 +287,7 @@ mod tests {
     use anyhow::Result;
 
     use super::*;
-    use crate::schedule::network::tests::data;
+    use crate::test_data::data;
 
     fn flight(departure: i32, block: i32) -> ScheduledFlight {
         ScheduledFlight {

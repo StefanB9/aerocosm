@@ -15,6 +15,9 @@ pub mod traffic;
 pub mod units;
 pub mod world;
 
+#[cfg(test)]
+mod test_data;
+
 pub use aircraft::{AircraftCatalog, AircraftType, WakeCategory};
 pub use error::CoreError;
 pub use geo::LatLon;

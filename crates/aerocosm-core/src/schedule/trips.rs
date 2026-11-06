@@ -403,13 +403,11 @@ mod tests {
     use super::*;
     use crate::{
         RngSeed, StreamId,
-        schedule::{
-            network::{plan_services, tests::data},
-            timetable::Profile,
-        },
+        schedule::{network::plan_services, timetable::Profile},
+        test_data::{Data, data},
     };
 
-    fn context(data: &super::super::network::tests::Data) -> Result<TripContext<'_>> {
+    fn context(data: &Data) -> Result<TripContext<'_>> {
         TripContext::new(
             &data.world,
             &data.aircraft,
@@ -419,7 +417,7 @@ mod tests {
         )
     }
 
-    fn build(seed: u64) -> Result<(super::super::network::tests::Data, TripsOutcome)> {
+    fn build(seed: u64) -> Result<(Data, TripsOutcome)> {
         let data = data()?;
         let services = plan_services(&data.world, &data.airlines, &data.traffic)?;
         let mut rng = RngSeed::new(seed).stream(StreamId::Scheduling);
