@@ -93,6 +93,11 @@ impl Profile {
         self.faf_altitude
     }
 
+    /// Runway length used by the take-off roll, m.
+    pub(crate) fn takeoff_length(&self) -> f64 {
+        self.rotate_speed * self.rotate_speed / (2.0 * TAKEOFF_ACCELERATION)
+    }
+
     /// Runway length used by the landing roll, m.
     pub(crate) fn landing_length(&self) -> f64 {
         let approach = self.inputs.approach_speed;
