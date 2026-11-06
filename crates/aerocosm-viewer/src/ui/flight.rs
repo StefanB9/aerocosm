@@ -5,6 +5,7 @@ use std::fmt::Write as _;
 use aerocosm_core::{Id, LatLon, Scenario, ops::FlightView, schedule::Tail, world::Airport};
 use bevy::{
     app::{App, Plugin, Startup, Update},
+    camera::visibility::Visibility,
     color::{Alpha, Color},
     ecs::{
         component::Component,
@@ -17,6 +18,7 @@ use bevy::{
         system::{Commands, Local, Query, Res, ResMut, Single},
     },
     input::{ButtonInput, keyboard::KeyCode},
+    math::Vec2,
     picking::{Pickable, events::PointerClick},
     time::{Real, Time},
     ui::{
@@ -50,12 +52,18 @@ pub(super) struct FlightPanelPlugin;
 impl Plugin for FlightPanelPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Follow>()
-            .add_systems(Startup, spawn_panel.after(crate::data::setup_fonts))
+            .add_systems(
+                Startup,
+                (spawn_panel, spawn_callsign_label).after(crate::data::setup_fonts),
+            )
             .add_systems(
                 Update,
                 (
                     refresh_panel,
                     toggle_follow,
+                    place_callsign_label
+                        .after(CameraSet)
+                        .after(crate::aircraft::DrawSet),
                     follow_flight
                         .after(CameraSet)
                         .after(crate::aircraft::DrawSet),
@@ -69,6 +77,13 @@ struct FlightPanel;
 
 #[derive(Component)]
 struct FollowButton;
+
+/// The selected flight's callsign beside its aircraft.
+#[derive(Component)]
+struct CallsignLabel;
+
+/// Gap between the aircraft and its callsign, in pixels.
+const LABEL_OFFSET: Vec2 = Vec2::new(28.0, -9.0);
 
 /// The text of the flight panel.
 #[derive(Debug, Clone, PartialEq)]
@@ -221,7 +236,7 @@ fn spawn_lines(
     lines: FlightLines,
     following: bool,
 ) {
-    let [r, g, b] = lines.airline_rgb;
+    let [r, g, b] = crate::flights::legible(lines.airline_rgb);
     let airline = Color::srgb_u8(r, g, b);
     commands.spawn((
         strong(fonts, lines.callsign, 17.0, theme::TEXT),
@@ -300,6 +315,57 @@ fn spawn_lines(
         );
 }
 
+fn spawn_callsign_label(mut commands: Commands, fonts: Res<Fonts>) {
+    commands.spawn((
+        CallsignLabel,
+        Node {
+            position_type: PositionType::Absolute,
+            display: Display::None,
+            ..default()
+        },
+        strong(&fonts, "", 12.0, theme::ACCENT),
+        Pickable::IGNORE,
+    ));
+}
+
+/// Keeps the callsign next to the selected aircraft.
+fn place_callsign_label(
+    rig: Option<Res<CameraRig>>,
+    pointer: Res<crate::camera::PointerState>,
+    selection: Res<Selection>,
+    traffic: Res<TrafficView>,
+    sprites: Query<(&AircraftSprite, &Visibility)>,
+    label: Single<(&mut Node, &mut bevy::ui::widget::Text), With<CallsignLabel>>,
+) {
+    let (mut node, mut text) = label.into_inner();
+    let placed = rig
+        .zip(selection.selected_flight())
+        .and_then(|(rig, tail)| {
+            let (sprite, _) = sprites.iter().find(|(sprite, visibility)| {
+                sprite.tail == tail && **visibility != Visibility::Hidden
+            })?;
+            let view = traffic.flight(tail)?;
+            let screen =
+                rig.state.world_to_screen(sprite.position, pointer.viewport) + LABEL_OFFSET;
+            Some((screen, view.callsign().to_string()))
+        });
+    match placed {
+        Some((screen, callsign)) => {
+            node.display = Display::Flex;
+            node.left = px(screen.x);
+            node.top = px(screen.y);
+            if text.0 != callsign {
+                text.0 = callsign;
+            }
+        }
+        None => {
+            if node.display != Display::None {
+                node.display = Display::None;
+            }
+        }
+    }
+}
+
 /// Whether following `selected` should be switched on or off.
 pub(crate) fn toggled(follow: Option<Id<Tail>>, selected: Option<Id<Tail>>) -> Option<Id<Tail>> {
     match (follow, selected) {
@@ -326,7 +392,7 @@ fn toggle_follow(
 fn follow_flight(
     rig: Option<ResMut<CameraRig>>,
     selection: Res<Selection>,
-    sprites: Query<(&AircraftSprite, &bevy::camera::visibility::Visibility)>,
+    sprites: Query<(&AircraftSprite, &Visibility)>,
     mut follow: ResMut<Follow>,
 ) {
     let (Some(mut rig), Some(tail)) = (rig, follow.0) else {
@@ -334,9 +400,7 @@ fn follow_flight(
     };
     let target = sprites
         .iter()
-        .find(|(sprite, visibility)| {
-            sprite.tail == tail && **visibility != bevy::camera::visibility::Visibility::Hidden
-        })
+        .find(|(sprite, visibility)| sprite.tail == tail && **visibility != Visibility::Hidden)
         .map(|(sprite, _)| sprite.position);
     match target {
         Some(position) if !rig.dragging() && selection.selected_flight() == Some(tail) => {

@@ -290,7 +290,7 @@ fn draw_aircraft(
 /// The airline's colour for the selected flight (D49).
 fn airline_color(driver: &SimDriver, view: &FlightView) -> Option<Color> {
     let traffic = driver.simulation().scenario().traffic()?;
-    let [r, g, b] = traffic.airlines().get(view.airline())?.colour().rgb();
+    let [r, g, b] = crate::flights::legible(traffic.airlines().get(view.airline())?.colour().rgb());
     Some(Color::Srgba(Srgba::rgb_u8(r, g, b)))
 }
 

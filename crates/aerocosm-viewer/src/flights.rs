@@ -63,6 +63,41 @@ impl PhaseBand {
     }
 }
 
+/// Below this relative luminance a brand colour is lightened for the dark map.
+const MIN_LUMINANCE: f32 = 0.30;
+
+/// Relative luminance of an sRGB colour (WCAG), `0..=1`.
+fn luminance([r, g, b]: [u8; 3]) -> f32 {
+    let linear = |channel: u8| {
+        let c = f32::from(channel) / 255.0;
+        if c <= 0.040_45 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+}
+
+/// An airline colour that reads on the dark theme: dark brand colours (such
+/// as navy blues) are mixed towards white until bright enough, keeping their
+/// hue.
+pub(crate) fn legible(rgb: [u8; 3]) -> [u8; 3] {
+    let mix = |rgb: [u8; 3], amount: f32| {
+        rgb.map(|channel| {
+            let c = f32::from(channel);
+            // The mix stays within 0..=255.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let mixed = (c + (255.0 - c) * amount).round() as u8;
+            mixed
+        })
+    };
+    (0..=20)
+        .map(|step| mix(rgb, f32::from(u8::try_from(step).unwrap_or(20)) * 0.05))
+        .find(|candidate| luminance(*candidate) >= MIN_LUMINANCE)
+        .unwrap_or([255, 255, 255])
+}
+
 /// Whether a flight in `phase` is drawn at zoom `scale`.
 pub(crate) fn flight_visible(phase: Phase, scale: f32) -> bool {
     PhaseBand::of(phase) != PhaseBand::Ground || scale < GROUND_SCALE
@@ -174,6 +209,16 @@ mod tests {
         for (i, a) in colours.iter().enumerate() {
             assert!(colours[i + 1..].iter().all(|b| b != a), "distinct colours");
         }
+    }
+
+    #[test]
+    fn test_legible_lightens_only_dark_colours() {
+        let navy = [5, 22, 77];
+        let lightened = legible(navy);
+        assert!(luminance(lightened) >= MIN_LUMINANCE);
+        assert!(lightened[2] > lightened[0], "keeps the blue hue");
+        let yellow = [255, 204, 0];
+        assert_eq!(legible(yellow), yellow);
     }
 
     #[test]
