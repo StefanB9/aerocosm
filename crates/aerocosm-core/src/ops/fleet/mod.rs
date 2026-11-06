@@ -15,6 +15,7 @@ use super::{
     control::Control,
     motion::{Event, Motion, Profile},
     path::{Leg, Path, plan_leg},
+    stats::Statistics,
     tail::{draw_delay, draw_taxi_in, draw_taxi_out, next_leg, off_block},
     view::{Callsign, FlightView},
 };
@@ -71,6 +72,8 @@ pub(crate) struct Operations {
     flows: Vec<Flow>,
     /// Wake category of each tail's aircraft.
     wakes: Vec<WakeCategory>,
+    /// Punctuality, delays and movements since the start.
+    stats: Statistics,
     /// Take-offs and touchdowns at controlled runways, for tests.
     #[cfg(test)]
     log: Vec<RunwayUse>,
@@ -154,6 +157,11 @@ impl Operations {
             control: Control::new(sequenced),
             flows: vec![Flow::default(); tail_count],
             wakes,
+            stats: {
+                let mut stats = Statistics::new(world.airport_count());
+                stats.set_start(start);
+                stats
+            },
             #[cfg(test)]
             log: Vec::new(),
             schedule,
@@ -240,6 +248,8 @@ impl Operations {
                     let tail = &mut self.tails[index];
                     tail.off_block = now;
                     tail.motion = Some(Motion::start(&self.profiles[index], out, back));
+                    let delay = now.duration_since(self.tails[index].scheduled);
+                    self.stats.departed(flight.origin(), delay);
                 }
             }
             Some(mut motion) => {
@@ -252,15 +262,21 @@ impl Operations {
                         self.airborne += 1;
                         let origin = self.flight(index, leg)?.origin();
                         self.count(origin);
+                        self.stats.moved(origin, now);
                     }
                     Some(Event::Landing) => {
                         self.airborne = self.airborne.saturating_sub(1);
                         self.touched_down(index, leg, now)?;
                         let destination = self.flight(index, leg)?.destination();
                         self.count(destination);
+                        self.stats.moved(destination, now);
                     }
                     Some(Event::Arrived) => {
                         self.flights_flown += 1;
+                        let flight = *self.flight(index, leg)?;
+                        let due = add(self.tails[index].scheduled, flight.block())?;
+                        self.stats
+                            .arrived(flight.destination(), now.duration_since(due));
                         self.paths[index] = None;
                         let tail = self.tails[index];
                         self.tails[index] = self.next_tail_leg(index, &tail, add(now, TICK)?)?;
@@ -322,6 +338,11 @@ impl Operations {
     /// Take-offs plus landings at `airport` since the start.
     pub(crate) fn movements(&self, airport: Id<Airport>) -> u32 {
         self.movements.get(airport.as_usize()).copied().unwrap_or(0)
+    }
+
+    /// Punctuality, delays and movements since the start.
+    pub(crate) const fn statistics(&self) -> &Statistics {
+        &self.stats
     }
 
     /// Legs completed (on blocks) since the start.
@@ -584,6 +605,25 @@ mod tests {
             "{}",
             operations.flights_flown()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_statistics_follow_the_traffic() -> Result<()> {
+        let (scenario, mut operations) = setup(StartMode::Warm, 11)?;
+        run(&mut operations, &scenario, 3_600)?;
+        let network = operations.statistics().network();
+        assert!(network.departures() > 300, "{}", network.departures());
+        assert!(network.arrivals() > 300, "{}", network.arrivals());
+        let on_time = network.on_time_departures();
+        assert!((0.5..=1.0).contains(&on_time), "{on_time}");
+        let frankfurt = scenario
+            .world()
+            .airport_by_ident("EDDF".parse()?)
+            .context("EDDF")?;
+        let at = operations.statistics().airport(frankfurt);
+        assert!(at.busiest_hour() > 30, "{}", at.busiest_hour());
+        assert!(at.departures() > 10 && at.arrivals() > 10);
         Ok(())
     }
 }

@@ -179,6 +179,7 @@ impl Operations {
         let speed = profile.approach_speed();
         let control = &mut self.control;
         let hold_until = flow.hold_until;
+        let held = motion.held_for() + dt;
         let mut released = false;
         let mut cleared_takeoff = false;
         let event = motion.advance(&profile, dt, &mut |request| match request {
@@ -211,6 +212,9 @@ impl Operations {
         if released {
             if let (Some(level), Some(key)) = (flow.level, flow.arrival) {
                 self.control.release_level(key.airport, level);
+            }
+            if let Some(key) = flow.arrival {
+                self.stats.held(key.airport, held);
             }
             self.flows[index].level = None;
             self.flows[index].hold_until = None;

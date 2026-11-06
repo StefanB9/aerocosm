@@ -8,12 +8,14 @@ mod motion;
 mod path;
 mod procedure;
 mod runway;
+mod stats;
 mod tail;
 mod timeline;
 mod view;
 
 pub(crate) use fleet::Operations;
 pub use fleet::board::{BoardEntry, BoardKind, FlightStatus};
+pub use stats::{AirportStats, Statistics};
 pub use view::{Callsign, FlightView};
 
 /// What an aircraft is doing on a leg, in the order it happens.
