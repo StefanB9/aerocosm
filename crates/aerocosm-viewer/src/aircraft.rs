@@ -149,6 +149,11 @@ impl TrafficView {
     }
 }
 
+/// Systems that place the aircraft sprites; readers of their positions run
+/// after.
+#[derive(bevy::ecs::schedule::SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct DrawSet;
+
 /// Draws the aircraft.
 pub(crate) struct AircraftPlugin;
 
@@ -160,9 +165,11 @@ impl Plugin for AircraftPlugin {
                 Update,
                 (
                     sample_traffic.after(SimSet),
-                    (draw_aircraft, draw_trails)
+                    draw_aircraft
+                        .in_set(DrawSet)
                         .after(sample_traffic)
                         .after(CameraSet),
+                    draw_trails.after(DrawSet),
                 ),
             );
     }

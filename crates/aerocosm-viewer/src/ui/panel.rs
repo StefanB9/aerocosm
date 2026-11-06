@@ -2,11 +2,12 @@
 
 use aerocosm_core::{
     Id,
+    ops::BoardKind,
     world::{Airport, AirportKind, GeometrySource, Surface},
 };
 use bevy::prelude::*;
 
-use super::{card, strong, text};
+use super::{boards::spawn_board, card, strong, text};
 use crate::{airports::WorldView, data::Fonts, selection::Selection, theme};
 
 /// Shows details of the selected airport.
@@ -124,6 +125,9 @@ fn refresh_panel(
         ),
         ChildOf(panel),
     ));
+    for kind in [BoardKind::Departures, BoardKind::Arrivals] {
+        spawn_board(&mut commands, &fonts, panel, id, kind);
+    }
     let runways = view.world.runways_of(id);
     commands.spawn((
         Node {

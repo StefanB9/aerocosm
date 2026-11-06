@@ -58,7 +58,7 @@ impl PhaseBand {
             Self::Ground => Color::srgb(0.62, 0.66, 0.74),
             Self::Climb => Color::srgb(0.45, 0.85, 0.55),
             Self::Cruise => Color::srgb(0.55, 0.80, 1.00),
-            Self::Descent => Color::srgb(1.00, 0.66, 0.30),
+            Self::Descent => Color::srgb(0.98, 0.47, 0.56),
         }
     }
 }
@@ -101,19 +101,6 @@ pub(crate) fn rotation(heading: f32) -> f32 {
 /// true `meters` once zoomed in.
 pub(crate) fn display_length(pixels: f32, meters: f32, scale: f32, units_per_meter: f32) -> f32 {
     (pixels * scale).max(meters * units_per_meter)
-}
-
-/// Fraction of the way from `origin` to `destination`, measured along the
-/// direct line, `0..=1`.
-// Temporary until the flight panel shows it (removed in that commit).
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn progress(origin: Vec2, destination: Vec2, position: Vec2) -> f32 {
-    let route = destination - origin;
-    let length = route.length_squared();
-    if length <= f32::EPSILON {
-        return 1.0;
-    }
-    ((position - origin).dot(route) / length).clamp(0.0, 1.0)
 }
 
 /// The recent track of one aircraft.
@@ -232,15 +219,6 @@ mod tests {
         assert!((display_length(15.0, 38.0, 1000.0, 1.6) - 15_000.0).abs() < 1e-3);
         // Zoomed in to 0.5 units per pixel: the true 38 m length wins.
         assert!((display_length(15.0, 38.0, 0.5, 1.6) - 60.8).abs() < 1e-3);
-    }
-
-    #[test]
-    fn test_progress_along_the_route() {
-        let origin = Vec2::ZERO;
-        let destination = Vec2::new(100.0, 0.0);
-        assert!((progress(origin, destination, Vec2::new(25.0, 3.0)) - 0.25).abs() < 1e-3);
-        assert!((progress(origin, destination, Vec2::new(-5.0, 0.0))).abs() < 1e-6);
-        assert!((progress(origin, origin, Vec2::ZERO) - 1.0).abs() < 1e-6);
     }
 
     #[test]

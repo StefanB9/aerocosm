@@ -1,6 +1,9 @@
 //! Screen-space UI: top bar with clock and speed controls, the airport panel,
 //! map labels.
 
+mod boards;
+mod flight;
+mod format;
 mod labels;
 mod panel;
 
@@ -35,22 +38,31 @@ pub(crate) struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((LabelsPlugin, panel::PanelPlugin))
-            .add_systems(Startup, spawn_chrome.after(crate::data::setup_fonts))
-            .add_systems(
-                Update,
-                (
-                    update_clock,
-                    speed_shortcuts,
-                    style_speed_buttons,
-                    update_cursor_readout.after(crate::camera::CameraSet),
-                ),
-            );
+        app.add_plugins((
+            LabelsPlugin,
+            panel::PanelPlugin,
+            flight::FlightPanelPlugin,
+            boards::BoardsPlugin,
+        ))
+        .add_systems(Startup, spawn_chrome.after(crate::data::setup_fonts))
+        .add_systems(
+            Update,
+            (
+                update_clock,
+                speed_shortcuts,
+                style_speed_buttons,
+                update_cursor_readout.after(crate::camera::CameraSet),
+            ),
+        );
     }
 }
 
 #[derive(Component)]
 struct ClockText;
+
+/// Shows how many aircraft are airborne.
+#[derive(Component)]
+struct AirborneText;
 
 /// Shows the geographic position under the pointer.
 #[derive(Component)]
@@ -140,9 +152,16 @@ fn spawn_top_bar(commands: &mut Commands, fonts: &Fonts) {
         ],
     ));
     commands.spawn((
-        ClockText,
-        strong(fonts, "", 15.0, theme::TEXT),
+        Node {
+            align_items: AlignItems::Baseline,
+            column_gap: px(12),
+            ..default()
+        },
         ChildOf(bar),
+        children![
+            (ClockText, strong(fonts, "", 15.0, theme::TEXT)),
+            (AirborneText, text(fonts, "", 13.0, theme::TEXT_MUTED)),
+        ],
     ));
     spawn_speed_buttons(commands, fonts, bar);
 }
@@ -218,8 +237,8 @@ fn spawn_footer(commands: &mut Commands, fonts: &Fonts) {
         },
         text(
             fonts,
-            "Drag to pan · scroll or pinch to zoom · click an airport · Space pause · , . speed · \
-             Home reset",
+            "Drag to pan · scroll or pinch to zoom · click an airport or aircraft · F follow · \
+             Space pause · , . speed · Home reset",
             12.0,
             theme::TEXT_MUTED,
         ),
@@ -253,11 +272,24 @@ fn spawn_footer(commands: &mut Commands, fonts: &Fonts) {
     ));
 }
 
-fn update_clock(driver: Res<SimDriver>, mut clock: Single<&mut Text, With<ClockText>>) {
+fn update_clock(
+    driver: Res<SimDriver>,
+    mut clock: Single<&mut Text, (With<ClockText>, Without<AirborneText>)>,
+    mut airborne: Single<&mut Text, (With<AirborneText>, Without<ClockText>)>,
+) {
     let formatted = format_clock(driver.simulation().time());
     if clock.0 != formatted {
         clock.0 = formatted;
     }
+    let count = airborne_text(driver.simulation().airborne());
+    if airborne.0 != count {
+        airborne.0 = count;
+    }
+}
+
+/// The top bar's traffic count, e.g. `823 airborne`.
+fn airborne_text(count: usize) -> String {
+    format!("{count} airborne")
 }
 
 fn update_cursor_readout(
@@ -316,5 +348,16 @@ fn style_speed_buttons(
                 color.set_if_neq(TextColor(ink));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_airborne_text() {
+        assert_eq!(airborne_text(823), "823 airborne");
+        assert_eq!(airborne_text(0), "0 airborne");
     }
 }
