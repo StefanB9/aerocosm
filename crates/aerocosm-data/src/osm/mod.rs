@@ -146,7 +146,7 @@ pub fn import_ground(
 
 #[cfg(test)]
 mod tests {
-    use anyhow::Result;
+    use anyhow::{Context, Result};
 
     use super::*;
 
@@ -188,6 +188,104 @@ mod tests {
         assert_eq!(empty.reports.len(), 0);
         assert_eq!(empty.rejected.len(), 0);
         assert!(empty.ground_json.contains("OpenStreetMap"));
+        Ok(())
+    }
+
+    /// A world with one airport, EDXX, whose runway 09/27 runs along row 0
+    /// of the test grid (≈ 300 m).
+    fn grid_world() -> Result<World> {
+        World::from_json(
+            r#"{"format_version": 2,
+              "airports": [{"ident": "EDXX", "name": "Grid", "location": {"lat": 50.0005, "lon": 8.5021},
+                "elevation": 300.0, "kind": "regional", "country": "DE"}],
+              "runways": [{"airport": "EDXX", "ends": [
+                  {"designator": "09", "threshold": {"lat": 50.0, "lon": 8.5}, "true_heading": 90.0, "displaced_threshold": 0.0},
+                  {"designator": "27", "threshold": {"lat": 50.0, "lon": 8.5042}, "true_heading": 270.0, "displaced_threshold": 0.0}],
+                "length": 300.0, "width": 30.0, "surface": "paved", "geometry": "surveyed"}]}"#,
+        )
+    }
+
+    /// Runway on row 0, taxiway up column 2 past a holding point at row 8 to
+    /// a lane on row 12 with two lead-ins north; a second taxiway at column 28.
+    fn grid_source() -> Result<OsmSource> {
+        use graph::tests::{data, grid_node, way};
+        let tagged = |id: i64, tags: &str| {
+            let node = grid_node(id);
+            format!("{},\"tags\":{{{tags}}}}}", &node[..node.len() - 1])
+        };
+        let ways = [
+            way(
+                1,
+                &[0, 2, 28, 30],
+                "\"aeroway\":\"runway\",\"ref\":\"09/27\"",
+            ),
+            way(2, &[2, 802, 1202], "\"aeroway\":\"taxiway\",\"ref\":\"A\""),
+            way(3, &[1202, 1210, 1220, 1228], "\"aeroway\":\"taxilane\""),
+            way(4, &[28, 828, 1228], "\"aeroway\":\"taxiway\",\"ref\":\"B\""),
+            way(
+                5,
+                &[1210, 1510],
+                "\"aeroway\":\"parking_position\",\"ref\":\"1\"",
+            ),
+            way(
+                6,
+                &[1220, 1520],
+                "\"aeroway\":\"parking_position\",\"ref\":\"2\"",
+            ),
+        ];
+        let extra = [
+            tagged(802, "\"aeroway\":\"holding_position\""),
+            tagged(828, "\"aeroway\":\"holding_position\""),
+        ];
+        // Round-trip through the reader's input format.
+        let parsed = data(&ways, &extra)?;
+        let mut elements: Vec<String> = parsed
+            .nodes
+            .values()
+            .map(|node| {
+                let tags: Vec<String> = node
+                    .tags
+                    .iter()
+                    .map(|(k, v)| format!("\"{k}\":\"{v}\""))
+                    .collect();
+                format!(
+                    "{{\"type\":\"node\",\"id\":{},\"lat\":{},\"lon\":{},\"tags\":{{{}}}}}",
+                    node.id,
+                    node.lat,
+                    node.lon,
+                    tags.join(",")
+                )
+            })
+            .collect();
+        elements.extend_from_slice(&ways);
+        Ok(OsmSource {
+            airport: "EDXX".parse()?,
+            json: format!("{{\"elements\":[{}]}}", elements.join(",")),
+        })
+    }
+
+    #[test]
+    fn test_import_ground_builds_a_layout_end_to_end() -> Result<()> {
+        let world = grid_world()?;
+        let traffic =
+            TrafficTargets::from_json(include_str!("../../../../assets/traffic/germany.json"))?;
+        let source = grid_source()?;
+        let first = import_ground(std::slice::from_ref(&source), &world, &traffic)?;
+        let report = first.reports.first().context("a report")?;
+        assert_eq!(report.rejected, None, "{report}");
+        assert_eq!((report.stands, report.holding_positions), (2, 2));
+        assert!(report.exits >= 2, "{report}");
+        let network = GroundNetwork::from_json(&first.ground_json, &world)?;
+        let layout = network.airports().first().context("a layout")?;
+        let names: Vec<String> = layout
+            .stands()
+            .iter()
+            .map(|s| s.name().to_string())
+            .collect();
+        assert_eq!(names, ["1", "2"]);
+        // Same input, same bytes.
+        let second = import_ground(&[source], &world, &traffic)?;
+        assert_eq!(first.ground_json, second.ground_json);
         Ok(())
     }
 }

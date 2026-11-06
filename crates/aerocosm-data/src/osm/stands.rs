@@ -275,9 +275,7 @@ fn unique_names(stands: &mut [RawStand]) {
 /// spacing.
 pub(crate) fn stand_base(name: &str) -> &str {
     let name = match name.rsplit_once('-') {
-        Some((base, suffix))
-            if !base.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) =>
-        {
+        Some((base, suffix)) if !base.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) => {
             base
         }
         _ => name,
