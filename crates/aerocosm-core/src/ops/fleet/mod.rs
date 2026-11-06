@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Result};
 
+pub(super) mod board;
 mod start;
 
 use start::Rotation;
