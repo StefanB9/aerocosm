@@ -2,13 +2,18 @@
 //! (plan D28).
 
 mod clock;
+mod operations;
 
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-pub use self::clock::{ClockTime, Curfew};
+pub(crate) use self::operations::angle_between;
+pub use self::{
+    clock::{ClockTime, Curfew},
+    operations::{Capacity, RunwayMode, mode_for_wind},
+};
 use crate::{
     CoreError, LatLon,
     time::{Weekday, Zone},
@@ -16,7 +21,7 @@ use crate::{
 };
 
 /// Traffic targets file format version this build reads and writes.
-pub const TRAFFIC_FORMAT_VERSION: u32 = 1;
+pub const TRAFFIC_FORMAT_VERSION: u32 = 2;
 
 /// Days per year used to turn annual statistics into daily targets.
 const DAYS_PER_YEAR: f64 = 365.0;
@@ -43,6 +48,14 @@ pub struct AirportTarget {
     /// absent means none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cargo_share: Option<f64>,
+    /// Declared capacity of a coordinated airport (plan D54); absent means
+    /// not coordinated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capacity: Option<Capacity>,
+    /// Runway operating modes by flow (plan D55); empty means the
+    /// best-aligned runway in mixed mode.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runway_modes: Vec<RunwayMode>,
 }
 
 impl AirportTarget {
@@ -80,6 +93,11 @@ impl AirportTarget {
     pub fn cargo_share(&self) -> f64 {
         self.cargo_share.unwrap_or(0.0)
     }
+
+    /// Declared capacity, if the airport is coordinated.
+    pub const fn capacity(&self) -> Option<Capacity> {
+        self.capacity
+    }
 }
 
 /// The time zone of an edge airport.
@@ -90,6 +108,9 @@ pub struct EdgeZone {
     pub airport: AirportIdent,
     /// Its local time zone.
     pub zone: Zone,
+    /// Runway operating modes by flow; empty means the best-aligned runway.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runway_modes: Vec<RunwayMode>,
 }
 
 /// The contents of a traffic targets file.
@@ -128,6 +149,7 @@ pub struct TrafficTargets {
     definition: TrafficDefinition,
     by_airport: HashMap<AirportIdent, usize>,
     zones: HashMap<AirportIdent, Zone>,
+    modes: HashMap<AirportIdent, Vec<RunwayMode>>,
 }
 
 impl TrafficTargets {
@@ -168,6 +190,12 @@ impl TrafficTargets {
             {
                 return Err(invalid("cargo share must be within 0..=1").into());
             }
+            if let Some(capacity) = &target.capacity {
+                capacity.validate()?;
+            }
+            for mode in &target.runway_modes {
+                mode.validate()?;
+            }
             if !target.banks.windows(2).all(|w| w[0] < w[1]) {
                 return Err(invalid("banks must be strictly increasing").into());
             }
@@ -178,14 +206,30 @@ impl TrafficTargets {
             }
         }
         for edge in &definition.edges {
+            for mode in &edge.runway_modes {
+                mode.validate()?;
+            }
             if zones.insert(edge.airport, edge.zone.clone()).is_some() {
                 return Err(invalid("each airport may appear only once").into());
             }
         }
+        let modes = definition
+            .airports
+            .iter()
+            .map(|target| (target.airport, target.runway_modes.clone()))
+            .chain(
+                definition
+                    .edges
+                    .iter()
+                    .map(|edge| (edge.airport, edge.runway_modes.clone())),
+            )
+            .filter(|(_, modes)| !modes.is_empty())
+            .collect();
         Ok(Self {
             definition,
             by_airport,
             zones,
+            modes,
         })
     }
 
@@ -200,7 +244,8 @@ impl TrafficTargets {
         self.definition.clone()
     }
 
-    /// Checks that every listed airport exists in `world`.
+    /// Checks that every listed airport exists in `world` and has the runway
+    /// ends its modes name.
     pub fn check_references(&self, world: &World) -> Result<()> {
         let listed = self
             .definition
@@ -209,11 +254,32 @@ impl TrafficTargets {
             .map(|t| t.airport)
             .chain(self.definition.edges.iter().map(|e| e.airport));
         for ident in listed {
-            if world.airport_by_ident(ident).is_none() {
+            let Some(id) = world.airport_by_ident(ident) else {
                 return Err(CoreError::UnknownAirport {
                     ident: ident.to_string(),
                 }
                 .into());
+            };
+            let ends: Vec<_> = world
+                .runways_of(id)
+                .iter()
+                .flat_map(|runway| {
+                    runway
+                        .ends()
+                        .iter()
+                        .map(crate::world::RunwayEnd::designator)
+                })
+                .collect();
+            for mode in self.runway_modes(ident) {
+                for runway in mode.arrivals.iter().chain(&mode.departures) {
+                    if !ends.contains(runway) {
+                        return Err(CoreError::UnknownRunway {
+                            airport: ident.to_string(),
+                            runway: runway.to_string(),
+                        }
+                        .into());
+                    }
+                }
             }
         }
         Ok(())
@@ -246,6 +312,12 @@ impl TrafficTargets {
             .map(|index| &self.definition.airports[*index])
     }
 
+    /// Runway operating modes of a calibrated or edge airport; empty if none
+    /// are curated.
+    pub fn runway_modes(&self, airport: AirportIdent) -> &[RunwayMode] {
+        self.modes.get(&airport).map_or(&[], Vec::as_slice)
+    }
+
     /// The local time zone of a calibrated or edge airport.
     pub fn zone(&self, airport: AirportIdent) -> Option<&Zone> {
         self.zones.get(&airport)
@@ -257,7 +329,7 @@ mod tests {
     use anyhow::{Context, Result};
 
     use super::*;
-    use crate::{CoreError, LatLon, time::Weekday, world::World};
+    use crate::{CoreError, LatLon, time::Weekday, units::Degrees, world::World};
 
     fn definition() -> Result<TrafficDefinition> {
         let ring = [
@@ -287,10 +359,25 @@ mod tests {
                 }),
                 banks: vec!["06:30".parse()?, "08:00".parse()?],
                 cargo_share: Some(0.1),
+                capacity: Some(Capacity {
+                    per_hour: 104,
+                    window_minutes: 15,
+                    per_window: 30,
+                }),
+                runway_modes: vec![RunwayMode {
+                    flow: Degrees::new(250.0)?,
+                    arrivals: vec!["25L".parse()?, "25C".parse()?],
+                    departures: vec!["25C".parse()?, "18".parse()?],
+                }],
             }],
             edges: vec![EdgeZone {
                 airport: "LFPG".parse()?,
                 zone: Zone::new("Europe/Paris")?,
+                runway_modes: vec![RunwayMode {
+                    flow: Degrees::new(270.0)?,
+                    arrivals: vec!["27R".parse()?],
+                    departures: vec!["27L".parse()?],
+                }],
             }],
         })
     }
@@ -324,6 +411,10 @@ mod tests {
         );
         assert_eq!(frankfurt.banks().len(), 2);
         assert_eq!(frankfurt.cargo_share(), 0.1);
+        assert_eq!(frankfurt.capacity().map(|c| c.per_hour), Some(104));
+        assert_eq!(targets.runway_modes("EDDF".parse()?).len(), 1);
+        assert_eq!(targets.runway_modes("LFPG".parse()?).len(), 1);
+        assert_eq!(targets.runway_modes("EGLL".parse()?).len(), 0);
         assert!(frankfurt.curfew().is_some());
         assert_eq!(
             targets.zone("LFPG".parse()?).map(Zone::name),
@@ -373,6 +464,19 @@ mod tests {
         share.airports[0].cargo_share = Some(1.5);
         assert_eq!(reason(share)?, "cargo share must be within 0..=1");
 
+        let mut window = definition()?;
+        if let Some(capacity) = window.airports[0].capacity.as_mut() {
+            capacity.window_minutes = 7;
+        }
+        assert_eq!(reason(window)?, "capacity windows must divide the hour");
+
+        let mut mode = definition()?;
+        mode.edges[0].runway_modes[0].arrivals.clear();
+        assert_eq!(
+            reason(mode)?,
+            "runway mode lists must be non-empty and distinct"
+        );
+
         let mut negative = definition()?;
         negative.overflights_per_day = -1.0;
         assert_eq!(
@@ -388,7 +492,7 @@ mod tests {
         assert!(json.contains("\"start\": \"23:00\""), "{json}");
         let targets = TrafficTargets::from_json(&json)?;
         assert_eq!(targets.to_definition(), definition()?);
-        let future = json.replacen("\"format_version\": 1", "\"format_version\": 5", 1);
+        let future = json.replacen("\"format_version\": 2", "\"format_version\": 5", 1);
         let error = TrafficTargets::from_json(&future)
             .err()
             .context("must fail")?;
@@ -397,7 +501,7 @@ mod tests {
             Some(&CoreError::UnsupportedFileFormat {
                 file: "traffic targets",
                 found: 5,
-                supported: 1
+                supported: 2
             })
         );
         Ok(())
@@ -417,6 +521,8 @@ mod tests {
             "ADV 2025, Linien- und Charterverkehr"
         );
         assert!(targets.airports().count() >= 20);
+        assert_eq!(frankfurt.capacity().map(|c| c.per_hour), Some(104));
+        assert_eq!(targets.runway_modes("EDDF".parse()?).len(), 2);
         for edge in world
             .airports()
             .filter(|(_, a)| a.kind() == crate::world::AirportKind::Edge)
@@ -441,6 +547,26 @@ mod tests {
             error.downcast_ref::<CoreError>(),
             Some(&CoreError::UnknownAirport {
                 ident: "EDDF".to_owned()
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_check_references_rejects_unknown_runways() -> Result<()> {
+        let world = World::from_json(include_str!("../../../../assets/world/germany.world.json"))?;
+        let mut wrong = definition()?;
+        wrong.airports[0].runway_modes[0].departures = vec!["09".parse()?];
+        let targets = TrafficTargets::from_definition(wrong)?;
+        let error = targets
+            .check_references(&world)
+            .err()
+            .context("must fail")?;
+        assert_eq!(
+            error.downcast_ref::<CoreError>(),
+            Some(&CoreError::UnknownRunway {
+                airport: "EDDF".to_owned(),
+                runway: "09".to_owned()
             })
         );
         Ok(())

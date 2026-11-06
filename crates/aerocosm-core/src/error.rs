@@ -186,6 +186,15 @@ pub enum CoreError {
         code: String,
     },
 
+    /// A runway mode names a runway end the airport does not have.
+    #[error("airport {airport} has no runway end {runway}")]
+    UnknownRunway {
+        /// The airport.
+        airport: String,
+        /// The unresolved runway designator.
+        runway: String,
+    },
+
     /// Traffic targets are inconsistent.
     #[error("invalid traffic targets: {reason}")]
     InvalidTraffic {
@@ -415,6 +424,15 @@ mod tests {
     fn test_core_error_invalid_traffic_display() {
         let error = CoreError::InvalidTraffic { reason: "bad" };
         assert_eq!(error.to_string(), "invalid traffic targets: bad");
+    }
+
+    #[test]
+    fn test_core_error_unknown_runway_display() {
+        let error = CoreError::UnknownRunway {
+            airport: "EDDF".to_owned(),
+            runway: "09".to_owned(),
+        };
+        assert_eq!(error.to_string(), "airport EDDF has no runway end 09");
     }
 
     #[test]
