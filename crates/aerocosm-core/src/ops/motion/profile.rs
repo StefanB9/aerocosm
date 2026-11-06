@@ -28,6 +28,14 @@ pub(crate) struct ProfileInputs {
     pub(crate) taxi_out_length: f64,
     /// Straight-line taxi length at the destination, m (D47).
     pub(crate) taxi_in_length: f64,
+    /// Length of the pushback at the start of the taxi-out, m; 0 without
+    /// one (plan M4 D72).
+    pub(crate) pushback_length: f64,
+    /// Distance from the threshold to the planned exit, m; 0 to stop where
+    /// braking reaches taxi speed (plan M4 D71).
+    pub(crate) landing_length: f64,
+    /// Speed at which the runway is left, m/s; 0 for taxi speed.
+    pub(crate) exit_speed: f64,
 }
 
 /// A leg's precomputed speeds, altitudes and segment lengths.
@@ -100,10 +108,38 @@ impl Profile {
         self.rotate_speed * self.rotate_speed / (2.0 * TAKEOFF_ACCELERATION)
     }
 
-    /// Runway length used by the landing roll, m.
+    /// Runway length used by the landing roll, m: to the planned exit, or
+    /// where braking reaches taxi speed.
     pub(crate) fn landing_length(&self) -> f64 {
+        if self.inputs.landing_length > 0.0 {
+            return self.inputs.landing_length;
+        }
         let approach = self.inputs.approach_speed;
         (approach * approach - TAXI_SPEED * TAXI_SPEED).max(0.0) / (2.0 * BRAKING)
+    }
+
+    /// Speed at which the runway is left, m/s.
+    pub(crate) fn exit_speed(&self) -> f64 {
+        if self.inputs.exit_speed > 0.0 {
+            self.inputs.exit_speed
+        } else {
+            TAXI_SPEED
+        }
+    }
+
+    /// Taxi-out length, pushback included, m.
+    pub(crate) const fn taxi_out_length(&self) -> f64 {
+        self.inputs.taxi_out_length
+    }
+
+    /// Sets the taxi-in length once the route to the stand is known, m.
+    pub(crate) const fn set_taxi_in_length(&mut self, length: f64) {
+        self.inputs.taxi_in_length = length;
+    }
+
+    /// Length of the pushback, m.
+    pub(crate) const fn pushback_length(&self) -> f64 {
+        self.inputs.pushback_length
     }
 
     /// Ground distance needed to descend from `altitude` at `speed` to the

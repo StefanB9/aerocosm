@@ -53,6 +53,7 @@ pub(crate) fn altitude(feet: Feet, phase: Phase) -> String {
 pub(crate) const fn phase_name(phase: Phase) -> &'static str {
     match phase {
         Phase::Boarding => "Boarding",
+        Phase::Pushback => "Pushing back",
         Phase::TaxiOut => "Taxiing out",
         Phase::Queue => "Waiting for take-off",
         Phase::TakeoffRoll => "Taking off",
@@ -126,6 +127,7 @@ mod tests {
         use std::collections::HashSet;
         let phases = [
             Phase::Boarding,
+            Phase::Pushback,
             Phase::TaxiOut,
             Phase::Queue,
             Phase::TakeoffRoll,

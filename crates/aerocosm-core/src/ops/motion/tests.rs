@@ -18,7 +18,18 @@ fn profile(distance: f64) -> Profile {
         enroute_length: distance,
         taxi_out_length: 2_000.0,
         taxi_in_length: 1_500.0,
+        ..ProfileInputs::default()
     })
+}
+
+/// The same profile with a pushback, a landing roll to an exit and an exit
+/// speed (plan M4 D71, D72).
+fn ground_profile(pushback: f64, landing: f64, exit_speed: f64) -> Profile {
+    let mut inputs = profile(400_000.0).inputs;
+    inputs.pushback_length = pushback;
+    inputs.landing_length = landing;
+    inputs.exit_speed = exit_speed;
+    Profile::new(&inputs)
 }
 
 struct Flown {
@@ -70,6 +81,84 @@ fn fly_with(
         flown.seconds += step;
     }
     Ok(flown)
+}
+
+#[test]
+fn test_motion_pushes_back_then_taxies_from_the_push_point() {
+    let pushed = ground_profile(50.0, 0.0, 0.0);
+    let mut motion = Motion::start(&pushed, 600.0, 300.0);
+    assert_eq!(motion.phase(), Phase::Pushback);
+    // Pushed back at walking pace.
+    motion.advance_free(&pushed, 10.0);
+    assert!((motion.along() - 10.0).abs() < 1e-9);
+    assert!(motion.speed() > 0.0 && motion.speed() < 2.0);
+    for _ in 0..4 {
+        motion.advance_free(&pushed, 10.0);
+    }
+    assert!((motion.along() - 50.0).abs() < 1e-9);
+    // Engines start before it taxis.
+    assert_eq!(motion.phase(), Phase::Pushback);
+    assert!(motion.speed().abs() < 1e-9);
+    // A minute of engine start.
+    for _ in 0..6 {
+        motion.advance_free(&pushed, 10.0);
+    }
+    assert_eq!(motion.phase(), Phase::TaxiOut);
+    let at = motion.along();
+    assert!(
+        (at - 50.0).abs() < 1e-9,
+        "taxiing starts where the push ended: {at}"
+    );
+    motion.advance_free(&pushed, 60.0);
+    // 1,950 m left in 600 s.
+    assert!((motion.along() - (50.0 + 1_950.0 / 10.0)).abs() < 1e-6);
+    // Without a pushback the aircraft taxies straight away.
+    let plain = Motion::start(&profile(400_000.0), 600.0, 300.0);
+    assert_eq!(plain.phase(), Phase::TaxiOut);
+}
+
+#[test]
+fn test_motion_rolls_out_to_the_planned_exit() -> Result<()> {
+    // An exit 2,500 m down the runway, left at 15 m/s.
+    let profile = ground_profile(0.0, 2_500.0, 15.0);
+    assert!((profile.landing_length() - 2_500.0).abs() < 1e-9);
+    let flown = fly(&profile, 1.0)?;
+    assert!(flown.phases.contains(&Phase::Landing));
+    let mut motion = Motion::start(&profile, 600.0, 300.0);
+    while motion.phase() != Phase::Landing {
+        motion.advance_free(&profile, 1.0);
+    }
+    let mut slowest: f64 = f64::INFINITY;
+    while motion.phase() == Phase::Landing {
+        motion.advance_free(&profile, 1.0);
+        slowest = slowest.min(motion.speed());
+    }
+    assert_eq!(motion.phase(), Phase::TaxiIn);
+    assert!(
+        slowest >= 15.0 - 1e-9,
+        "never slower than the exit speed: {slowest}"
+    );
+    // The default roll ends where braking reaches taxi speed.
+    let plain = profile_default_landing();
+    assert!(plain > 1_000.0 && plain < 1_500.0, "{plain}");
+    Ok(())
+}
+
+fn profile_default_landing() -> f64 {
+    profile(400_000.0).landing_length()
+}
+
+#[test]
+fn test_motion_taxi_in_time_can_be_set_at_touchdown() {
+    let profile = profile(400_000.0);
+    let mut motion = Motion::start(&profile, 600.0, 300.0);
+    motion.set_taxi_in(900.0);
+    while motion.phase() != Phase::TaxiIn {
+        motion.advance_free(&profile, 1.0);
+    }
+    motion.advance_free(&profile, 90.0);
+    // 1,500 m in 900 s.
+    assert!((motion.along() - 150.0).abs() < 1e-6, "{}", motion.along());
 }
 
 #[test]

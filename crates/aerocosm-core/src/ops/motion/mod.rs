@@ -23,6 +23,10 @@ const TAKEOFF_ACCELERATION: f64 = 2.0;
 const BRAKING: f64 = 1.8;
 /// Speed at which an aircraft leaves the runway, m/s (about 15 kt).
 const TAXI_SPEED: f64 = 8.0;
+/// Pushback speed, m/s.
+const PUSH_SPEED: f64 = 1.0;
+/// Engine start after the pushback, s.
+const ENGINE_START: f64 = 60.0;
 /// Rotation speed relative to the approach speed.
 const ROTATE_FACTOR: f64 = 1.15;
 /// Initial climb speed relative to the approach speed.
@@ -82,7 +86,11 @@ impl Motion {
     /// Pushes back at the origin gate with the given taxi times, s.
     pub(crate) fn start(profile: &Profile, taxi_out: f64, taxi_in: f64) -> Self {
         Self {
-            phase: Phase::TaxiOut,
+            phase: if profile.pushback_length() > 0.0 {
+                Phase::Pushback
+            } else {
+                Phase::TaxiOut
+            },
             along: 0.0,
             altitude: profile.inputs.origin_elevation,
             speed: 0.0,
@@ -109,6 +117,11 @@ impl Motion {
             hold_at: NO_HOLD,
             hold_altitude: 0.0,
         }
+    }
+
+    /// Taxies in for `seconds` after landing (known at touchdown).
+    pub(crate) fn set_taxi_in(&mut self, seconds: f64) {
+        self.taxi_in = compact(seconds);
     }
 
     /// Flies cruise and descent at `factor` of the normal speed (speed
@@ -199,8 +212,13 @@ impl Motion {
         let inputs = &p.inputs;
         match self.phase {
             Phase::Boarding | Phase::Arrived => None,
+            Phase::Pushback => {
+                self.pushback(p, dt);
+                None
+            }
             Phase::TaxiOut => {
-                if self.taxi(dt, f64::from(self.taxi_out), inputs.taxi_out_length) {
+                let from = p.pushback_length();
+                if self.taxi(dt, f64::from(self.taxi_out), from, inputs.taxi_out_length) {
                     self.enter(Phase::Queue);
                     self.speed = 0.0;
                 }
@@ -219,15 +237,16 @@ impl Motion {
             Phase::Descent => self.descent(p, dt, clearance),
             Phase::Approach => self.approach(p, dt),
             Phase::Landing => {
-                self.speed = (self.speed - BRAKING * dt).max(TAXI_SPEED);
-                self.along = (self.along + self.speed * dt).min(p.landing_length());
-                if self.speed <= TAXI_SPEED {
+                let length = p.landing_length();
+                self.speed = (self.speed - BRAKING * dt).max(p.exit_speed());
+                self.along = (self.along + self.speed * dt).min(length);
+                if self.along >= length - 0.01 {
                     self.enter(Phase::TaxiIn);
                 }
                 None
             }
             Phase::TaxiIn => {
-                if !self.taxi(dt, f64::from(self.taxi_in), inputs.taxi_in_length) {
+                if !self.taxi(dt, f64::from(self.taxi_in), 0.0, inputs.taxi_in_length) {
                     return None;
                 }
                 self.enter(Phase::Arrived);
@@ -237,17 +256,36 @@ impl Motion {
         }
     }
 
-    /// Moves along a straight taxi route of `length` covered in `total`
-    /// seconds; true when it is done.
-    fn taxi(&mut self, dt: f64, total: f64, length: f64) -> bool {
+    /// Moves along a taxi route from `from` to `length` m, covered in
+    /// `total` seconds; true when it is done.
+    fn taxi(&mut self, dt: f64, total: f64, from: f64, length: f64) -> bool {
         self.elapsed += dt;
         if total <= 0.0 || self.elapsed >= total {
             self.along = length;
             return true;
         }
-        self.speed = length / total;
-        self.along = length * self.elapsed / total;
+        let span = (length - from).max(0.0);
+        self.speed = span / total;
+        self.along = from + span * self.elapsed / total;
         false
+    }
+
+    /// Pushes back along the lead-in, then starts engines; the taxi-out
+    /// continues from where the pushback ended.
+    fn pushback(&mut self, p: &Profile, dt: f64) {
+        let length = p.pushback_length();
+        if self.along < length {
+            self.along = (self.along + PUSH_SPEED * dt).min(length);
+            // Stopped once pushed clear of the stand.
+            self.speed = if self.along < length { PUSH_SPEED } else { 0.0 };
+            return;
+        }
+        self.speed = 0.0;
+        self.elapsed += dt;
+        if self.elapsed >= ENGINE_START {
+            self.phase = Phase::TaxiOut;
+            self.elapsed = 0.0;
+        }
     }
 }
 

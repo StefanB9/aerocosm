@@ -1,49 +1,43 @@
-//! A leg's geometry (D31, D36, D47, D59): gate, runway ends, lift-off point,
-//! procedure route to the final approach fix, final and landing roll, joined
-//! end to end.
+//! Planning a leg: runway ends from the operating modes, ground routes at
+//! mapped airports (plan M4), procedures between them.
 
 use anyhow::{Context, Result};
 
 use super::{
-    Phase,
-    motion::{FINAL_LENGTH, Motion, Profile, ProfileInputs},
-    procedure::{arrival_points, climb_out_distance, departure_turn_point},
-    runway::{PREVAILING_WIND, RunwayChoice, mode_runway, runway_in_use},
+    Leg, Path,
+    ground::{departure, landing_exit},
+    reverse,
 };
 use crate::{
     AircraftType, Id, LatLon,
-    geo::{Route, Segment},
+    geo::{Polyline, Route, Segment},
+    ground::{GroundNetwork, Node, Stand},
+    ops::{
+        motion::{FINAL_LENGTH, Profile, ProfileInputs},
+        procedure::{arrival_points, climb_out_distance, departure_turn_point},
+        runway::{PREVAILING_WIND, RunwayChoice, mode_runway, runway_in_use},
+    },
     traffic::{TrafficTargets, angle_between, mode_for_wind},
     units::{Degrees, Meters},
-    world::{Airport, RunwayEnd, World},
+    world::{Airport, RunwayDesignator, RunwayEnd, World},
 };
+
+/// The ground layouts a leg is planned on, and the stand it leaves from.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct LegGround<'a> {
+    pub(crate) network: &'a GroundNetwork,
+    /// The stand at a mapped origin.
+    pub(crate) origin_stand: Option<Id<Stand>>,
+}
+
+/// A runway end in use: threshold, heading, runway index and designator.
+type End = (LatLon, Degrees, Option<(usize, RunwayDesignator)>);
 
 /// Runways down to this fraction of the type's take-off field length are
 /// used, as in schedule generation.
 const RUNWAY_MARGIN: f64 = 0.75;
 /// Turn radius of procedures: 210 kt at 25° of bank.
 const TURN_RADIUS: f64 = 2_550.0;
-
-/// Where a leg's parts lie.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Path {
-    taxi_out: Segment,
-    takeoff: Segment,
-    enroute: Route,
-    approach: Segment,
-    landing: Segment,
-    taxi_in: Segment,
-    /// Index of the runway used at the origin and at the destination.
-    departure_runway: Option<usize>,
-    arrival_runway: Option<usize>,
-}
-
-/// A leg ready to fly: geometry and profile.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Leg {
-    pub(crate) path: Path,
-    pub(crate) profile: Profile,
-}
 
 /// Take-off or landing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,7 +57,7 @@ fn runway_end(
     use_: Use,
     score: impl Fn(&RunwayEnd) -> f64,
     fallback: Degrees,
-) -> Result<(LatLon, Degrees, Option<usize>)> {
+) -> Result<End> {
     let place = world.airport(airport).context("airport id out of range")?;
     let runways = world.runways_of(airport);
     let min_length = aircraft.min_runway_length() * RUNWAY_MARGIN;
@@ -80,14 +74,97 @@ fn runway_end(
     Ok(match choice {
         Some(choice) => {
             let end = &runways[choice.runway].ends()[choice.end];
-            (end.threshold(), end.true_heading(), Some(choice.runway))
+            (
+                end.threshold(),
+                end.true_heading(),
+                Some((choice.runway, end.designator())),
+            )
         }
         None => (place.location(), fallback, None),
     })
 }
 
-fn reverse(course: Degrees) -> Degrees {
-    Degrees::from_raw(course.value() + 180.0).normalized()
+/// The aircraft's speeds and rates and the field elevations, in SI units.
+fn profile_inputs(aircraft: &AircraftType, from: &Airport, to: &Airport) -> ProfileInputs {
+    let speed = |knots: crate::units::Knots| knots.to_meters_per_second().value();
+    let rate = |rate: crate::units::FeetPerMinute| rate.to_meters_per_second().value();
+    ProfileInputs {
+        cruise_speed: speed(aircraft.cruise_speed()),
+        cruise_altitude: aircraft.cruise_altitude().to_meters().value(),
+        climb_rate: rate(aircraft.climb_rate()),
+        descent_rate: rate(aircraft.descent_rate()),
+        approach_speed: speed(aircraft.approach_speed()),
+        origin_elevation: from.elevation().to_meters().value(),
+        destination_elevation: to.elevation().to_meters().value(),
+        ..ProfileInputs::default()
+    }
+}
+
+/// At a mapped destination, the first exit a landing at `approach_speed`
+/// m/s can make: its node, position and the speed it is taken at.
+fn exit_at(
+    ground: LegGround<'_>,
+    destination: Id<Airport>,
+    runway: Option<RunwayDesignator>,
+    approach_speed: f64,
+) -> Option<(Id<Node>, LatLon, f64)> {
+    let layout = ground.network.airport(destination)?;
+    let (exit, speed) = landing_exit(layout, runway?, approach_speed)?;
+    Some((
+        exit.node(),
+        layout.nodes()[exit.node().as_usize()].position(),
+        speed,
+    ))
+}
+
+/// The taxi-out of a leg.
+struct TaxiOut {
+    taxi: Polyline,
+    roll_start: LatLon,
+    stand_heading: Option<Degrees>,
+    pushback: f64,
+    routed: bool,
+}
+
+/// At a mapped origin: from the stand along taxiways to the entry nearest the
+/// threshold (plan M4 D71, D72); without a route straight from the stand, or
+/// from the airport point (D47).
+fn taxi_out(
+    ground: LegGround<'_>,
+    origin: Id<Airport>,
+    runway: Option<RunwayDesignator>,
+    wingspan: Meters,
+    airport_point: LatLon,
+    threshold: LatLon,
+) -> Result<TaxiOut> {
+    let layout = ground.network.airport(origin);
+    let stand = layout.zip(ground.origin_stand);
+    if let Some(((layout, stand), runway)) = stand.zip(runway)
+        && let Some(plan) = departure(layout, stand, runway, wingspan)
+    {
+        return Ok(TaxiOut {
+            taxi: plan.taxi,
+            roll_start: plan.entry,
+            stand_heading: Some(plan.stand_heading),
+            pushback: plan.pushback,
+            routed: true,
+        });
+    }
+    let parked = stand.and_then(|(layout, id)| {
+        let stand = layout.stands().get(id.as_usize())?;
+        Some((
+            layout.nodes()[stand.node().as_usize()].position(),
+            stand.heading(),
+        ))
+    });
+    let start = parked.map_or(airport_point, |(point, _)| point);
+    Ok(TaxiOut {
+        taxi: Polyline::new(&[start, threshold])?,
+        roll_start: threshold,
+        stand_heading: parked.map(|(_, heading)| heading),
+        pushback: 0.0,
+        routed: false,
+    })
 }
 
 /// Plans `aircraft` flying from `origin` to `destination` with the runways
@@ -95,6 +172,7 @@ fn reverse(course: Degrees) -> Degrees {
 pub(crate) fn plan_leg(
     world: &World,
     traffic: &TrafficTargets,
+    ground: LegGround<'_>,
     aircraft: &AircraftType,
     origin: Id<Airport>,
     destination: Id<Airport>,
@@ -106,7 +184,7 @@ pub(crate) fn plan_leg(
     let direct = from.location().initial_bearing_to(to.location());
     // Depart from the mode's runway closest to the course; land on the one
     // whose final is nearest the origin.
-    let (departure, departure_course, departure_runway) = runway_end(
+    let (departure_point, departure_course, departure_runway) = runway_end(
         world,
         traffic,
         origin,
@@ -130,31 +208,45 @@ pub(crate) fn plan_leg(
         direct,
     )?;
 
-    let speed = |knots: crate::units::Knots| knots.to_meters_per_second().value();
-    let rate = |rate: crate::units::FeetPerMinute| rate.to_meters_per_second().value();
-    let mut inputs = ProfileInputs {
-        cruise_speed: speed(aircraft.cruise_speed()),
-        cruise_altitude: aircraft.cruise_altitude().to_meters().value(),
-        climb_rate: rate(aircraft.climb_rate()),
-        descent_rate: rate(aircraft.descent_rate()),
-        approach_speed: speed(aircraft.approach_speed()),
-        origin_elevation: from.elevation().to_meters().value(),
-        destination_elevation: to.elevation().to_meters().value(),
-        enroute_length: 0.0,
-        taxi_out_length: 0.0,
-        taxi_in_length: 0.0,
-    };
+    let mut inputs = profile_inputs(aircraft, from, to);
+    let wingspan = aircraft.wingspan();
+    let out = taxi_out(
+        ground,
+        origin,
+        departure_runway.map(|(_, designator)| designator),
+        wingspan,
+        from.location(),
+        departure_point,
+    )?;
+    inputs.pushback_length = out.pushback;
+    let (taxi_out, roll_start, stand_out, routed) =
+        (out.taxi, out.roll_start, out.stand_heading, out.routed);
+    let planned_exit = exit_at(
+        ground,
+        destination,
+        arrival_runway.map(|(_, designator)| designator),
+        inputs.approach_speed,
+    );
     // Roll lengths and climb speed depend only on speeds, so a provisional
     // profile gives them.
     let provisional = Profile::new(&inputs);
-    let liftoff = departure.destination(
+    let liftoff = roll_start.destination(
         departure_course,
         Meters::from_raw(provisional.takeoff_length()),
     );
-    let roll_end = arrival.destination(
-        arrival_course,
-        Meters::from_raw(provisional.landing_length()),
-    );
+    let (roll_end, exit) = match planned_exit {
+        Some((node, point, exit_speed)) => {
+            inputs.exit_speed = exit_speed;
+            (point, Some(node))
+        }
+        None => (
+            arrival.destination(
+                arrival_course,
+                Meters::from_raw(provisional.landing_length()),
+            ),
+            None,
+        ),
+    };
     let turn_point = departure_turn_point(
         liftoff,
         departure_course,
@@ -164,69 +256,30 @@ pub(crate) fn plan_leg(
     waypoints.extend(arrival_points(turn_point, arrival, arrival_course));
     let fix = waypoints[waypoints.len() - 1];
     let path = Path {
-        taxi_out: Segment::new(from.location(), departure)?,
-        takeoff: Segment::new(departure, liftoff)?,
+        taxi_out,
+        takeoff: Segment::new(roll_start, liftoff)?,
         enroute: Route::new(&waypoints, Meters::from_raw(TURN_RADIUS))
             .context("cannot route the leg")?,
         approach: Segment::new(fix, arrival)?,
         landing: Segment::new(arrival, roll_end)?,
-        taxi_in: Segment::new(roll_end, to.location())?,
-        departure_runway,
-        arrival_runway,
+        taxi_in: Polyline::new(&[roll_end, to.location()])?,
+        departure_runway: departure_runway.map(|(index, _)| index),
+        arrival_runway: arrival_runway.map(|(index, _)| index),
+        routed_out: routed,
+        stand_out,
+        stand_in: None,
+        exit,
     };
     inputs.enroute_length = path.enroute.length().value();
     inputs.taxi_out_length = path.taxi_out.length().value();
     inputs.taxi_in_length = path.taxi_in.length().value();
+    if exit.is_some() {
+        inputs.landing_length = path.landing.length().value().max(1.0);
+    }
     Ok(Leg {
         path,
         profile: Profile::new(&inputs),
     })
-}
-
-impl Path {
-    /// The fix and inbound course of the hold `motion` is flying, if any.
-    pub(crate) fn hold_fix(&self, motion: &Motion) -> Option<(LatLon, Degrees)> {
-        (motion.phase() == Phase::Holding).then(|| {
-            let along = Meters::from_raw(motion.along());
-            (self.enroute.point_at(along), self.enroute.bearing_at(along))
-        })
-    }
-
-    /// Indices of the runways used at the origin and the destination.
-    pub(crate) const fn runways(&self) -> (Option<usize>, Option<usize>) {
-        (self.departure_runway, self.arrival_runway)
-    }
-
-    /// Position and true course of an aircraft in `motion` on this path.
-    pub(crate) fn locate(&self, motion: &Motion) -> (LatLon, Degrees) {
-        let along = Meters::from_raw(motion.along());
-        let segment = match motion.phase() {
-            Phase::Boarding => return at(&self.taxi_out, Meters::default()),
-            Phase::TaxiOut => &self.taxi_out,
-            Phase::Queue => return at(&self.taxi_out, self.taxi_out.length()),
-            Phase::Holding => {
-                // A racetrack at the hold point, inbound along the route.
-                return super::hold::racetrack(
-                    self.enroute.point_at(along),
-                    self.enroute.bearing_at(along),
-                    motion.held_for(),
-                );
-            }
-            Phase::TakeoffRoll => &self.takeoff,
-            Phase::Climb | Phase::Cruise | Phase::Descent => {
-                return (self.enroute.point_at(along), self.enroute.bearing_at(along));
-            }
-            Phase::Approach => &self.approach,
-            Phase::Landing => &self.landing,
-            Phase::TaxiIn => &self.taxi_in,
-            Phase::Arrived => return at(&self.taxi_in, self.taxi_in.length()),
-        };
-        at(segment, along)
-    }
-}
-
-fn at(segment: &Segment, along: Meters) -> (LatLon, Degrees) {
-    (segment.point_at(along), segment.bearing_at(along))
 }
 
 #[cfg(test)]
@@ -236,9 +289,20 @@ mod tests {
 
     use super::*;
     use crate::{
+        ops::{Phase, motion::Motion},
         test_data::{Data, data},
         world::AirportKind,
     };
+
+    static NO_GROUND: GroundNetwork = GroundNetwork::empty();
+
+    /// Legs without ground layouts: straight-line taxiing (D47).
+    fn unmapped() -> LegGround<'static> {
+        LegGround {
+            network: &NO_GROUND,
+            origin_stand: None,
+        }
+    }
 
     fn airport(data: &Data, ident: &str) -> Result<Id<Airport>> {
         data.world
@@ -277,7 +341,14 @@ mod tests {
     fn test_plan_leg_frankfurt_to_munich() -> Result<()> {
         let data = data()?;
         let (frankfurt, munich) = (airport(&data, "EDDF")?, airport(&data, "EDDM")?);
-        let leg = plan_leg(&data.world, &data.traffic, a320(&data)?, frankfurt, munich)?;
+        let leg = plan_leg(
+            &data.world,
+            &data.traffic,
+            unmapped(),
+            a320(&data)?,
+            frankfurt,
+            munich,
+        )?;
         let distance = data
             .world
             .airport(frankfurt)
@@ -312,7 +383,14 @@ mod tests {
                  "elevation": 100.0, "kind": "airfield", "country": "DE"}]}"#,
         )?;
         let data = data()?;
-        let leg = plan_leg(&world, &data.traffic, a320(&data)?, Id::new(0), Id::new(1))?;
+        let leg = plan_leg(
+            &world,
+            &data.traffic,
+            unmapped(),
+            a320(&data)?,
+            Id::new(0),
+            Id::new(1),
+        )?;
         let start = leg.path.takeoff.point_at(Meters::default());
         assert!(start.distance_to(LatLon::new(50.0, 8.0)?).value() < 1.0);
         fly(&leg, 1.0)?;
@@ -327,6 +405,7 @@ mod tests {
         let north_west = plan_leg(
             &data.world,
             &data.traffic,
+            unmapped(),
             a320(&data)?,
             frankfurt,
             amsterdam,
@@ -342,7 +421,14 @@ mod tests {
         );
         // Arriving from Munich, the south-eastern final of 25L is closer than
         // that of 25R.
-        let inbound = plan_leg(&data.world, &data.traffic, a320(&data)?, munich, frankfurt)?;
+        let inbound = plan_leg(
+            &data.world,
+            &data.traffic,
+            unmapped(),
+            a320(&data)?,
+            munich,
+            frankfurt,
+        )?;
         let threshold = inbound.path.landing.point_at(Meters::default());
         let runways = data.world.runways_of(frankfurt);
         let landed_on = runways
@@ -356,6 +442,68 @@ mod tests {
             })
             .context("an end")?;
         assert_eq!(landed_on.designator().to_string(), "25L");
+        Ok(())
+    }
+
+    static GROUND: std::sync::LazyLock<Result<GroundNetwork, String>> =
+        std::sync::LazyLock::new(|| {
+            let world = data().map_err(|e| format!("{e:#}"))?.world;
+            GroundNetwork::from_json(
+                include_str!("../../../../../assets/ground/germany.ground.json"),
+                &world,
+            )
+            .map_err(|e| format!("{e:#}"))
+        });
+
+    #[test]
+    fn test_mapped_legs_taxi_from_the_stand_and_vacate_at_an_exit() -> Result<()> {
+        let data = data()?;
+        let network = GROUND.as_ref().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let (frankfurt, munich) = (airport(&data, "EDDF")?, airport(&data, "EDDM")?);
+        let layout = network.airport(frankfurt).context("FRA layout")?;
+        let stand = layout
+            .stands()
+            .iter()
+            .position(|s| s.name().as_str() == "A14")
+            .context("stand A14")?;
+        let leg = plan_leg(
+            &data.world,
+            &data.traffic,
+            LegGround {
+                network,
+                origin_stand: Some(Id::from_usize(stand)?),
+            },
+            a320(&data)?,
+            frankfurt,
+            munich,
+        )?;
+        let at_stand = layout.nodes()[layout.stands()[stand].node().as_usize()].position();
+        let start = leg.path.taxi_out.point_at(Meters::default());
+        assert!(start.distance_to(at_stand).value() < 0.5);
+        assert!(leg.path.routed_out());
+        assert!(
+            leg.profile.pushback_length() > 10.0,
+            "A14 is a nose-in stand"
+        );
+        // Taxied to the runway: the take-off starts where the taxi ends, on 18.
+        let end = leg.path.taxi_out.point_at(leg.path.taxi_out.length());
+        let roll = leg.path.takeoff.point_at(Meters::default());
+        assert!(end.distance_to(roll).value() < 0.5);
+        assert!(leg.path.taxi_out.length().value() > 1_000.0);
+        // At Munich the roll ends at an exit node.
+        let exit = leg.path.exit().context("an exit at MUC")?;
+        let muc = network.airport(munich).context("MUC layout")?;
+        let exit_point = muc.nodes()[exit.as_usize()].position();
+        assert!(leg.path.exit_point().distance_to(exit_point).value() < 0.5);
+        let rolled = leg.profile.landing_length();
+        assert!((900.0..=3_500.0).contains(&rolled), "{rolled}");
+        // The whole leg flies without jumps, pushback included.
+        let gate = fly(&leg, 1.0)?;
+        let muc_point = data.world.airport(munich).context("MUC")?.location();
+        assert!(
+            gate.distance_to(muc_point).value() < 1.0,
+            "provisional taxi-in"
+        );
         Ok(())
     }
 
@@ -375,7 +523,7 @@ mod tests {
             let origin = served[first % served.len()];
             let destination = served[second % served.len()];
             prop_assume!(origin != destination);
-            let leg = plan_leg(&data.world, &data.traffic, a320(data).map_err(fail)?, origin, destination)
+            let leg = plan_leg(&data.world, &data.traffic, unmapped(), a320(data).map_err(fail)?, origin, destination)
                 .map_err(fail)?;
             let gate = fly(&leg, 10.0).map_err(fail)?;
             let wanted = data.world.airport(destination).map(Airport::location);

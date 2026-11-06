@@ -8,6 +8,7 @@ use std::{
 use aerocosm_core::{
     AircraftCatalog, Scenario, SimConfig, SimTime, Simulation, TICK, WallClock, WallInstant,
     airline::AirlineCatalog,
+    ground::{GroundDefinition, StandAreasDefinition},
     ops::{AirportStats, StartMode},
     traffic::TrafficTargets,
     world::World,
@@ -78,6 +79,21 @@ pub(crate) fn load_scenario(
         AirlineCatalog::from_json(&read(airlines, "airline")?).context("airline catalog")?,
         TrafficTargets::from_json(&read(traffic, "traffic")?).context("traffic targets")?,
     )
+}
+
+/// Adds airport ground layouts and stand areas (plan M4) to `scenario`.
+pub(crate) fn add_ground(
+    scenario: Scenario,
+    ground: impl Read,
+    areas: impl Read,
+) -> Result<Scenario> {
+    scenario
+        .with_ground(
+            GroundDefinition::from_json(&read(ground, "ground")?).context("ground layouts")?,
+        )?
+        .with_stand_areas(
+            StandAreasDefinition::from_json(&read(areas, "stand areas")?).context("stand areas")?,
+        )
 }
 
 /// Runs `scenario` from `args.start` for `args.duration`, timing it with
@@ -189,6 +205,9 @@ mod tests {
             traffic: "assets/traffic/germany.json".into(),
             no_traffic: false,
             cold_start: false,
+            ground: "assets/ground/germany.ground.json".into(),
+            stand_areas: "assets/ground/stand-areas.json".into(),
+            no_ground: false,
         })
     }
 
@@ -257,6 +276,18 @@ mod tests {
             ..args(SimDuration::from_secs(1))?
         };
         assert!(run(&args, Scenario::empty(), &clock()).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_ground_loads_layouts_and_stand_areas() -> Result<()> {
+        let scenario = add_ground(
+            germany()?,
+            include_str!("../../../assets/ground/germany.ground.json").as_bytes(),
+            include_str!("../../../assets/ground/stand-areas.json").as_bytes(),
+        )?;
+        assert!(scenario.ground().airports().len() > 20);
+        assert!(add_ground(germany()?, b"{}".as_slice(), b"{}".as_slice()).is_err());
         Ok(())
     }
 

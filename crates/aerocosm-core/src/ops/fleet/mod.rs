@@ -5,16 +5,17 @@ use anyhow::{Context, Result};
 
 pub(super) mod board;
 mod flow;
+mod stands;
 mod start;
 
 use start::Rotation;
 
-use self::flow::Flow;
+use self::{flow::Flow, stands::StandBook};
 use super::{
     Phase, StartMode,
     control::Control,
     motion::{Event, Motion, Profile},
-    path::{Leg, Path, plan_leg},
+    path::{Leg, LegGround, Path, plan_leg},
     stats::Statistics,
     tail::{draw_delay, draw_taxi_in, draw_taxi_out, next_leg, off_block},
     view::{Callsign, FlightView, Holding},
@@ -22,6 +23,7 @@ use super::{
 use crate::{
     Id, RngSeed, SimDuration, SimRng, SimTime, StreamId, TICK, WakeCategory,
     airline::AirlineIcao,
+    ground::{Stand, TAXI_SPEED},
     scenario::Scenario,
     schedule::{Schedule, ScheduledFlight, Tail, min_turnaround},
     time::{LocalDate, Zone},
@@ -72,6 +74,12 @@ pub(crate) struct Operations {
     flows: Vec<Flow>,
     /// Wake category of each tail's aircraft.
     wakes: Vec<WakeCategory>,
+    /// Wingspan of each tail's aircraft, for stands and taxi routes.
+    wingspans: Vec<Meters>,
+    /// Stands taken at mapped airports (plan M4).
+    stands: StandBook,
+    /// The stand each tail stands on, while it is on one.
+    parked: Vec<Option<(Id<Airport>, Id<Stand>)>>,
     /// Punctuality, delays and movements since the start.
     stats: Statistics,
     /// Take-offs and touchdowns at controlled runways, for tests.
@@ -95,6 +103,12 @@ fn add(time: SimTime, duration: SimDuration) -> Result<SimTime> {
         .with_context(|| format!("{time} + {duration} is out of range"))
 }
 
+/// Taxi-out time along a routed taxi-out, pushback excluded, s.
+fn routed_taxi_out(path: &Path, profile: &Profile) -> Option<f64> {
+    path.routed_out()
+        .then(|| (profile.taxi_out_length() - profile.pushback_length()).max(0.0) / TAXI_SPEED)
+}
+
 fn seconds_between(from: SimTime, to: SimTime) -> f64 {
     to.duration_since(from).as_secs_f64()
 }
@@ -116,6 +130,7 @@ impl Operations {
         let mut zones = Vec::with_capacity(schedule.tails().len());
         let mut turnarounds = Vec::with_capacity(schedule.tails().len());
         let mut wakes = Vec::with_capacity(schedule.tails().len());
+        let mut wingspans = Vec::with_capacity(schedule.tails().len());
         for (_, tail) in schedule.tails() {
             let base = world
                 .airport(tail.base())
@@ -127,6 +142,7 @@ impl Operations {
                 .context("tail type")?;
             turnarounds.push(min_turnaround(aircraft));
             wakes.push(aircraft.wake());
+            wingspans.push(aircraft.wingspan());
         }
         let sequenced: Vec<Id<Airport>> = traffic
             .targets()
@@ -157,6 +173,9 @@ impl Operations {
             control: Control::new(sequenced),
             flows: vec![Flow::default(); tail_count],
             wakes,
+            wingspans,
+            stands: StandBook::new(scenario),
+            parked: vec![None; tail_count],
             stats: {
                 let mut stats = Statistics::new(world.airport_count());
                 stats.set_start(start);
@@ -197,14 +216,43 @@ impl Operations {
         let flight = self.flight(index, leg)?;
         let traffic = scenario.traffic().context("traffic")?;
         let aircraft = traffic.aircraft().get(flight.aircraft()).context("type")?;
+        let origin_stand = self.parked[index]
+            .filter(|(airport, _)| *airport == flight.origin())
+            .map(|(_, stand)| stand);
         plan_leg(
             scenario.world(),
             traffic.targets(),
+            LegGround {
+                network: scenario.ground(),
+                origin_stand,
+            },
             aircraft,
             flight.origin(),
             flight.destination(),
         )
         .with_context(|| format!("cannot plan leg {leg} of tail {index}"))
+    }
+
+    /// The operator of leg `leg` of tail `index`.
+    fn airline_of(&self, index: usize, leg: usize) -> Result<AirlineIcao> {
+        let flight = self.flight(index, leg)?;
+        self.callsigns
+            .get(flight.airline().as_usize())
+            .copied()
+            .context("airline out of range")
+    }
+
+    /// Puts tail `index` on a stand at the origin of leg `leg`, if mapped.
+    fn stand_for_leg(&mut self, scenario: &Scenario, index: usize, leg: usize) -> Result<()> {
+        let origin = self.flight(index, leg)?.origin();
+        let near = scenario
+            .world()
+            .airport(origin)
+            .context("origin out of range")?
+            .location();
+        let airline = self.airline_of(index, leg)?;
+        self.take_stand(scenario, index, origin, airline, near);
+        Ok(())
     }
 
     fn is_major(&self, airport: Id<Airport>) -> bool {
@@ -231,6 +279,7 @@ impl Operations {
         match self.tails[index].motion {
             None => {
                 if now >= self.tails[index].boarding_from {
+                    self.stand_for_leg(scenario, index, self.tails[index].leg)?;
                     let planned = self.plan(scenario, index, self.tails[index].leg)?;
                     self.tails[index].motion = Some(Motion::boarding(&planned.profile));
                     self.install(index, planned);
@@ -243,8 +292,11 @@ impl Operations {
                         self.is_major(flight.origin()),
                         self.is_major(flight.destination()),
                     );
-                    let out = draw_taxi_out(&mut self.rng, origin)?;
+                    let mut out = draw_taxi_out(&mut self.rng, origin)?;
                     let back = draw_taxi_in(&mut self.rng, destination)?;
+                    if let Some(path) = self.paths[index].as_ref() {
+                        out = routed_taxi_out(path, &self.profiles[index]).unwrap_or(out);
+                    }
                     let start = Motion::start(&self.profiles[index], out, back);
                     let leg = self.tails[index].leg;
                     if let Some(delay) = self.regulate(index, leg, start, now)? {
@@ -252,6 +304,7 @@ impl Operations {
                         self.tails[index].off_block = add(now, delay)?;
                         return Ok(());
                     }
+                    self.release_stand(index);
                     let tail = &mut self.tails[index];
                     tail.off_block = now;
                     tail.motion = Some(start);
@@ -275,6 +328,13 @@ impl Operations {
                         self.airborne = self.airborne.saturating_sub(1);
                         self.touched_down(index, leg, now)?;
                         let destination = self.flight(index, leg)?.destination();
+                        let airline = self.airline_of(index, leg)?;
+                        if let Some(seconds) =
+                            self.stand_on_arrival(scenario, index, destination, airline)
+                            && let Some(motion) = self.tails[index].motion.as_mut()
+                        {
+                            motion.set_taxi_in(seconds);
+                        }
                         self.count(destination);
                         self.stats.moved(destination, now);
                     }
