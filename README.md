@@ -172,9 +172,12 @@ For a smoother experience use `cargo run --release -p aerocosm-viewer` (slower t
     when climbing, light blue in cruise and coral when descending. Aircraft on the ground are
     hidden; there are no trails except for the hovered or selected flight.
 13. **Traffic at airport zoom:** zoom into Frankfurt — grey aircraft board at the airport
-    point, taxi in straight lines to and from the runway in use (25R with the westerly wind),
-    take off and land; airborne aircraft leave fading two-minute trails; once zoomed in far
-    enough, aircraft are drawn to their true size. At 1× motion is smooth, not stepped.
+    point and taxi in straight lines to and from the runways of the west-flow mode: departures
+    from 25C, or 18 when heading south, landings on 25L and 25R. Departures climb straight out
+    for several kilometres before turning onto course in a smooth arc; arrivals line up on the
+    final well before the runway, some via a downwind and base leg, with no U-turns. Airborne
+    aircraft leave fading two-minute trails; once zoomed in far enough, aircraft are drawn to
+    their true size. At 1× motion is smooth, not stepped.
 14. **Flight panel:** click an aircraft (pause first to make it easier) — an accent ring and
     its callsign appear next to it, and the panel shows callsign, airline (in its colour) and
     type, route with airport names, phase, flight level or altitude and ground speed, a

@@ -3,7 +3,7 @@
 use crate::{
     traffic::angle_between,
     units::{Degrees, Meters},
-    world::Runway,
+    world::{Runway, RunwayDesignator, RunwayEnd},
 };
 
 /// The wind every airport operates into until weather arrives: the prevailing
@@ -41,6 +41,33 @@ pub(crate) fn runway_in_use(
     best.map(|(_, choice)| choice)
 }
 
+/// Among the runway ends `allowed` by an operating mode on runways at least
+/// `min_length` long, the one with the lowest `score` (D55); `None` if no end
+/// qualifies.
+pub(crate) fn mode_runway(
+    runways: &[Runway],
+    allowed: &[RunwayDesignator],
+    min_length: Meters,
+    score: impl Fn(&RunwayEnd) -> f64,
+) -> Option<RunwayChoice> {
+    let mut best: Option<(f64, RunwayChoice)> = None;
+    for (index, runway) in runways.iter().enumerate() {
+        if runway.length() < min_length {
+            continue;
+        }
+        for (end, threshold) in runway.ends().iter().enumerate() {
+            if !allowed.contains(&threshold.designator()) {
+                continue;
+            }
+            let value = score(threshold);
+            if best.is_none_or(|(least, _)| value < least) {
+                best = Some((value, RunwayChoice { runway: index, end }));
+            }
+        }
+    }
+    best.map(|(_, choice)| choice)
+}
+
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
@@ -49,7 +76,7 @@ mod tests {
     use super::*;
     use crate::{
         Id, LatLon,
-        world::{GeometrySource, RunwayDefinition, RunwayEnd, Surface},
+        world::{GeometrySource, RunwayDefinition, RunwayDesignator, RunwayEnd, Surface},
     };
 
     /// A runway centred near Frankfurt with its low end heading `heading`.
@@ -133,5 +160,33 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_mode_runway_scores_only_the_listed_long_runways() -> Result<()> {
+        let runways = [
+            runway("07", 70.0, 4000.0)?,
+            runway("18", 180.0, 4000.0)?,
+            runway("09", 90.0, 1500.0)?,
+        ];
+        let allowed: Vec<RunwayDesignator> = vec!["25".parse()?, "18".parse()?, "27".parse()?];
+        let course = |wanted: f64| {
+            move |end: &crate::world::RunwayEnd| {
+                angle_between(end.true_heading(), Degrees::from_raw(wanted))
+            }
+        };
+        let south = mode_runway(&runways, &allowed, Meters::new(2000.0)?, course(170.0));
+        assert_eq!(south, Some(RunwayChoice { runway: 1, end: 0 }));
+        // 27 aligns best with a westbound course, but is too short.
+        let west = mode_runway(&runways, &allowed, Meters::new(2000.0)?, course(270.0));
+        assert_eq!(west, Some(RunwayChoice { runway: 0, end: 1 }));
+        let none = mode_runway(
+            &runways,
+            &["04".parse()?],
+            Meters::new(2000.0)?,
+            course(0.0),
+        );
+        assert_eq!(none, None);
+        Ok(())
     }
 }

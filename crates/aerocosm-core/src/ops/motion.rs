@@ -95,6 +95,11 @@ impl Profile {
         self.faf_altitude
     }
 
+    /// Speed at the start of the climb, m/s.
+    pub(crate) const fn climb_entry_speed(&self) -> f64 {
+        self.climb_entry_speed
+    }
+
     /// Runway length used by the take-off roll, m.
     pub(crate) fn takeoff_length(&self) -> f64 {
         self.rotate_speed * self.rotate_speed / (2.0 * TAKEOFF_ACCELERATION)

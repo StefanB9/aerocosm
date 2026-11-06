@@ -4,6 +4,7 @@
 mod fleet;
 mod motion;
 mod path;
+mod procedure;
 mod runway;
 mod tail;
 mod timeline;

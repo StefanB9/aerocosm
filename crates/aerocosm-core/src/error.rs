@@ -195,6 +195,13 @@ pub enum CoreError {
         runway: String,
     },
 
+    /// A route cannot be built from the given points.
+    #[error("invalid route: {reason}")]
+    InvalidRoute {
+        /// What is wrong.
+        reason: &'static str,
+    },
+
     /// Traffic targets are inconsistent.
     #[error("invalid traffic targets: {reason}")]
     InvalidTraffic {
@@ -424,6 +431,17 @@ mod tests {
     fn test_core_error_invalid_traffic_display() {
         let error = CoreError::InvalidTraffic { reason: "bad" };
         assert_eq!(error.to_string(), "invalid traffic targets: bad");
+    }
+
+    #[test]
+    fn test_core_error_invalid_route_display() {
+        let error = CoreError::InvalidRoute {
+            reason: "a route needs at least two points",
+        };
+        assert_eq!(
+            error.to_string(),
+            "invalid route: a route needs at least two points"
+        );
     }
 
     #[test]

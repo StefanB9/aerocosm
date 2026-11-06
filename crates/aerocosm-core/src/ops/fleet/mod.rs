@@ -154,6 +154,7 @@ impl Operations {
         let aircraft = traffic.aircraft().get(flight.aircraft()).context("type")?;
         plan_leg(
             scenario.world(),
+            traffic.targets(),
             aircraft,
             flight.origin(),
             flight.destination(),
@@ -183,7 +184,7 @@ impl Operations {
                 if now >= tail.boarding_from {
                     let planned = self.plan(scenario, index, tail.leg)?;
                     tail.motion = Some(Motion::boarding(&planned.profile));
-                    self.install(index, &planned);
+                    self.install(index, planned);
                 }
             }
             Some(motion) if motion.phase() == Phase::Boarding => {
@@ -228,9 +229,9 @@ impl Operations {
     }
 
     /// Makes `leg` the tail's current leg.
-    fn install(&mut self, index: usize, leg: &Leg) {
-        self.paths[index] = Some(leg.path);
+    fn install(&mut self, index: usize, leg: Leg) {
         self.profiles[index] = leg.profile;
+        self.paths[index] = Some(leg.path);
     }
 
     fn count(&mut self, airport: Id<Airport>) {
