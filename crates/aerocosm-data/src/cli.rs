@@ -18,6 +18,8 @@ pub(crate) struct Cli {
 pub(crate) enum Command {
     /// Import Germany from local downloads (see docs/data-sources.md).
     Import(ImportArgs),
+    /// Import airport ground layouts from Overpass downloads (plan M4).
+    Ground(GroundArgs),
 }
 
 /// Options for [`Command::Import`].
@@ -32,6 +34,20 @@ pub(crate) struct ImportArgs {
     /// Asset directory to write `world/` and `basemap/` into.
     #[arg(long, default_value = "assets")]
     pub(crate) out: PathBuf,
+}
+
+/// Options for [`Command::Ground`].
+#[derive(Debug, Args)]
+pub(crate) struct GroundArgs {
+    /// Directory containing one Overpass JSON file per airport, `<IDENT>.json`.
+    #[arg(long)]
+    pub(crate) osm: PathBuf,
+    /// Asset directory: reads `world/` and `traffic/`, writes `ground/`.
+    #[arg(long, default_value = "assets")]
+    pub(crate) assets: PathBuf,
+    /// Also write each rejected layout to `<dir>/<IDENT>.ground.json`.
+    #[arg(long)]
+    pub(crate) rejected: Option<PathBuf>,
 }
 
 #[cfg(test)]
@@ -55,10 +71,26 @@ mod tests {
             "assets",
         ])
         .context("must parse")?;
-        let Command::Import(args) = cli.command;
+        let Command::Import(args) = cli.command else {
+            anyhow::bail!("expected the import command");
+        };
         assert_eq!(args.ourairports, Path::new("dl/oa"));
         assert_eq!(args.natural_earth, Path::new("dl/ne"));
         assert_eq!(args.out, Path::new("assets"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_cli_ground_arguments() -> Result<()> {
+        let cli = Cli::try_parse_from(["aerocosm-data", "ground", "--osm", "dl/osm"])
+            .context("must parse")?;
+        let Command::Ground(args) = cli.command else {
+            anyhow::bail!("expected the ground command");
+        };
+        assert_eq!(args.osm, Path::new("dl/osm"));
+        assert_eq!(args.assets, Path::new("assets"));
+        assert_eq!(args.rejected, None);
+        assert!(Cli::try_parse_from(["aerocosm-data", "ground"]).is_err());
         Ok(())
     }
 
