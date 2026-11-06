@@ -53,6 +53,17 @@ impl Timeline {
         self.slots.get(index).map(|slot| slot.time)
     }
 
+    /// Frees the slot booked at `time`; false if there is none.
+    pub(crate) fn cancel(&mut self, time: SimTime) -> bool {
+        let index = self.slots.partition_point(|slot| slot.time < time);
+        if self.slots.get(index).is_some_and(|slot| slot.time == time) {
+            self.slots.remove(index);
+            true
+        } else {
+            false
+        }
+    }
+
     /// Forgets landings before `time`.
     pub(crate) fn prune(&mut self, time: SimTime) {
         self.slots.retain(|slot| slot.time >= time);
@@ -111,6 +122,22 @@ mod tests {
         let squeezed = timeline.book(at(-30)?, WakeCategory::Medium, 70.0);
         assert!(squeezed > behind, "{squeezed} after {behind}");
         assert_eq!(timeline.len(), 4);
+        Ok(())
+    }
+
+    #[test]
+    fn test_cancel_frees_a_slot() -> Result<()> {
+        let mut timeline = Timeline::default();
+        let first = timeline.book(at(0)?, WakeCategory::Heavy, 75.0);
+        let second = timeline.book(at(10)?, WakeCategory::Medium, 70.0);
+        assert!(timeline.cancel(first));
+        assert!(!timeline.cancel(first), "already gone");
+        // With the heavy gone, a new medium lands at its own estimate.
+        assert_eq!(
+            timeline.book(at(-200)?, WakeCategory::Medium, 70.0),
+            at(-200)?
+        );
+        assert_eq!(timeline.next_after(at(-100)?), Some(second));
         Ok(())
     }
 

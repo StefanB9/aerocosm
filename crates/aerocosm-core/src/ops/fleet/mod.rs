@@ -245,9 +245,16 @@ impl Operations {
                     );
                     let out = draw_taxi_out(&mut self.rng, origin)?;
                     let back = draw_taxi_in(&mut self.rng, destination)?;
+                    let start = Motion::start(&self.profiles[index], out, back);
+                    let leg = self.tails[index].leg;
+                    if let Some(delay) = self.regulate(index, leg, start, now)? {
+                        // Wait at the gate for the calculated take-off time.
+                        self.tails[index].off_block = add(now, delay)?;
+                        return Ok(());
+                    }
                     let tail = &mut self.tails[index];
                     tail.off_block = now;
-                    tail.motion = Some(Motion::start(&self.profiles[index], out, back));
+                    tail.motion = Some(start);
                     let delay = now.duration_since(self.tails[index].scheduled);
                     self.stats.departed(flight.origin(), delay);
                 }
@@ -564,8 +571,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_congestion_is_absorbed_by_holding() -> Result<()> {
+    /// Frankfurt squeezed onto one runway for arrivals and departures.
+    fn single_runway_frankfurt() -> Result<(Scenario, Operations)> {
         let data = data()?;
         let mut definition = data.traffic.to_definition();
         for target in &mut definition.airports {
@@ -580,13 +587,19 @@ mod tests {
         let scenario = Scenario::with_traffic(data.world, data.aircraft, data.airlines, traffic)?;
         let inputs = scenario.schedule_inputs().context("traffic")?;
         let schedule = generate(&inputs, ScheduleConfig::new(RngSeed::new(1), midday()?))?;
-        let mut operations = Operations::new(
+        let operations = Operations::new(
             &scenario,
             schedule,
             midday()?,
             RngSeed::new(2),
             StartMode::Warm,
         )?;
+        Ok((scenario, operations))
+    }
+
+    #[test]
+    fn test_congestion_is_absorbed_by_holding() -> Result<()> {
+        let (scenario, mut operations) = single_runway_frankfurt()?;
         let mut held = 0;
         for _ in 0..12 {
             run(&mut operations, &scenario, 600)?;
@@ -624,6 +637,22 @@ mod tests {
         let at = operations.statistics().airport(frankfurt);
         assert!(at.busiest_hour() > 30, "{}", at.busiest_hour());
         assert!(at.departures() > 10 && at.arrivals() > 10);
+        Ok(())
+    }
+
+    #[test]
+    fn test_congested_destinations_hold_departures_on_the_ground() -> Result<()> {
+        let (scenario, mut operations) = single_runway_frankfurt()?;
+        run(&mut operations, &scenario, 7_200)?;
+        let frankfurt = scenario
+            .world()
+            .airport_by_ident("EDDF".parse()?)
+            .context("EDDF")?;
+        let at = operations.statistics().airport(frankfurt);
+        assert!(at.ground_delays() > 0, "flights to FRA must get slots");
+        assert!(at.ground_delay_minutes() > 10.0 * f64::from(at.ground_delays()) - 1e-6);
+        let settled = midday()?.checked_add(SimDuration::from_minutes(10))?;
+        assert_separated(&operations, settled)?;
         Ok(())
     }
 }

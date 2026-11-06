@@ -166,8 +166,6 @@ impl Statistics {
     }
 
     /// A flight to `airport` was held at its origin gate for `delay`.
-    // Temporary until ground delays are applied (removed in that commit).
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn regulated(&mut self, airport: Id<Airport>, delay: SimDuration) {
         if let Some(at) = self.at(airport) {
             at.ground_delays += 1;

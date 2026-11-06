@@ -13,6 +13,8 @@ use crate::{
     },
 };
 
+/// Departures expecting more airborne delay than this wait at the gate.
+const GROUND_DELAY_THRESHOLD: SimDuration = SimDuration::from_minutes(10);
 /// Arrivals are sequenced from this far before the final fix, m.
 const HORIZON: f64 = 200_000.0;
 /// Holds are flown this far before the final fix along the route (35 NM).
@@ -40,6 +42,10 @@ pub(super) struct Flow {
     hold_until: Option<SimTime>,
     /// Holding level taken over the destination.
     level: Option<usize>,
+    /// Landing slot booked at off-block (D58), reused when sequencing.
+    provisional: Option<SimTime>,
+    /// The off-block check has run for this leg.
+    regulated: bool,
 }
 
 /// What a prediction found: touchdown and when the hold point is reached,
@@ -131,9 +137,17 @@ impl Operations {
         };
         let wake = self.wakes[index];
         let eta = after_seconds(now, prediction.touchdown);
-        let slot = self
-            .control
-            .book_arrival(key, eta, wake, profile.approach_speed());
+        // Keep the slot booked at off-block if the flight can still make it.
+        let slot = match flow.provisional {
+            Some(slot) if slot >= eta => slot,
+            stale => {
+                if let Some(slot) = stale {
+                    self.control.cancel_arrival(key, slot);
+                }
+                self.control
+                    .book_arrival(key, eta, wake, profile.approach_speed())
+            }
+        };
         let delay = slot.duration_since(eta).as_secs_f64();
         let final_seconds = FINAL_LENGTH / profile.approach_speed();
         let plan = plan_arrival(delay, (prediction.touchdown - final_seconds).max(1.0));
@@ -146,6 +160,42 @@ impl Operations {
             self.flows[index].level = Some(level);
         }
         Ok(())
+    }
+
+    /// At off-block: books a provisional landing slot at a controlled
+    /// destination and, if it lies more than [`GROUND_DELAY_THRESHOLD`]
+    /// after the estimate, returns the ground delay to wait at the gate
+    /// instead of in the air (D58).
+    pub(super) fn regulate(
+        &mut self,
+        index: usize,
+        leg: usize,
+        motion: Motion,
+        now: SimTime,
+    ) -> Result<Option<SimDuration>> {
+        let flow = self.resolve(index, leg)?;
+        if flow.regulated {
+            return Ok(None);
+        }
+        self.flows[index].regulated = true;
+        let Some(key) = flow.arrival else {
+            return Ok(None);
+        };
+        let profile = self.profiles[index];
+        let Some(prediction) = predict(motion, &profile, profile.enroute_length()) else {
+            return Ok(None);
+        };
+        let eta = after_seconds(now, prediction.touchdown);
+        let slot = self
+            .control
+            .book_arrival(key, eta, self.wakes[index], profile.approach_speed());
+        self.flows[index].provisional = Some(slot);
+        let delay = slot.duration_since(eta);
+        if delay <= GROUND_DELAY_THRESHOLD {
+            return Ok(None);
+        }
+        self.stats.regulated(key.airport, delay);
+        Ok(Some(delay))
     }
 
     /// Advances tail `index`'s motion by a tick, answering its clearance
