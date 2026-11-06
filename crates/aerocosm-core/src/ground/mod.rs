@@ -150,4 +150,31 @@ mod tests {
         assert!(format!("{error:#}").contains("invalid ground layout for EDDF"));
         Ok(())
     }
+
+    #[test]
+    fn test_shipped_ground_file_loads() -> Result<()> {
+        let world = data()?.world;
+        let network = GroundNetwork::from_json(
+            include_str!("../../../../assets/ground/germany.ground.json"),
+            &world,
+        )?;
+        assert_eq!(network.attribution(), "© OpenStreetMap contributors");
+        // Every major German airport has a layout with stands, holding
+        // positions and exits.
+        for ident in ["EDDF", "EDDM", "EDDB", "EDDL", "EDDH", "EDDK", "EDDS"] {
+            let airport = world.airport_by_ident(ident.parse()?).context("airport")?;
+            let ground = network
+                .airport(airport)
+                .with_context(|| format!("{ident} layout"))?;
+            assert!(
+                ground.stands().len() >= 100,
+                "{ident}: {}",
+                ground.stands().len()
+            );
+            assert_ne!(ground.holding_positions().len(), 0, "{ident}");
+            assert_ne!(ground.exits().len(), 0, "{ident}");
+        }
+        assert!(network.airports().len() >= 20);
+        Ok(())
+    }
 }
