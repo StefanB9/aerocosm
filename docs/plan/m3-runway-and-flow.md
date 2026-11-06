@@ -62,6 +62,8 @@ effects at realistic levels and are reported. Ground movement stays straight-lin
 - Motion gains a `Holding` phase (racetrack walked by distance) and a speed override.
 - **Tests:** no separation or occupancy violations (property tests over random arrival
   streams), FCFS fairness, holding entry/exit order, determinism; benchmark stays < 1 ms.
+  Measured: 962 µs per tick with 15,369 airborne (traffic and capacities scaled 23-fold, so the
+  runways are heavily congested); the 7-day run takes about 6 s in release.
 
 ## PR 4 — Ground delay and statistics
 
