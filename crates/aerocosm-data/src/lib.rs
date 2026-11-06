@@ -3,6 +3,7 @@
 
 mod geometry;
 pub mod natural_earth;
+pub mod osm;
 pub mod ourairports;
 
 use std::io::{Cursor, Read};

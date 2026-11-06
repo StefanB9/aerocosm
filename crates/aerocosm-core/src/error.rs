@@ -231,6 +231,15 @@ pub enum CoreError {
         /// The repeated designator.
         code: String,
     },
+
+    /// An airport's ground network is inconsistent.
+    #[error("invalid ground network at {airport}: {reason}")]
+    InvalidGround {
+        /// The airport.
+        airport: String,
+        /// What is wrong.
+        reason: &'static str,
+    },
 }
 
 #[cfg(test)]
@@ -459,5 +468,17 @@ mod tests {
             reason: "no routes".to_owned(),
         };
         assert_eq!(error.to_string(), "schedule generation failed: no routes");
+    }
+
+    #[test]
+    fn test_core_error_invalid_ground_display() {
+        let error = CoreError::InvalidGround {
+            airport: "EDDF".to_owned(),
+            reason: "edge references a missing node",
+        };
+        assert_eq!(
+            error.to_string(),
+            "invalid ground network at EDDF: edge references a missing node"
+        );
     }
 }

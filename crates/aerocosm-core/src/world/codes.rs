@@ -153,6 +153,19 @@ ascii_code!(
             .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
 );
 
+ascii_code!(
+    /// A name on an airport's ground: a stand (`V155`), taxiway (`N7`), runway
+    /// (`07C/25C`) or apron (`T1`). 1–16 printable ASCII characters without
+    /// leading or trailing spaces.
+    GroundName,
+    16,
+    "ground name",
+    |raw| !raw.is_empty()
+        && raw.iter().all(|b| (b' '..=b'~').contains(b))
+        && raw.first() != Some(&b' ')
+        && raw.last() != Some(&b' ')
+);
+
 impl From<IcaoCode> for AirportIdent {
     fn from(icao: IcaoCode) -> Self {
         let mut bytes = [0; 8];
@@ -269,6 +282,29 @@ mod tests {
     fn test_icao_code_converts_to_airport_ident() -> Result<()> {
         let icao = "EDDH".parse::<IcaoCode>()?;
         assert_eq!(AirportIdent::from(icao).as_str(), "EDDH");
+        Ok(())
+    }
+
+    #[test]
+    fn test_ground_name_rules() -> Result<()> {
+        assert_eq!("V 117".parse::<GroundName>()?.as_str(), "V 117");
+        assert_eq!("07C/25C".parse::<GroundName>()?.to_string(), "07C/25C");
+        for bad in [
+            "",
+            " A1",
+            "A1 ",
+            "Vorfeld S\u{fc}d",
+            "ABCDEFGHIJKLMNOPQ",
+            "A\tB",
+        ] {
+            assert!(matches!(
+                rejection::<GroundName>(bad)?,
+                CoreError::InvalidCode {
+                    kind: "ground name",
+                    ..
+                }
+            ));
+        }
         Ok(())
     }
 

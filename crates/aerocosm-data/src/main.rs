@@ -9,15 +9,22 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use aerocosm_core::{
+    traffic::TrafficTargets,
+    world::{World, codes::AirportIdent},
+};
 use aerocosm_data::{
-    import_all, natural_earth::NaturalEarthSources, ourairports::OurAirportsSources,
+    import_all,
+    natural_earth::NaturalEarthSources,
+    osm::{OsmSource, ground_airports, import_ground, overpass_query},
+    ourairports::OurAirportsSources,
 };
 use anyhow::{Context, Result};
 use clap::Parser;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use crate::cli::{Cli, Command, ImportArgs};
+use crate::cli::{Cli, Command, GroundArgs, ImportArgs, QueriesArgs};
 
 /// Where each input dataset file is expected.
 struct InputPaths {
@@ -67,7 +74,102 @@ fn main() -> Result<()> {
     init_tracing().context("failed to initialise tracing")?;
     match cli.command {
         Command::Import(args) => import(&args),
+        Command::Ground(args) => ground(&args),
+        Command::Queries(args) => queries(&args),
     }
+}
+
+/// One `IDENT<TAB>query` line per airport with a ground layout.
+fn query_lines(world: &World, traffic: &TrafficTargets) -> Result<String> {
+    let airports = ground_airports(world, traffic);
+    let mut lines = String::with_capacity(airports.len() * 320);
+    for airport in airports {
+        lines.push_str(airport.as_str());
+        lines.push('\t');
+        lines.push_str(&overpass_query(world, airport)?);
+        lines.push('\n');
+    }
+    Ok(lines)
+}
+
+fn queries(args: &QueriesArgs) -> Result<()> {
+    let paths = GroundPaths::new(&args.assets);
+    let read = |path: &Path| {
+        fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))
+    };
+    let world = World::from_json(&read(&paths.world)?).context("invalid world file")?;
+    let traffic =
+        TrafficTargets::from_json(&read(&paths.traffic)?).context("invalid traffic file")?;
+    let lines = query_lines(&world, &traffic)?;
+    fs::write(&args.out, &lines).with_context(|| format!("cannot write {}", args.out.display()))?;
+    info!(path = %args.out.display(), airports = lines.lines().count(), "wrote queries");
+    Ok(())
+}
+
+/// The asset files the ground import reads and writes.
+struct GroundPaths {
+    world: PathBuf,
+    traffic: PathBuf,
+    ground: PathBuf,
+}
+
+impl GroundPaths {
+    fn new(assets: &Path) -> Self {
+        Self {
+            world: assets.join("world").join("germany.world.json"),
+            traffic: assets.join("traffic").join("germany.json"),
+            ground: assets.join("ground").join("germany.ground.json"),
+        }
+    }
+}
+
+/// The airport a download is for: its file name, `EDDF.json` → `EDDF`.
+fn source_airport(path: &Path) -> Option<AirportIdent> {
+    if path.extension()? != "json" {
+        return None;
+    }
+    path.file_stem()?.to_str()?.parse().ok()
+}
+
+fn ground(args: &GroundArgs) -> Result<()> {
+    let paths = GroundPaths::new(&args.assets);
+    let read = |path: &Path| {
+        fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))
+    };
+    let world = World::from_json(&read(&paths.world)?).context("invalid world file")?;
+    let traffic =
+        TrafficTargets::from_json(&read(&paths.traffic)?).context("invalid traffic file")?;
+    let mut sources = Vec::new();
+    let entries =
+        fs::read_dir(&args.osm).with_context(|| format!("cannot list {}", args.osm.display()))?;
+    for entry in entries {
+        let path = entry.context("cannot list the OSM directory")?.path();
+        if let Some(airport) = source_airport(&path) {
+            sources.push(OsmSource {
+                airport,
+                json: read(&path)?,
+            });
+        }
+    }
+    let output = import_ground(&sources, &world, &traffic)?;
+    for report in &output.reports {
+        info!(%report, "airport");
+    }
+    if let Some(dir) = &args.rejected {
+        fs::create_dir_all(dir).with_context(|| format!("cannot create {}", dir.display()))?;
+        for (airport, json) in &output.rejected {
+            let path = dir.join(format!("{airport}.ground.json"));
+            fs::write(&path, json).with_context(|| format!("cannot write {}", path.display()))?;
+        }
+    }
+    if let Some(parent) = paths.ground.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("cannot create {}", parent.display()))?;
+    }
+    fs::write(&paths.ground, &output.ground_json)
+        .with_context(|| format!("cannot write {}", paths.ground.display()))?;
+    info!(path = %paths.ground.display(), bytes = output.ground_json.len(), "wrote asset");
+    Ok(())
 }
 
 fn import(args: &ImportArgs) -> Result<()> {
@@ -163,6 +265,34 @@ mod tests {
             paths.places,
             Path::new("/data/ne/ne_10m_populated_places.geojson")
         );
+    }
+
+    #[test]
+    fn test_ground_paths_and_source_names() {
+        let paths = GroundPaths::new(Path::new("assets"));
+        assert_eq!(paths.world, Path::new("assets/world/germany.world.json"));
+        assert_eq!(paths.traffic, Path::new("assets/traffic/germany.json"));
+        assert_eq!(paths.ground, Path::new("assets/ground/germany.ground.json"));
+        assert_eq!(
+            source_airport(Path::new("dl/EDDF.json")).map(|a| a.to_string()),
+            Some("EDDF".to_owned())
+        );
+        assert_eq!(source_airport(Path::new("dl/EDDF.tmp")), None);
+        assert_eq!(source_airport(Path::new("dl/notes.json")), None);
+    }
+
+    #[test]
+    fn test_query_lines_are_tab_separated() -> Result<()> {
+        let world = World::from_json(include_str!("../../../assets/world/germany.world.json"))?;
+        let traffic =
+            TrafficTargets::from_json(include_str!("../../../assets/traffic/germany.json"))?;
+        let lines = query_lines(&world, &traffic)?;
+        assert_eq!(lines.lines().count(), 24);
+        let first = lines.lines().next().context("a line")?;
+        let (ident, query) = first.split_once('\t').context("a tab")?;
+        assert_eq!(ident.len(), 4);
+        assert!(query.starts_with("[out:json]"));
+        Ok(())
     }
 
     #[test]
