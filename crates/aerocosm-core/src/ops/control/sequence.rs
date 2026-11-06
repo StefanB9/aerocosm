@@ -60,6 +60,7 @@ impl Timeline {
     }
 
     /// Booked landings.
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.slots.len()
     }

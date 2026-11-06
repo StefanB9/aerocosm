@@ -101,31 +101,25 @@ impl Motion {
 
     /// Flies cruise and descent at `factor` of the normal speed (speed
     /// control by the arrival manager).
-    // Temporary until runway control uses it (removed in that commit).
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) const fn set_speed_factor(&mut self, factor: f64) {
         self.speed_factor = factor;
     }
 
     /// The current speed factor.
-    // Temporary until runway control uses it (removed in that commit).
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(crate) const fn speed_factor(&self) -> f64 {
         self.speed_factor
     }
 
     /// Holds at route distance `at` (m along the en-route part) at `altitude`
     /// (m) until released.
-    // Temporary until runway control uses it (removed in that commit).
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) const fn plan_hold(&mut self, at: f64, altitude: f64) {
         self.hold_at = Some(at);
         self.hold_altitude = altitude;
     }
 
     /// Whether a hold is planned and not yet left.
-    // Temporary until runway control uses it (removed in that commit).
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(crate) const fn has_hold(&self) -> bool {
         self.hold_at.is_some()
     }

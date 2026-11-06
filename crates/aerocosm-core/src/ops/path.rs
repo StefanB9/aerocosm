@@ -33,6 +33,9 @@ pub(crate) struct Path {
     approach: Segment,
     landing: Segment,
     taxi_in: Segment,
+    /// Index of the runway used at the origin and at the destination.
+    departure_runway: Option<usize>,
+    arrival_runway: Option<usize>,
 }
 
 /// A leg ready to fly: geometry and profile.
@@ -60,7 +63,7 @@ fn runway_end(
     use_: Use,
     score: impl Fn(&RunwayEnd) -> f64,
     fallback: Degrees,
-) -> Result<(LatLon, Degrees)> {
+) -> Result<(LatLon, Degrees, Option<usize>)> {
     let place = world.airport(airport).context("airport id out of range")?;
     let runways = world.runways_of(airport);
     let min_length = aircraft.min_runway_length() * RUNWAY_MARGIN;
@@ -77,9 +80,9 @@ fn runway_end(
     Ok(match choice {
         Some(choice) => {
             let end = &runways[choice.runway].ends()[choice.end];
-            (end.threshold(), end.true_heading())
+            (end.threshold(), end.true_heading(), Some(choice.runway))
         }
-        None => (place.location(), fallback),
+        None => (place.location(), fallback, None),
     })
 }
 
@@ -103,7 +106,7 @@ pub(crate) fn plan_leg(
     let direct = from.location().initial_bearing_to(to.location());
     // Depart from the mode's runway closest to the course; land on the one
     // whose final is nearest the origin.
-    let (departure, departure_course) = runway_end(
+    let (departure, departure_course, departure_runway) = runway_end(
         world,
         traffic,
         origin,
@@ -112,7 +115,7 @@ pub(crate) fn plan_leg(
         |end| angle_between(end.true_heading(), direct),
         direct,
     )?;
-    let (arrival, arrival_course) = runway_end(
+    let (arrival, arrival_course, arrival_runway) = runway_end(
         world,
         traffic,
         destination,
@@ -168,6 +171,8 @@ pub(crate) fn plan_leg(
         approach: Segment::new(fix, arrival)?,
         landing: Segment::new(arrival, roll_end)?,
         taxi_in: Segment::new(roll_end, to.location())?,
+        departure_runway,
+        arrival_runway,
     };
     inputs.enroute_length = path.enroute.length().value();
     inputs.taxi_out_length = path.taxi_out.length().value();
@@ -179,6 +184,11 @@ pub(crate) fn plan_leg(
 }
 
 impl Path {
+    /// Indices of the runways used at the origin and the destination.
+    pub(crate) const fn runways(&self) -> (Option<usize>, Option<usize>) {
+        (self.departure_runway, self.arrival_runway)
+    }
+
     /// Position and true course of an aircraft in `motion` on this path.
     pub(crate) fn locate(&self, motion: &Motion) -> (LatLon, Degrees) {
         let along = Meters::from_raw(motion.along());

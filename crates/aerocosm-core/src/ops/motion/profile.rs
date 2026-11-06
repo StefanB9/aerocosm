@@ -85,6 +85,16 @@ impl Profile {
         self.climb_entry_speed
     }
 
+    /// Final approach speed, m/s.
+    pub(crate) const fn approach_speed(&self) -> f64 {
+        self.inputs.approach_speed
+    }
+
+    /// Length of the en-route part from lift-off to the final fix, m.
+    pub(crate) const fn enroute_length(&self) -> f64 {
+        self.inputs.enroute_length
+    }
+
     /// Runway length used by the take-off roll, m.
     pub(crate) fn takeoff_length(&self) -> f64 {
         self.rotate_speed * self.rotate_speed / (2.0 * TAKEOFF_ACCELERATION)

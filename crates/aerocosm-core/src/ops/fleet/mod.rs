@@ -4,19 +4,22 @@
 use anyhow::{Context, Result};
 
 pub(super) mod board;
+mod flow;
 mod start;
 
 use start::Rotation;
 
+use self::flow::Flow;
 use super::{
     Phase, StartMode,
+    control::Control,
     motion::{Event, Motion, Profile},
     path::{Leg, Path, plan_leg},
     tail::{draw_delay, draw_taxi_in, draw_taxi_out, next_leg, off_block},
     view::{Callsign, FlightView},
 };
 use crate::{
-    Id, RngSeed, SimDuration, SimRng, SimTime, StreamId, TICK,
+    Id, RngSeed, SimDuration, SimRng, SimTime, StreamId, TICK, WakeCategory,
     airline::AirlineIcao,
     scenario::Scenario,
     schedule::{Schedule, ScheduledFlight, Tail, min_turnaround},
@@ -25,6 +28,8 @@ use crate::{
     world::{Airport, AirportKind},
 };
 
+/// Old landing slots are forgotten every this many milliseconds.
+const PRUNE_EVERY: i64 = 600_000;
 /// Boarding starts this long before off-block.
 const BOARDING: SimDuration = SimDuration::from_minutes(30);
 /// Where one tail is in its rotation.
@@ -60,6 +65,26 @@ pub(crate) struct Operations {
     movements: Vec<u32>,
     airborne: usize,
     flights_flown: u64,
+    /// Runway control at the sequenced airports.
+    control: Control,
+    /// Runway control state of each tail's current leg.
+    flows: Vec<Flow>,
+    /// Wake category of each tail's aircraft.
+    wakes: Vec<WakeCategory>,
+    /// Take-offs and touchdowns at controlled runways, for tests.
+    #[cfg(test)]
+    log: Vec<RunwayUse>,
+}
+
+/// A take-off or touchdown on a controlled runway, for tests.
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct RunwayUse {
+    key: super::control::RunwayKey,
+    time: SimTime,
+    wake: WakeCategory,
+    /// The approach speed of a touchdown; `None` for a take-off.
+    approach_speed: Option<f64>,
 }
 
 fn add(time: SimTime, duration: SimDuration) -> Result<SimTime> {
@@ -87,6 +112,7 @@ impl Operations {
         let utc = Zone::new("UTC")?;
         let mut zones = Vec::with_capacity(schedule.tails().len());
         let mut turnarounds = Vec::with_capacity(schedule.tails().len());
+        let mut wakes = Vec::with_capacity(schedule.tails().len());
         for (_, tail) in schedule.tails() {
             let base = world
                 .airport(tail.base())
@@ -97,7 +123,13 @@ impl Operations {
                 .get(tail.aircraft())
                 .context("tail type")?;
             turnarounds.push(min_turnaround(aircraft));
+            wakes.push(aircraft.wake());
         }
+        let sequenced: Vec<Id<Airport>> = traffic
+            .targets()
+            .airports()
+            .filter_map(|target| world.airport_by_ident(target.airport()))
+            .collect();
         let tail_count = schedule.tails().len();
         let mut operations = Self {
             time: start,
@@ -119,6 +151,11 @@ impl Operations {
             movements: vec![0; world.airport_count()],
             airborne: 0,
             flights_flown: 0,
+            control: Control::new(sequenced),
+            flows: vec![Flow::default(); tail_count],
+            wakes,
+            #[cfg(test)]
+            log: Vec::new(),
             schedule,
         };
         for index in 0..operations.zones.len() {
@@ -169,6 +206,9 @@ impl Operations {
     /// Advances every tail by one tick.
     pub(crate) fn step(&mut self, scenario: &Scenario) -> Result<()> {
         let now = self.time;
+        if now.as_millis() % PRUNE_EVERY == 0 {
+            self.prune_control(now)?;
+        }
         for index in 0..self.tails.len() {
             self.step_tail(scenario, index, now)
                 .with_context(|| format!("tail {index} at {now}"))?;
@@ -201,7 +241,7 @@ impl Operations {
                 }
             }
             Some(mut motion) => {
-                let event = motion.advance_free(&self.profiles[index], TICK.as_secs_f64());
+                let event = self.fly(index, tail.leg, &mut motion, now, TICK.as_secs_f64())?;
                 tail.motion = Some(motion);
                 // Most ticks have no event; only events need the flight.
                 match event {
@@ -212,6 +252,7 @@ impl Operations {
                     }
                     Some(Event::Landing) => {
                         self.airborne = self.airborne.saturating_sub(1);
+                        self.touched_down(index, tail.leg, now)?;
                         let destination = self.flight(index, tail.leg)?.destination();
                         self.count(destination);
                     }
@@ -230,6 +271,7 @@ impl Operations {
 
     /// Makes `leg` the tail's current leg.
     fn install(&mut self, index: usize, leg: Leg) {
+        self.reset_flow(index);
         self.profiles[index] = leg.profile;
         self.paths[index] = Some(leg.path);
     }
@@ -448,6 +490,97 @@ mod tests {
             }
         }
         assert!(seen > operations.airborne());
+        Ok(())
+    }
+
+    /// Checks every controlled runway's log from `from` on: landings keep wake
+    /// spacing, take-offs keep departure spacing.
+    fn assert_separated(operations: &Operations, from: SimTime) -> Result<usize> {
+        use std::collections::HashMap;
+
+        use crate::ops::control::{RunwayKey, arrival_spacing};
+        let mut by_runway: HashMap<RunwayKey, Vec<&RunwayUse>> = HashMap::new();
+        for entry in operations.log.iter().filter(|entry| entry.time >= from) {
+            by_runway.entry(entry.key).or_default().push(entry);
+        }
+        let tolerance = SimDuration::from_secs(1);
+        let mut checked = 0;
+        for uses in by_runway.values() {
+            let landings: Vec<_> = uses.iter().filter(|u| u.approach_speed.is_some()).collect();
+            for pair in landings.windows(2) {
+                let speed = pair[1].approach_speed.unwrap_or_default();
+                let needed = arrival_spacing(pair[0].wake, pair[1].wake, speed);
+                let gap = pair[1].time.duration_since(pair[0].time);
+                anyhow::ensure!(
+                    gap.as_millis() + tolerance.as_millis() >= needed.as_millis(),
+                    "landings {gap} apart, {needed} needed at {}",
+                    pair[1].time
+                );
+                checked += 1;
+            }
+            let takeoffs: Vec<_> = uses.iter().filter(|u| u.approach_speed.is_none()).collect();
+            for pair in takeoffs.windows(2) {
+                let needed = crate::ops::control::departure_spacing(pair[0].wake, pair[1].wake);
+                let gap = pair[1].time.duration_since(pair[0].time);
+                anyhow::ensure!(gap >= needed, "take-offs {gap} apart, {needed} needed");
+                checked += 1;
+            }
+        }
+        Ok(checked)
+    }
+
+    #[test]
+    fn test_controlled_runways_keep_separation() -> Result<()> {
+        let (scenario, mut operations) = setup(StartMode::Warm, 7)?;
+        run(&mut operations, &scenario, 7_200)?;
+        // Aircraft already on final at the warm start were never sequenced.
+        let settled = midday()?.checked_add(SimDuration::from_minutes(10))?;
+        let checked = assert_separated(&operations, settled)?;
+        assert!(checked > 200, "{checked} pairs checked");
+        Ok(())
+    }
+
+    #[test]
+    fn test_congestion_is_absorbed_by_holding() -> Result<()> {
+        let data = data()?;
+        let mut definition = data.traffic.to_definition();
+        for target in &mut definition.airports {
+            if target.airport.to_string() == "EDDF" {
+                for mode in &mut target.runway_modes {
+                    mode.arrivals.truncate(1);
+                    mode.departures = mode.arrivals.clone();
+                }
+            }
+        }
+        let traffic = crate::traffic::TrafficTargets::from_definition(definition)?;
+        let scenario = Scenario::with_traffic(data.world, data.aircraft, data.airlines, traffic)?;
+        let inputs = scenario.schedule_inputs().context("traffic")?;
+        let schedule = generate(&inputs, ScheduleConfig::new(RngSeed::new(1), midday()?))?;
+        let mut operations = Operations::new(
+            &scenario,
+            schedule,
+            midday()?,
+            RngSeed::new(2),
+            StartMode::Warm,
+        )?;
+        let mut held = 0;
+        for _ in 0..12 {
+            run(&mut operations, &scenario, 600)?;
+            held = held.max(
+                operations
+                    .flights()
+                    .filter(|f| f.phase() == Phase::Holding)
+                    .count(),
+            );
+        }
+        assert!(held > 0, "a single runway at FRA must make arrivals hold");
+        let settled = midday()?.checked_add(SimDuration::from_minutes(10))?;
+        assert_separated(&operations, settled)?;
+        assert!(
+            operations.flights_flown() > 500,
+            "{}",
+            operations.flights_flown()
+        );
         Ok(())
     }
 }

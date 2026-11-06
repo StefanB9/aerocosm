@@ -1,20 +1,16 @@
 //! Runway control and arrival management (plan M3 PR 3).
 
-// Temporary while the parts are added one commit at a time: they become reachable once
-// operations use runway control (removed in that commit).
-#![cfg_attr(not(test), allow(dead_code))]
-
 mod arrival;
 mod separation;
 mod sequence;
 
 use std::collections::{HashMap, HashSet};
 
-pub(crate) use self::separation::arrival_spacing;
-use self::{
-    separation::{RUNWAY_OCCUPANCY, departure_spacing},
-    sequence::Timeline,
+pub(crate) use self::{
+    arrival::plan_arrival,
+    separation::{arrival_spacing, departure_spacing},
 };
+use self::{separation::RUNWAY_OCCUPANCY, sequence::Timeline};
 use crate::{Id, SimDuration, SimTime, WakeCategory, world::Airport};
 
 /// A take-off occupies the runway about this long.
