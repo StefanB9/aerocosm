@@ -2,10 +2,15 @@
 
 use aerocosm_core::{
     SimDuration, SimTime, Simulation,
+    ops::AirportStats,
     time::Weekday,
-    traffic::{AirportTarget, TrafficTargets},
+    traffic::{AirportTarget, Capacity, TrafficTargets},
     world::codes::AirportIdent,
 };
+
+/// Actual hourly movements may exceed the declared capacity by this fraction
+/// before the run warns.
+const CAPACITY_TOLERANCE: f64 = 0.05;
 
 /// Movements are expected hour by hour, by the local weekday of each hour.
 const STEP: SimDuration = SimDuration::from_hours(1);
@@ -34,11 +39,15 @@ pub(crate) fn expected_movements(
 }
 
 /// One airport's movements in a run against its target.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct AirportReport {
     pub(crate) airport: AirportIdent,
     pub(crate) actual: u32,
     pub(crate) expected: f64,
+    /// Punctuality, delays and hourly movements at the airport.
+    pub(crate) stats: AirportStats,
+    /// Declared capacity, if the airport is coordinated.
+    pub(crate) capacity: Option<Capacity>,
 }
 
 impl AirportReport {
@@ -48,6 +57,17 @@ impl AirportReport {
             return 0.0;
         }
         f64::from(self.actual) / self.expected - 1.0
+    }
+
+    /// The busiest clock hour and the declared hourly capacity, if the
+    /// airport is coordinated and that hour exceeded it by more than
+    /// [`CAPACITY_TOLERANCE`]: schedules stay within capacity, but delays
+    /// bunch actual movements a little, as at real airports.
+    pub(crate) fn capacity_exceeded(&self) -> Option<(u32, u16)> {
+        let capacity = self.capacity?;
+        let busiest = self.stats.busiest_hour();
+        let limit = f64::from(capacity.per_hour) * (1.0 + CAPACITY_TOLERANCE);
+        (f64::from(busiest) > limit).then_some((busiest, capacity.per_hour))
     }
 
     /// Whether the movements are within `tolerance` of the target, allowing
@@ -68,6 +88,12 @@ pub(crate) fn airport_reports(
         .airports()
         .map(|target| AirportReport {
             airport: target.airport(),
+            stats: simulation
+                .world()
+                .airport_by_ident(target.airport())
+                .zip(simulation.statistics())
+                .map_or_else(AirportStats::default, |(id, stats)| stats.airport(id)),
+            capacity: target.capacity(),
             actual: simulation
                 .world()
                 .airport_by_ident(target.airport())
@@ -126,6 +152,8 @@ mod tests {
             airport: "EDDF".parse()?,
             actual: 1_030,
             expected: 1_000.0,
+            stats: AirportStats::default(),
+            capacity: None,
         };
         assert!((report.deviation() - 0.03).abs() < 1e-12);
         assert!(report.within(0.05, 1.0));
@@ -133,11 +161,33 @@ mod tests {
             airport: "EDDR".parse()?,
             actual: 6,
             expected: 9.0,
+            stats: AirportStats::default(),
+            capacity: None,
         };
         // 3 off is 33 %, but within the allowance of 2 movements per day for
         // a two-day run.
         assert!(small.within(0.05, 2.0));
         assert!(!small.within(0.05, 1.0));
+        Ok(())
+    }
+
+    #[test]
+    fn test_capacity_check_compares_the_busiest_hour() -> Result<()> {
+        let targets = targets()?;
+        let frankfurt = targets.airport("EDDF".parse()?).context("EDDF")?;
+        let report = AirportReport {
+            airport: frankfurt.airport(),
+            actual: 0,
+            expected: 0.0,
+            stats: AirportStats::default(),
+            capacity: frankfurt.capacity(),
+        };
+        assert_eq!(report.capacity_exceeded(), None);
+        let uncoordinated = AirportReport {
+            capacity: None,
+            ..report
+        };
+        assert_eq!(uncoordinated.capacity_exceeded(), None);
         Ok(())
     }
 }

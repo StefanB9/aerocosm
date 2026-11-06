@@ -45,7 +45,8 @@ aerocosm/                              (workspace root)
     │       │                          (delays, taxi), timeline.rs (week → UTC), view.rs,
     │       │                          hold.rs (racetracks), control/ (plan M3 PR 3: wake
     │       │                          separation, landing timelines, runway state, arrival
-    │       │                          delay split); fleet/flow.rs applies it per tail
+    │       │                          delay split); fleet/flow.rs applies it per tail, with
+    │       │                          ground delays at off-block; stats.rs (punctuality)
     │       ├── scenario.rs            Scenario: world + optional traffic inputs (D45)
     │       ├── units.rs               Meters, Feet, NauticalMiles, Knots, Degrees, …
     │       ├── geo/                   LatLon, great-circle maths, Segment and Route (waypoints

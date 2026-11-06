@@ -143,6 +143,11 @@ impl Control {
         self.runway(key).timeline.book(eta, wake, approach_speed)
     }
 
+    /// Frees a booked landing slot, e.g. one the flight can no longer make.
+    pub(crate) fn cancel_arrival(&mut self, key: RunwayKey, slot: SimTime) {
+        self.runway(key).timeline.cancel(slot);
+    }
+
     /// Whether an aircraft touching down at `touchdown` keeps wake
     /// separation behind the last one cleared to approach.
     pub(crate) fn may_approach(
@@ -276,6 +281,16 @@ mod tests {
         ));
         control.landed(key(), at(300)?);
         assert!(!control.may_take_off(key(), WakeCategory::Medium, at(320)?));
+        Ok(())
+    }
+
+    #[test]
+    fn test_cancel_arrival_frees_the_runway() -> Result<()> {
+        let mut control = control();
+        let slot = control.book_arrival(key(), at(60)?, WakeCategory::Medium, 70.0);
+        assert!(!control.may_take_off(key(), WakeCategory::Medium, at(0)?));
+        control.cancel_arrival(key(), slot);
+        assert!(control.may_take_off(key(), WakeCategory::Medium, at(0)?));
         Ok(())
     }
 

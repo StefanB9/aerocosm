@@ -7,7 +7,10 @@ use std::{
 
 use aerocosm_core::{
     AircraftCatalog, Scenario, SimConfig, SimTime, Simulation, TICK, WallClock, WallInstant,
-    airline::AirlineCatalog, ops::StartMode, traffic::TrafficTargets, world::World,
+    airline::AirlineCatalog,
+    ops::{AirportStats, StartMode},
+    traffic::TrafficTargets,
+    world::World,
 };
 use anyhow::{Context, Result};
 
@@ -36,6 +39,8 @@ pub(crate) struct RunSummary {
     /// Movements per target airport against the targets; empty without
     /// traffic.
     pub(crate) movements: Vec<AirportReport>,
+    /// Network punctuality and delays; `None` without traffic.
+    pub(crate) network: Option<AirportStats>,
 }
 
 impl RunSummary {
@@ -116,6 +121,9 @@ pub(crate) fn run(
         wall,
         flights_flown: simulation.flights_flown(),
         peak_airborne,
+        network: simulation
+            .statistics()
+            .map(aerocosm_core::ops::Statistics::network),
         movements,
     })
 }
@@ -268,6 +276,10 @@ mod tests {
             .find(|report| report.airport.to_string() == "EDDF")
             .context("EDDF")?;
         assert!(frankfurt.actual > 0 && frankfurt.expected > 20.0);
+        assert!(frankfurt.stats.busiest_hour() > 0);
+        assert_eq!(frankfurt.capacity.map(|c| c.per_hour), Some(104));
+        let network = summary.network.context("network statistics")?;
+        assert!(network.departures() > 50, "{}", network.departures());
         Ok(())
     }
 
@@ -300,6 +312,7 @@ mod tests {
             flights_flown: 0,
             peak_airborne: 0,
             movements: Vec::new(),
+            network: None,
         };
         assert!((summary.ticks_per_second() - 4000.0).abs() < 1e-9);
         let instant = RunSummary {

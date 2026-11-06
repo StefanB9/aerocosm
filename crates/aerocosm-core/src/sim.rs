@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 
 use crate::{
     Id, RngSeed, SimDuration, SimTime,
-    ops::{BoardEntry, BoardKind, FlightView, Operations, StartMode},
+    ops::{BoardEntry, BoardKind, FlightView, Operations, StartMode, Statistics},
     scenario::Scenario,
     schedule::{Schedule, ScheduleConfig, generate},
     world::{Airport, World},
@@ -116,6 +116,12 @@ impl Simulation {
             .map_or_else(Vec::new, |operations| {
                 operations.board(airport, kind, count)
             })
+    }
+
+    /// Punctuality, delays, holding and movements since the start; `None`
+    /// without traffic.
+    pub fn statistics(&self) -> Option<&Statistics> {
+        self.operations.as_ref().map(Operations::statistics)
     }
 
     /// Aircraft currently off the ground.
@@ -329,6 +335,16 @@ mod tests {
             .airport_by_ident("EDDF".parse()?)
             .context("EDDF")?;
         assert!(sim.movements(frankfurt) > 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_simulation_reports_statistics_with_traffic_only() -> Result<()> {
+        let mut sim = germany(StartMode::Warm)?;
+        sim.run_ticks(600)?;
+        let stats = sim.statistics().context("statistics")?;
+        assert!(stats.network().departures() > 0);
+        assert!(simulation()?.statistics().is_none());
         Ok(())
     }
 
