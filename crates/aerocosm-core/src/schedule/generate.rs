@@ -22,7 +22,8 @@ pub fn generate(inputs: &ScheduleInputs<'_>, config: ScheduleConfig) -> Result<S
         inputs.airlines,
         inputs.traffic,
         config.reference(),
-    )?;
+    )?
+    .with_taxi(inputs.taxi);
     let outcome = build_trips(&ctx, &services, &mut rng).context("cannot build round trips")?;
     let trips: Vec<Trip<(u32, u32, u32)>> = outcome
         .trips

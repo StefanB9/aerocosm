@@ -8,6 +8,7 @@ use anyhow::{Context, Result};
 use crate::{
     AircraftCatalog, AircraftType, Id, RngSeed, SimDuration, SimTime,
     airline::{Airline, AirlineCatalog},
+    ground::TaxiTimes,
     traffic::TrafficTargets,
     world::{Airport, World},
 };
@@ -64,6 +65,8 @@ pub struct ScheduleInputs<'a> {
     aircraft: &'a AircraftCatalog,
     airlines: &'a AirlineCatalog,
     traffic: &'a TrafficTargets,
+    /// Typical taxi times by airport index; empty without ground layouts.
+    taxi: &'a [Option<TaxiTimes>],
 }
 
 impl<'a> ScheduleInputs<'a> {
@@ -86,7 +89,15 @@ impl<'a> ScheduleInputs<'a> {
             aircraft,
             airlines,
             traffic,
+            taxi: &[],
         })
+    }
+
+    /// The inputs with typical taxi times by airport index (plan M4 D73).
+    #[must_use]
+    pub const fn with_taxi(mut self, taxi: &'a [Option<TaxiTimes>]) -> Self {
+        self.taxi = taxi;
+        self
     }
 }
 

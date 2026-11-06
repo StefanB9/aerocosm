@@ -61,13 +61,18 @@ fn load(args: &RunArgs) -> Result<Scenario> {
     if args.no_traffic {
         return Ok(Scenario::new(world));
     }
-    run::load_scenario(
+    let scenario = run::load_scenario(
         world,
         open(&args.aircraft)?,
         open(&args.airlines)?,
         open(&args.traffic)?,
     )
-    .context("cannot load the traffic inputs")
+    .context("cannot load the traffic inputs")?;
+    if args.no_ground {
+        return Ok(scenario);
+    }
+    run::add_ground(scenario, open(&args.ground)?, open(&args.stand_areas)?)
+        .context("cannot load the ground layouts")
 }
 
 /// Movements within this fraction of the target pass the check.

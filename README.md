@@ -3,13 +3,15 @@
 A complete aviation world in miniature: a deterministic simulation of real-world aviation,
 starting with Germany. Step 1 simulates; step 2 lets you intervene as a sandbox "god".
 
-Current state (M2 complete, M3 in progress): the simulation core, the German world (429
+Current state (M3 complete, M4 in progress): the simulation core, the German world (429
 aerodromes plus 23 European edge airports, 582 runways), a basemap of Germany and its
 neighbours, an airline catalog and traffic calibration targets with declared capacities and
 runway modes, a deterministic, slot-coordinated weekly schedule of about 56,000 flights flown
 by some 2,000 tails, flight operations from taxi to landing roll, and a Bevy viewer for desktop
-and browser showing the traffic with flight panels and departure boards. M3 adds runway
-separation, arrival sequencing, holding and ground delays (`docs/plan/m3-runway-and-flow.md`).
+and browser showing the traffic with flight panels and departure boards. M3 added runway
+separation, arrival sequencing, holding and ground delays (`docs/plan/m3-runway-and-flow.md`);
+M4 puts aircraft on real stands and taxiways from OpenStreetMap at 22 German airports
+(`docs/plan/m4-airport-ground.md`).
 
 Plans live in [`docs/plan/`](docs/plan/), data provenance in
 [`docs/data-sources.md`](docs/data-sources.md), engineering rules in [`CLAUDE.md`](CLAUDE.md).
@@ -120,6 +122,10 @@ What to check:
   ground delays.
 - A `capacity exceeded` warning would flag a coordinated airport whose busiest hour tops its
   declared capacity by more than 5 %; the week above has none (FRA peaks at 108 of 104).
+- Since M4, the ground layouts (`assets/ground/`) are loaded by default: at the 22 mapped
+  airports aircraft use real stands and taxi routes, and block times include each airport's
+  typical routed taxi times. `--no-ground` taxies in straight lines everywhere; `--ground` and
+  `--stand-areas` name other files.
 - The run starts warm, with aircraft mid-flight; `--cold-start` starts with every aircraft on
   the ground, so `peak_airborne` grows from zero.
 - `--no-traffic` simulates the static world only; without `--world` the world is empty.
@@ -182,9 +188,11 @@ For a smoother experience use `cargo run --release -p aerocosm-viewer` (slower t
     silhouette (regional, narrow-body, wide-body or A380) pointing along its course, green
     when climbing, light blue in cruise and coral when descending. Aircraft on the ground are
     hidden; there are no trails except for the hovered or selected flight.
-13. **Traffic at airport zoom:** zoom into Frankfurt — grey aircraft board at the airport
-    point and taxi in straight lines to and from the runways of the west-flow mode: departures
-    from 25C, or 18 when heading south, landings on 25L and 25R. Departures climb straight out
+13. **Traffic at airport zoom:** zoom into Frankfurt — grey aircraft board on real stands
+    (Lufthansa at the A, B and C piers), push back slowly ("Pushing back" in the flight panel),
+    and taxi along the taxiways to the runways of the west-flow mode: departures from 25C, or
+    18 when heading south, landings on 25L and 25R. Landings roll out to a real exit and taxi
+    to a stand; at unmapped airports (e.g. Saarbrücken) taxiing is still a straight line. Departures climb straight out
     for several kilometres before turning onto course in a smooth arc; arrivals line up on the
     final well before the runway, some via a downwind and base leg, with no U-turns. Airborne
     aircraft leave fading two-minute trails; once zoomed in far enough, aircraft are drawn to

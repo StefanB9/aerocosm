@@ -3,7 +3,11 @@
 
 use aerocosm_basemap::Basemap;
 use aerocosm_core::{
-    AircraftCatalog, Scenario, airline::AirlineCatalog, traffic::TrafficTargets, world::World,
+    AircraftCatalog, Scenario,
+    airline::AirlineCatalog,
+    ground::{GroundDefinition, StandAreasDefinition},
+    traffic::TrafficTargets,
+    world::World,
 };
 use anyhow::{Context, Result};
 use bevy::{
@@ -19,6 +23,8 @@ const WORLD_JSON: &str = include_str!("../../../assets/world/germany.world.json"
 const AIRCRAFT_JSON: &str = include_str!("../../../assets/aircraft/types.json");
 const AIRLINES_JSON: &str = include_str!("../../../assets/airlines/airlines.json");
 const TRAFFIC_JSON: &str = include_str!("../../../assets/traffic/germany.json");
+const GROUND_JSON: &str = include_str!("../../../assets/ground/germany.ground.json");
+const STAND_AREAS_JSON: &str = include_str!("../../../assets/ground/stand-areas.json");
 const BASEMAP_JSON: &str = include_str!("../../../assets/basemap/germany.basemap.json");
 const INTER_REGULAR: &[u8] = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
 const INTER_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf");
@@ -42,6 +48,11 @@ pub(crate) fn load() -> Result<(Scenario, MapData)> {
         AircraftCatalog::from_json(AIRCRAFT_JSON).context("embedded aircraft are invalid")?,
         AirlineCatalog::from_json(AIRLINES_JSON).context("embedded airlines are invalid")?,
         TrafficTargets::from_json(TRAFFIC_JSON).context("embedded traffic is invalid")?,
+    )?
+    .with_ground(GroundDefinition::from_json(GROUND_JSON).context("embedded ground is invalid")?)?
+    .with_stand_areas(
+        StandAreasDefinition::from_json(STAND_AREAS_JSON)
+            .context("embedded stand areas are invalid")?,
     )?;
     let basemap = Basemap::from_json(BASEMAP_JSON).context("embedded basemap is invalid")?;
     Ok((scenario, MapData { basemap }))
@@ -74,6 +85,7 @@ mod tests {
         assert!(scenario.world().airport_count() > 400);
         let traffic = scenario.traffic().context("embedded traffic")?;
         assert!(traffic.airlines().len() > 20);
+        assert!(scenario.ground().airports().len() > 20);
         assert!(map.basemap.countries().len() > 10);
         Ok(())
     }

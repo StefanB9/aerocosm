@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use aerocosm_core::ground::{EdgeKind, GroundName};
+use aerocosm_core::ground::{EdgeKind, GroundName, stand_base};
 
 use super::{
     graph::Graph,
@@ -270,24 +270,6 @@ fn unique_names(stands: &mut [RawStand]) {
     }
 }
 
-/// The stand a variant belongs to: `05A` → `05`, `164Y` → `164`, and the
-/// import's own `N4-2` → `N4`. Variants overlap and share their stand's
-/// spacing.
-pub(crate) fn stand_base(name: &str) -> &str {
-    let name = match name.rsplit_once('-') {
-        Some((base, suffix)) if !base.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) => {
-            base
-        }
-        _ => name,
-    };
-    let trimmed = name.trim_end_matches(|c: char| c.is_ascii_alphabetic());
-    if trimmed.ends_with(|c: char| c.is_ascii_digit()) {
-        trimmed
-    } else {
-        name
-    }
-}
-
 /// Wingspan limit of each stand from the distance to the nearest stand that
 /// is not a variant of it, in metres.
 pub(crate) fn wingspan_limits(stands: &[(GroundName, Xy)]) -> Vec<f64> {
@@ -500,10 +482,6 @@ mod tests {
         ])?);
         assert_eq!(limits[..4], [80.0, 80.0, 72.5, 72.5]);
         assert_eq!(limits[4..], [80.0, 80.0]);
-        assert_eq!(stand_base("164Y"), "164");
-        assert_eq!(stand_base("V 117"), "V 117");
-        assert_eq!(stand_base("N4-2"), "N4");
-        assert_eq!(stand_base("A"), "A");
         Ok(())
     }
 

@@ -9,6 +9,7 @@ use std::hint::black_box;
 use aerocosm_core::{
     AircraftCatalog, LatLon, RngSeed, Scenario, SimConfig, SimTime, Simulation,
     airline::AirlineCatalog,
+    ground::{GroundDefinition, StandAreasDefinition},
     traffic::TrafficTargets,
     units::{Degrees, Meters},
     world::World,
@@ -67,7 +68,8 @@ fn bench_simulation(c: &mut Criterion) {
 /// How much the German movement and overflight targets are scaled up.
 const TRAFFIC_SCALE: f64 = 23.0;
 
-/// The shipped scenario with every traffic target multiplied by `scale`.
+/// The shipped scenario, ground layouts included, with every traffic target
+/// multiplied by `scale`.
 fn scaled_germany(scale: f64) -> Result<Scenario> {
     let mut traffic =
         TrafficTargets::from_json(include_str!("../../../assets/traffic/germany.json"))?
@@ -92,7 +94,13 @@ fn scaled_germany(scale: f64) -> Result<Scenario> {
         AircraftCatalog::from_json(include_str!("../../../assets/aircraft/types.json"))?,
         AirlineCatalog::from_json(include_str!("../../../assets/airlines/airlines.json"))?,
         TrafficTargets::from_definition(traffic)?,
-    )
+    )?
+    .with_ground(GroundDefinition::from_json(include_str!(
+        "../../../assets/ground/germany.ground.json"
+    ))?)?
+    .with_stand_areas(StandAreasDefinition::from_json(include_str!(
+        "../../../assets/ground/stand-areas.json"
+    ))?)
 }
 
 fn bench_operations(c: &mut Criterion) {

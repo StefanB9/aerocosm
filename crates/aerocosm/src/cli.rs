@@ -60,6 +60,19 @@ pub(crate) struct RunArgs {
     /// Start with every aircraft on the ground instead of mid-flight.
     #[arg(long)]
     pub(crate) cold_start: bool,
+
+    /// Airport ground layouts (plan M4), used with traffic unless
+    /// --no-ground.
+    #[arg(long, default_value = "assets/ground/germany.ground.json")]
+    pub(crate) ground: PathBuf,
+
+    /// Curated stand areas, used with the ground layouts.
+    #[arg(long, default_value = "assets/ground/stand-areas.json")]
+    pub(crate) stand_areas: PathBuf,
+
+    /// Taxi in straight lines everywhere, without ground layouts.
+    #[arg(long)]
+    pub(crate) no_ground: bool,
 }
 
 #[cfg(test)]
@@ -94,7 +107,16 @@ mod tests {
             args.traffic,
             std::path::Path::new("assets/traffic/germany.json")
         );
-        assert!(!args.no_traffic && !args.cold_start);
+        assert!(!args.no_traffic && !args.cold_start && !args.no_ground);
+        assert_eq!(
+            args.ground,
+            std::path::Path::new("assets/ground/germany.ground.json")
+        );
+        assert_eq!(
+            args.stand_areas,
+            std::path::Path::new("assets/ground/stand-areas.json")
+        );
+        assert!(run_args(&["aerocosm", "run", "--no-ground"])?.no_ground);
         Ok(())
     }
 

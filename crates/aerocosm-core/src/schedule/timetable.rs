@@ -7,19 +7,42 @@ use crate::{
     units::{Meters, NauticalMiles},
 };
 
-/// Minutes added to cruise time for taxi out (~12), taxi in (~6) and the slower
-/// climb and descent (~17); calibrated against scheduled block times on German
+/// Minutes added to cruise time for the slower climb and descent; with the
+/// default taxi times, calibrated against scheduled block times on German
 /// sectors.
-const BLOCK_OVERHEAD_MINUTES: f64 = 35.0;
+const AIRBORNE_OVERHEAD_MINUTES: f64 = 17.0;
+
+/// Taxi minutes a block time allows at its two ends.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct TaxiMinutes {
+    /// At the origin, pushback included.
+    pub(crate) out: f64,
+    /// At the destination.
+    pub(crate) back: f64,
+}
+
+impl TaxiMinutes {
+    /// Where no ground layout gives better figures: about 12 minutes out and
+    /// 6 in.
+    pub(crate) const DEFAULT: Self = Self {
+        out: 12.0,
+        back: 6.0,
+    };
+}
 /// Block times are published in five-minute steps.
 const BLOCK_STEP_MINUTES: f64 = 5.0;
 
-/// Gate-to-gate time for a sector of `distance` flown by `aircraft`.
-pub(crate) fn block_time(distance: Meters, aircraft: &AircraftType) -> SimDuration {
+/// Gate-to-gate time for a sector of `distance` flown by `aircraft` with
+/// `taxi` minutes at its ends (plan M4 D73).
+pub(crate) fn block_time(
+    distance: Meters,
+    aircraft: &AircraftType,
+    taxi: TaxiMinutes,
+) -> SimDuration {
     let nautical: NauticalMiles = distance.to_nautical_miles();
     let cruise_minutes = nautical.value() / aircraft.cruise_speed().value() * 60.0;
-    let minutes = ((cruise_minutes + BLOCK_OVERHEAD_MINUTES) / BLOCK_STEP_MINUTES).ceil()
-        * BLOCK_STEP_MINUTES;
+    let total = cruise_minutes + AIRBORNE_OVERHEAD_MINUTES + taxi.out + taxi.back;
+    let minutes = (total / BLOCK_STEP_MINUTES).ceil() * BLOCK_STEP_MINUTES;
     // SAFETY: sectors inside the map are at most a few hours; the cast cannot
     // overflow.
     #[allow(clippy::cast_possible_truncation)]
@@ -148,12 +171,20 @@ mod tests {
         let catalog = catalog()?;
         let a320 = aircraft(&catalog, "A320")?;
         // Frankfurt-Munich, 299 km: scheduled block ~55-65 min.
-        let short = block_time(Meters::new(299_000.0)?, a320).as_millis() / 60_000;
+        let taxi = TaxiMinutes::DEFAULT;
+        let short = block_time(Meters::new(299_000.0)?, a320, taxi).as_millis() / 60_000;
         assert!((50..=70).contains(&short), "{short} min");
         // London-Frankfurt, 655 km: scheduled block ~85-100 min.
-        let medium = block_time(Meters::new(655_000.0)?, a320).as_millis() / 60_000;
+        let medium = block_time(Meters::new(655_000.0)?, a320, taxi).as_millis() / 60_000;
         assert!((80..=105).contains(&medium), "{medium} min");
         assert_eq!(short % 5, 0, "rounded to five minutes");
+        // Ten more minutes of taxiing add ten minutes, rounded.
+        let longer = TaxiMinutes {
+            out: taxi.out + 10.0,
+            back: taxi.back,
+        };
+        let slow = block_time(Meters::new(299_000.0)?, a320, longer).as_millis() / 60_000;
+        assert_eq!(slow, short + 10);
         Ok(())
     }
 

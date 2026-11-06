@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 
-use super::{BOARDING, Operations, TailOps, add, seconds_between};
+use super::{BOARDING, Operations, TailOps, add, routed_taxi_out, seconds_between};
 use crate::{
     SimDuration, SimTime,
     ops::{
@@ -68,6 +68,7 @@ impl Operations {
         if mode == StartMode::Cold {
             let delay = draw_delay(&mut self.rng)?;
             let leaves = off_block(next_scheduled, delay, start)?;
+            self.stand_for_leg(scenario, index, next)?;
             return Ok(TailOps {
                 leg: next,
                 week: next_week,
@@ -77,11 +78,15 @@ impl Operations {
                 motion: None,
             });
         }
-        // Warm: fly the current leg nominally from its scheduled departure.
+        // Warm: fly the current leg nominally from its scheduled departure,
+        // from a stand that it has left by now.
+        self.stand_for_leg(scenario, index, leg)?;
         let planned = self.plan(scenario, index, leg)?;
-        let flight = self.flight(index, leg)?;
+        self.release_stand(index);
+        let flight = *self.flight(index, leg)?;
         let taxi = [
-            NOMINAL_TAXI[usize::from(self.is_major(flight.origin()))][0],
+            routed_taxi_out(&planned.path, &planned.profile)
+                .unwrap_or(NOMINAL_TAXI[usize::from(self.is_major(flight.origin()))][0]),
             NOMINAL_TAXI[usize::from(self.is_major(flight.destination()))][1],
         ];
         let mut motion = Motion::start(&planned.profile, taxi[0], taxi[1]);
@@ -93,6 +98,14 @@ impl Operations {
         }
         if motion.phase() != Phase::Arrived {
             self.install(index, planned);
+            if matches!(motion.phase(), Phase::Landing | Phase::TaxiIn) {
+                let airline = self.airline_of(index, leg)?;
+                if let Some(seconds) =
+                    self.stand_on_arrival(scenario, index, flight.destination(), airline)
+                {
+                    motion.set_taxi_in(seconds);
+                }
+            }
             return Ok(TailOps {
                 leg,
                 week,
@@ -104,6 +117,7 @@ impl Operations {
         }
         let leaves = off_block(next_scheduled, SimDuration::ZERO, add(clock, turnaround)?)?;
         let boarding_from = leaves.checked_sub(BOARDING)?.max(clock);
+        self.stand_for_leg(scenario, index, next)?;
         let mut tail = TailOps {
             leg: next,
             week: next_week,

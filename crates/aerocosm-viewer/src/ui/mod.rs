@@ -23,6 +23,11 @@ use crate::{
     theme,
 };
 
+/// Data credits in the footer; OpenStreetMap's is required by its licence
+/// (plan M4 D65).
+const ATTRIBUTION: &str =
+    "Data: OurAirports · © OpenStreetMap contributors · Made with Natural Earth";
+
 /// Speeds offered in the top bar.
 const SPEEDS: [SimSpeed; 7] = [
     SimSpeed::Paused,
@@ -261,12 +266,7 @@ fn spawn_footer(commands: &mut Commands, fonts: &Fonts) {
                 Pickable::IGNORE
             ),
             (
-                text(
-                    fonts,
-                    "Data: OurAirports · Made with Natural Earth",
-                    11.0,
-                    theme::TEXT_MUTED.with_alpha(0.7),
-                ),
+                text(fonts, ATTRIBUTION, 11.0, theme::TEXT_MUTED.with_alpha(0.7),),
                 Pickable::IGNORE
             ),
         ],
@@ -355,6 +355,13 @@ fn style_speed_buttons(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_attribution_credits_every_source() {
+        // The ground layouts are ODbL: the credit must be visible.
+        assert!(ATTRIBUTION.contains("© OpenStreetMap contributors"));
+        assert!(ATTRIBUTION.contains("OurAirports") && ATTRIBUTION.contains("Natural Earth"));
+    }
 
     #[test]
     fn test_airborne_text() {

@@ -35,6 +35,8 @@ pub use view::{Callsign, FlightView, Holding};
 pub enum Phase {
     /// At the gate before departure; boarding for the next leg.
     Boarding,
+    /// Pushed back from the stand and starting engines (plan M4 D72).
+    Pushback,
     /// Taxiing from the gate to the departure runway.
     TaxiOut,
     /// At the runway holding point, waiting for take-off clearance.
