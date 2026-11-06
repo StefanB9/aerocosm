@@ -77,6 +77,14 @@ fn scaled_germany(scale: f64) -> Result<Scenario> {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let scaled = (f64::from(airport.movements_per_year) * scale).round() as u32;
         airport.movements_per_year = scaled;
+        // Coordinated capacities scale with the traffic, or slot coordination
+        // would spread the extra flights over the whole day.
+        if let Some(capacity) = airport.capacity.as_mut() {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let grow = |value: u16| (f64::from(value) * scale).min(f64::from(u16::MAX)) as u16;
+            capacity.per_hour = grow(capacity.per_hour);
+            capacity.per_window = grow(capacity.per_window);
+        }
     }
     traffic.overflights_per_day *= scale;
     Scenario::with_traffic(
