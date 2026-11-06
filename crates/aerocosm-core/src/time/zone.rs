@@ -108,6 +108,14 @@ impl LocalDate {
     pub fn weekday(self) -> Weekday {
         Weekday::from_jiff(self.0.weekday())
     }
+
+    /// The date `days` days later (earlier if negative).
+    pub fn add_days(self, days: i32) -> Result<Self> {
+        self.0
+            .checked_add(jiff::Span::new().days(days))
+            .map(Self)
+            .with_context(|| format!("{} + {days} days is out of range", self.0))
+    }
 }
 
 /// A local wall-clock reading: date, weekday and minute of the day.
@@ -229,6 +237,16 @@ mod tests {
 
     use super::*;
     use crate::{CoreError, SimTime};
+
+    #[test]
+    fn test_local_date_add_days() -> Result<()> {
+        let date = LocalDate::new(2026, 2, 27)?;
+        assert_eq!(date.add_days(2)?, LocalDate::new(2026, 3, 1)?);
+        assert_eq!(date.add_days(-27)?, LocalDate::new(2026, 1, 31)?);
+        assert_eq!(date.add_days(0)?, date);
+        assert!(LocalDate::new(9999, 12, 31)?.add_days(1).is_err());
+        Ok(())
+    }
 
     fn at(text: &str) -> Result<SimTime> {
         text.parse()

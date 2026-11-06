@@ -267,40 +267,17 @@ pub(crate) fn plan_services(
 }
 
 #[cfg(test)]
-pub(super) mod tests {
+mod tests {
     use std::collections::HashMap;
 
     use anyhow::{Context, Result};
 
     use super::*;
     use crate::{
-        AircraftCatalog,
-        airline::{AirlineCatalog, AirlineKind},
-        traffic::TrafficTargets,
-        world::{AirportKind, World},
+        airline::AirlineKind,
+        test_data::{Data, data},
+        world::AirportKind,
     };
-
-    pub(in crate::schedule) struct Data {
-        pub(in crate::schedule) world: World,
-        pub(in crate::schedule) aircraft: AircraftCatalog,
-        pub(in crate::schedule) airlines: AirlineCatalog,
-        pub(in crate::schedule) traffic: TrafficTargets,
-    }
-
-    pub(in crate::schedule) fn data() -> Result<Data> {
-        Ok(Data {
-            world: World::from_json(include_str!("../../../../assets/world/germany.world.json"))?,
-            aircraft: AircraftCatalog::from_json(include_str!(
-                "../../../../assets/aircraft/types.json"
-            ))?,
-            airlines: AirlineCatalog::from_json(include_str!(
-                "../../../../assets/airlines/airlines.json"
-            ))?,
-            traffic: TrafficTargets::from_json(include_str!(
-                "../../../../assets/traffic/germany.json"
-            ))?,
-        })
-    }
 
     fn services(data: &Data) -> Result<Vec<Service>> {
         plan_services(&data.world, &data.airlines, &data.traffic)

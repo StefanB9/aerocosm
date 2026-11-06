@@ -83,7 +83,7 @@ pub(crate) fn format_clock(time: SimTime) -> String {
 mod tests {
     use std::time::Duration;
 
-    use aerocosm_core::{RngSeed, SimConfig, SimSpeed, SimTime, Simulation, world::World};
+    use aerocosm_core::{RngSeed, Scenario, SimConfig, SimSpeed, SimTime, Simulation};
     use anyhow::Result;
 
     use super::*;
@@ -92,8 +92,8 @@ mod tests {
         let start: SimTime = "2026-11-05T06:00:00Z".parse()?;
         SimDriver::new(Simulation::new(
             SimConfig::new(start, RngSeed::new(1)),
-            World::empty(),
-        ))
+            Scenario::empty(),
+        )?)
     }
 
     #[test]

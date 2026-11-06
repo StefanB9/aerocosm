@@ -35,11 +35,16 @@ aerocosm/                              (workspace root)
     │       ├── schedule/              Weekly schedule (plan M2 PR 2): generate composes demand
     │       │                          (gravity + fitting) → network (services) → trips
     │       │                          (aircraft, times, curfews) → rotation (tails)
+    │       ├── ops/                   Flight operations (plan M2 PR 3): fleet/ (per-tail
+    │       │                          controller, warm/cold start), motion.rs (scalar
+    │       │                          kinematics), path.rs (leg geometry), runway.rs, tail.rs
+    │       │                          (delays, taxi), timeline.rs (week → UTC), view.rs
+    │       ├── scenario.rs            Scenario: world + optional traffic inputs (D45)
     │       ├── units.rs               Meters, Feet, NauticalMiles, Knots, Degrees, …
-    │       ├── geo/                   LatLon, great-circle maths
+    │       ├── geo/                   LatLon, great-circle maths, Segment (walked by distance)
     │       ├── rng.rs                 RngSeed, SimRng — per-subsystem ChaCha8 streams
     │       ├── pacing.rs              WallClock trait, SimSpeed, Pacer
-    │       ├── sim.rs                 Simulation (owns the World), fixed 1 s tick loop
+    │       ├── sim.rs                 Simulation (owns the Scenario and operations), 1 s ticks
     │       └── world/                 World + WorldDefinition (file format), Airport, Runway,
     │                                  RunwayDesignator, codes (AirportIdent, IcaoCode, …)
     ├── aerocosm-basemap/              (library — basemap file types, shared by data and viewer)
@@ -101,7 +106,7 @@ cargo nextest run -p aerocosm-core            # Core-only tests
 cargo clippy --workspace --all-targets        # Zero warnings required (includes tests)
 cargo check --workspace --all-targets         # Type-check everything including tests
 cargo fmt --all -- --check                    # Format check
-cargo run -p aerocosm -- run --world assets/world/germany.world.json --duration 24h   # Batch run
+cargo run -p aerocosm -- run --world assets/world/germany.world.json --duration 24h   # Batch run with traffic
 cargo run --release -p aerocosm-data -- import --ourairports <dir> --natural-earth <dir>   # Regenerate assets (docs/data-sources.md)
 cargo bench -p aerocosm-core --bench core --profile bench-unwind   # Benchmarks (see below)
 cargo run -p aerocosm-viewer                  # Desktop viewer

@@ -40,6 +40,26 @@ pub(crate) struct RunArgs {
     /// the world is empty.
     #[arg(long)]
     pub(crate) world: Option<PathBuf>,
+
+    /// Aircraft catalog, used with --world unless --no-traffic.
+    #[arg(long, default_value = "assets/aircraft/types.json")]
+    pub(crate) aircraft: PathBuf,
+
+    /// Airline catalog, used with --world unless --no-traffic.
+    #[arg(long, default_value = "assets/airlines/airlines.json")]
+    pub(crate) airlines: PathBuf,
+
+    /// Traffic calibration targets, used with --world unless --no-traffic.
+    #[arg(long, default_value = "assets/traffic/germany.json")]
+    pub(crate) traffic: PathBuf,
+
+    /// Simulate the static world only, without schedules and flights.
+    #[arg(long)]
+    pub(crate) no_traffic: bool,
+
+    /// Start with every aircraft on the ground instead of mid-flight.
+    #[arg(long)]
+    pub(crate) cold_start: bool,
 }
 
 #[cfg(test)]
@@ -62,6 +82,34 @@ mod tests {
         assert_eq!(args.start, "2026-01-01T00:00:00Z".parse::<SimTime>()?);
         assert_eq!(args.duration, SimDuration::from_hours(24));
         assert_eq!(args.world, None);
+        assert_eq!(
+            args.aircraft,
+            std::path::Path::new("assets/aircraft/types.json")
+        );
+        assert_eq!(
+            args.airlines,
+            std::path::Path::new("assets/airlines/airlines.json")
+        );
+        assert_eq!(
+            args.traffic,
+            std::path::Path::new("assets/traffic/germany.json")
+        );
+        assert!(!args.no_traffic && !args.cold_start);
+        Ok(())
+    }
+
+    #[test]
+    fn test_cli_run_traffic_flags() -> Result<()> {
+        let args = run_args(&[
+            "aerocosm",
+            "run",
+            "--cold-start",
+            "--no-traffic",
+            "--traffic",
+            "other.json",
+        ])?;
+        assert!(args.cold_start && args.no_traffic);
+        assert_eq!(args.traffic, std::path::Path::new("other.json"));
         Ok(())
     }
 

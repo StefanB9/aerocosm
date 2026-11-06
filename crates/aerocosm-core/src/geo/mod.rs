@@ -1,11 +1,13 @@
 //! Geographic positions on a spherical Earth.
 
 mod great_circle;
+mod segment;
 
 use std::fmt;
 
 use anyhow::Result;
 pub use great_circle::EARTH_RADIUS;
+pub(crate) use segment::Segment;
 use serde::{Deserialize, Serialize};
 
 use crate::{CoreError, units::Degrees};

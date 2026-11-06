@@ -6,8 +6,9 @@ starting with Germany. Step 1 simulates; step 2 lets you intervene as a sandbox 
 Current state (milestone M1, M2 in progress): the simulation core, the German world (429
 aerodromes plus 23 European edge airports, 582 runways), a basemap of Germany and its
 neighbours, a Bevy viewer for desktop and browser, the M2 inputs (airline catalog, traffic
-calibration targets) and a deterministic weekly schedule of about 56,000 flights flown by some
-2,000 tails. Nothing flies yet — flight operations and their display arrive later in M2.
+calibration targets), a deterministic weekly schedule of about 56,000 flights flown by some
+2,000 tails, and flight operations: every tail flies its rotation phase by phase, from taxi to
+landing roll. The viewer does not draw aircraft yet; that is the last part of M2.
 
 Plans live in [`docs/plan/`](docs/plan/), data provenance in
 [`docs/data-sources.md`](docs/data-sources.md), engineering rules in [`CLAUDE.md`](CLAUDE.md).
@@ -86,17 +87,33 @@ cargo nextest run -p aerocosm-core --test schedule
 
 ## Headless simulation
 
-Runs the simulation as fast as possible and logs a summary:
+Runs the simulation as fast as possible and logs a summary. With `--world` it also loads the
+aircraft, airline and traffic files (the shipped assets by default), generates the schedule
+from the seed and flies it:
 
 ```bash
 cargo run -p aerocosm -- run --world assets/world/germany.world.json --duration 24h
 ```
 
+A full week in release, the M2 acceptance run (about 15 s):
+
+```bash
+cargo run --release -p aerocosm -- run --world assets/world/germany.world.json --start 2026-07-06T00:00:00Z --duration 7d
+```
+
 What to check:
 
-- The log reports `airports=452 runways=582 ticks=86400`.
+- `run finished` reports `airports=452 runways=582`, the ticks, `flights_flown` (about 56,000
+  for a week) and `peak_airborne` (about 800 at midday).
+- One `movements` line per target airport compares take-offs plus landings with the target for
+  the simulated window. Airports more than 5 % (plus two movements a day) off are logged as
+  `movements off target` warnings; the week above has none.
+- The run starts warm, with aircraft mid-flight; `--cold-start` starts with every aircraft on
+  the ground, so `peak_airborne` grows from zero.
+- `--no-traffic` simulates the static world only; without `--world` the world is empty.
 - `--seed 7`, `--start 2026-11-05T06:00:00Z` and durations like `1h30m` or `7d` are accepted.
-- Bad input fails with a clear message, e.g. `--duration soon` or `--world missing.json`.
+- Bad input fails with a clear message, e.g. `--duration soon`, `--world missing.json` or
+  `--traffic missing.json`.
 - `cargo run -p aerocosm -- --help` lists the options.
 
 ## Desktop viewer
@@ -206,7 +223,13 @@ What to check:
 cargo bench -p aerocosm-core --bench core --profile bench-unwind
 ```
 
-The `bench-unwind` profile is required (see `CLAUDE.md`).
+The `bench-unwind` profile is required (see `CLAUDE.md`). `ops/step_15483_airborne` times one
+tick with German traffic scaled 23-fold so that about 15,000 aircraft fly at once; the target
+is under 1 ms (about 0.8 ms when M2 PR 3 landed). Only that benchmark:
+
+```bash
+cargo bench -p aerocosm-core --bench core --profile bench-unwind -- ops/
+```
 
 ## Screenshots without a display
 
