@@ -112,6 +112,14 @@ What to check:
   can land just outside the tolerance for some seeds (with seed 0, EDSB at +11 %).
 - Since M3, runways at the German target airports are separated and sequenced: the week still
   completes with movements on target, and nothing stalls in queues or holds.
+- A `punctuality` line reports the network: departures and arrivals on time (within 15
+  minutes; about 82–85 % for the week above), average delays (about 7–8 minutes), holds and
+  holding minutes, and ground delays (flights kept at their gate because the destination is
+  congested). Each `movements` line adds the airport's on-time share, average departure delay,
+  holding minutes, ground delays and busiest clock hour; Frankfurt carries most holding and
+  ground delays.
+- A `capacity exceeded` warning would flag a coordinated airport whose busiest hour tops its
+  declared capacity by more than 5 %; the week above has none (FRA peaks at 108 of 104).
 - The run starts warm, with aircraft mid-flight; `--cold-start` starts with every aircraft on
   the ground, so `peak_airborne` grows from zero.
 - `--no-traffic` simulates the static world only; without `--world` the world is empty.
