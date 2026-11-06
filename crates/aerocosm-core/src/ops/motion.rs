@@ -152,6 +152,19 @@ impl Motion {
         }
     }
 
+    /// Boarding at the origin gate.
+    pub(crate) const fn boarding(profile: &Profile) -> Self {
+        Self {
+            phase: Phase::Boarding,
+            along: 0.0,
+            altitude: profile.inputs.origin_elevation,
+            speed: 0.0,
+            elapsed: 0.0,
+            taxi_out: 0.0,
+            taxi_in: 0.0,
+        }
+    }
+
     /// The current phase.
     pub(crate) const fn phase(&self) -> Phase {
         self.phase

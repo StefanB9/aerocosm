@@ -21,6 +21,7 @@ mod timetable;
 mod trips;
 
 pub use generate::generate;
+pub(crate) use timetable::min_turnaround;
 
 /// What a scheduled flight carries and where it flies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
