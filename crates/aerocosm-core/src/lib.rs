@@ -5,6 +5,7 @@ pub mod airline;
 pub mod error;
 pub mod geo;
 pub mod id;
+pub mod ops;
 pub mod pacing;
 pub mod rng;
 pub mod schedule;
