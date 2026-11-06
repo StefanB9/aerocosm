@@ -118,7 +118,6 @@ impl Motion {
     }
 
     /// The current speed factor.
-    #[cfg(test)]
     pub(crate) fn speed_factor(&self) -> f64 {
         f64::from(self.speed_factor)
     }

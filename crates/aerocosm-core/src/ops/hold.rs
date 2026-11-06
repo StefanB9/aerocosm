@@ -17,6 +17,22 @@ pub(crate) const CYCLE: f64 = 4.0 * LEG;
 /// Radius of a rate-one turn at holding speed, m.
 pub(crate) const TURN_RADIUS: f64 = HOLD_SPEED / (TURN_RATE * std::f64::consts::PI / 180.0);
 
+/// Points sampled around a pattern by [`holding_pattern`].
+pub const PATTERN_POINTS: usize = 48;
+
+/// The racetrack flown at `fix` on `inbound`, as a closed polyline starting
+/// and ending at the fix, for drawing.
+pub fn holding_pattern(fix: LatLon, inbound: Degrees) -> Vec<LatLon> {
+    let mut points = Vec::with_capacity(PATTERN_POINTS + 1);
+    for step in 0..=PATTERN_POINTS {
+        // A few dozen points; the conversion is exact.
+        #[allow(clippy::cast_precision_loss)]
+        let elapsed = CYCLE * step as f64 / PATTERN_POINTS as f64;
+        points.push(racetrack(fix, inbound, elapsed.min(CYCLE - 1e-9)).0);
+    }
+    points
+}
+
 fn course(value: f64) -> Degrees {
     Degrees::from_raw(value).normalized()
 }
@@ -84,6 +100,16 @@ mod tests {
         assert!((course.value() - 70.0).abs() < 1.0, "{course}");
         let offset = fix()?.distance_to(outbound).value();
         assert!(offset > 2.0 * TURN_RADIUS, "{offset}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_holding_pattern_is_a_closed_loop_through_the_fix() -> Result<()> {
+        let points = holding_pattern(fix()?, Degrees::new(90.0)?);
+        assert_eq!(points.len(), PATTERN_POINTS + 1);
+        let (first, last) = (points[0], points[PATTERN_POINTS]);
+        assert!(first.distance_to(fix()?).value() < 1.0);
+        assert!(last.distance_to(first).value() < 1.0);
         Ok(())
     }
 

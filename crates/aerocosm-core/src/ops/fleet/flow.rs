@@ -46,6 +46,17 @@ pub(super) struct Flow {
     provisional: Option<SimTime>,
     /// The off-block check has run for this leg.
     regulated: bool,
+    /// Calculated take-off time while held at the gate.
+    pub(super) slot_time: Option<SimTime>,
+    /// Booked landing slot once sequenced.
+    pub(super) landing: Option<SimTime>,
+}
+
+impl Flow {
+    /// End of the planned hold.
+    pub(super) const fn hold_until(&self) -> Option<SimTime> {
+        self.hold_until
+    }
 }
 
 /// What a prediction found: touchdown and when the hold point is reached,
@@ -148,6 +159,7 @@ impl Operations {
                     .book_arrival(key, eta, wake, profile.approach_speed())
             }
         };
+        self.flows[index].landing = Some(slot);
         let delay = slot.duration_since(eta).as_secs_f64();
         let final_seconds = FINAL_LENGTH / profile.approach_speed();
         let plan = plan_arrival(delay, (prediction.touchdown - final_seconds).max(1.0));
@@ -195,6 +207,7 @@ impl Operations {
             return Ok(None);
         }
         self.stats.regulated(key.airport, delay);
+        self.flows[index].slot_time = now.checked_add(delay).ok();
         Ok(Some(delay))
     }
 
