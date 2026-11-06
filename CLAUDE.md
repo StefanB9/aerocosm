@@ -75,7 +75,9 @@ aerocosm/                              (workspace root)
     │       ├── selection.rs           Selection of an airport or flight, picking
     │       ├── lod.rs, labels.rs,     Pure logic: level of detail, label placement,
     │       │   picking.rs, ...        hit-testing, tessellation, simulation driver
-    │       └── ui/                    Top bar, airport panel + boards, flight panel, labels
+    │       ├── runway_use.rs          Arrows on the runways in use (pure geometry + systems)
+    │       └── ui/                    Top bar, airport panel + boards + flow status (status.rs),
+    │                                  flight panel with flow notes, labels
     ├── xtask/                         (binary — project tooling: `cargo xtask web build|serve`)
     └── aerocosm/                      (binary — headless CLI runner, tracing setup)
         └── src/
