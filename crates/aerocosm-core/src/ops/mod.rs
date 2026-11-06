@@ -8,6 +8,7 @@
 mod motion;
 mod path;
 mod runway;
+mod timeline;
 
 /// What an aircraft is doing on a leg, in the order it happens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
