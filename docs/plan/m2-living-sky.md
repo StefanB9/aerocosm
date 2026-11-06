@@ -27,6 +27,9 @@ separation, delay propagation).
 | D38 | Airlines are catalogued with bases (weights), network style and a fleet type mix; the number of tails per airline is an output of schedule generation, reported for sanity checks (replaces curated counts in D32) | Germany-related fleet counts are hard to source, and fixed counts could make the official targets unschedulable |
 | D39 | Four cargo carriers (DHL/European Air Transport, UPS, FedEx, AeroLogic) fly mostly at night, mainly LEJ/CGN | The official scheduled movements of those hubs are largely cargo |
 | D40 | Local time via `jiff` with the bundled IANA database (`tzdb-bundle-always`): every airport has an IANA zone; curfews, daily curves and banks are local | Exact DST everywhere; bundled data keeps results identical on all platforms and in wasm |
+| D41 | An estimated `cargo_share` per cargo airport (labelled as estimate) splits its movement target between cargo and passenger carriers | ADV totals mix both; no per-airport cargo movement statistic is published in the same series |
+| D42 | Nightstops allowed: flights are generated as round trips from an airline base whose return may be the next morning; rotations run over a cyclic week (a Sunday-night trip returns on the template's Monday) and continuity is validated across the wrap | Realistic first/last waves for low-cost and leisure carriers while keeping tail positions consistent |
+| D43 | The weekly template is expressed in each tail's base-local time (minutes since local Monday 00:00); a concrete week is placed in UTC via the base's zone. Curfews at the far end use the zone offset of a reference week | Airlines publish local times; one template serves the whole year; offsets that differ between zones by season (e.g. Turkey has no DST) shift far-end times by at most an hour |
 
 ## Calibration facts (to be cited in `docs/data-sources.md`)
 
@@ -62,7 +65,9 @@ separation, delay propagation).
 
 ## PR 2 — Core: schedule generation (`aerocosm-core::schedule`)
 
-Deterministic from the `Scheduling` stream; output is a weekly `Schedule`.
+Deterministic from the `Scheduling` stream; output is a weekly `Schedule` of flights grouped
+into tails (D42, D43). Stages live in separate modules (`demand`, `routes`, `timetable`,
+`rotation`, `overflight`), each tested on its own; `generate` composes them.
 
 1. **Demand:** gravity weights `P_i·P_j / d_ij^β` between airport pairs (β ≈ 1.2, minimum
    distance ~150 km, no domestic pairs closer than that).
@@ -78,7 +83,8 @@ Deterministic from the `Scheduling` stream; output is a weekly `Schedule`.
    derived and reported, D38) with minimum turnaround by size
    class (regional 25 min, narrow-body 35 min, wide-body 90 min); every tail ends the day where
    the next day starts.
-6a. **Cargo:** cargo carriers' flights are placed at night in local time (D39).
+6a. **Cargo:** cargo carriers' flights are placed at night in local time (D39); where a curfew
+   closes the night (Frankfurt), they move to the day.
 7. **Overflights:** edge-pair routes whose great circle crosses the German airspace polygon,
    gravity-weighted and scaled to the overflight target; foreign carriers, own rotations at
    edge airports.

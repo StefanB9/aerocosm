@@ -39,6 +39,10 @@ pub struct AirportTarget {
     /// Local centre times of hub connecting banks; empty for non-hubs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub banks: Vec<ClockTime>,
+    /// Fraction of the movements flown by cargo carriers (estimate, plan D41);
+    /// absent means none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cargo_share: Option<f64>,
 }
 
 impl AirportTarget {
@@ -70,6 +74,11 @@ impl AirportTarget {
     /// Hub bank times, earliest first.
     pub fn banks(&self) -> &[ClockTime] {
         &self.banks
+    }
+
+    /// Fraction of the movements flown by cargo carriers, `0..=1`.
+    pub fn cargo_share(&self) -> f64 {
+        self.cargo_share.unwrap_or(0.0)
     }
 }
 
@@ -152,6 +161,12 @@ impl TrafficTargets {
         for (index, target) in definition.airports.iter().enumerate() {
             if target.movements_per_year == 0 {
                 return Err(invalid("airport targets must be positive").into());
+            }
+            if !target
+                .cargo_share
+                .is_none_or(|share| (0.0..=1.0).contains(&share))
+            {
+                return Err(invalid("cargo share must be within 0..=1").into());
             }
             if !target.banks.windows(2).all(|w| w[0] < w[1]) {
                 return Err(invalid("banks must be strictly increasing").into());
@@ -271,6 +286,7 @@ mod tests {
                     end: "05:00".parse()?,
                 }),
                 banks: vec!["06:30".parse()?, "08:00".parse()?],
+                cargo_share: Some(0.1),
             }],
             edges: vec![EdgeZone {
                 airport: "LFPG".parse()?,
@@ -307,6 +323,7 @@ mod tests {
                 < 1e-9
         );
         assert_eq!(frankfurt.banks().len(), 2);
+        assert_eq!(frankfurt.cargo_share(), 0.1);
         assert!(frankfurt.curfew().is_some());
         assert_eq!(
             targets.zone("LFPG".parse()?).map(Zone::name),
@@ -351,6 +368,10 @@ mod tests {
         let copy = repeated.airports[0].clone();
         repeated.airports.push(copy);
         assert_eq!(reason(repeated)?, "each airport may appear only once");
+
+        let mut share = definition()?;
+        share.airports[0].cargo_share = Some(1.5);
+        assert_eq!(reason(share)?, "cargo share must be within 0..=1");
 
         let mut negative = definition()?;
         negative.overflights_per_day = -1.0;

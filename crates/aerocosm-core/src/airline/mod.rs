@@ -44,14 +44,16 @@ pub enum Network {
     ForeignHub,
 }
 
-/// An airport an airline operates from, with its relative share of the
-/// airline's flying.
+/// An airport an airline operates from, with its estimated market share there.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Base {
     /// The airport.
     pub airport: AirportIdent,
-    /// Relative weight among the airline's bases.
+    /// Estimated share of the airport's departures flown by this airline
+    /// (passenger or cargo traffic respectively). Schedule generation splits a
+    /// route between the airlines based at either end in proportion to these
+    /// weights.
     pub weight: f64,
 }
 

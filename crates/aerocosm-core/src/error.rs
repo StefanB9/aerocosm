@@ -193,6 +193,13 @@ pub enum CoreError {
         reason: &'static str,
     },
 
+    /// Schedule generation could not satisfy its inputs.
+    #[error("schedule generation failed: {reason}")]
+    ScheduleFailed {
+        /// What could not be satisfied.
+        reason: String,
+    },
+
     /// An aircraft type definition is implausible.
     #[error("invalid aircraft type {code}: {reason}")]
     InvalidAircraftType {
@@ -408,5 +415,13 @@ mod tests {
     fn test_core_error_invalid_traffic_display() {
         let error = CoreError::InvalidTraffic { reason: "bad" };
         assert_eq!(error.to_string(), "invalid traffic targets: bad");
+    }
+
+    #[test]
+    fn test_core_error_schedule_failed_display() {
+        let error = CoreError::ScheduleFailed {
+            reason: "no routes".to_owned(),
+        };
+        assert_eq!(error.to_string(), "schedule generation failed: no routes");
     }
 }

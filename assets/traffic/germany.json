@@ -1,6 +1,6 @@
 {
   "format_version": 1,
-  "source": "Movements: ADV-Monatsstatistik 12/2025, cumulative January-December 2025, 'Flugbewegungen Linien- und Charterverkehr (an+ab)'; airports with at least ~1,000 such movements. Overflights: DFS 2025 traffic (3.07 million movements, about 8,411 per day) minus EUROCONTROL's 4,888 daily arrivals and departures at German airports in 2025. Curfews: local night-flight rules, simplified to one window without scheduled movements (estimate). Hub banks (FRA, MUC) and weekday factors: estimates of the typical pattern. Airspace: coarse outline of Germany, not the FIR boundary.",
+  "source": "Movements: ADV-Monatsstatistik 12/2025, cumulative January-December 2025, 'Flugbewegungen Linien- und Charterverkehr (an+ab)'; airports with at least ~1,000 such movements. Overflights: DFS 2025 traffic (3.07 million movements, about 8,411 per day) minus EUROCONTROL's 4,888 daily arrivals and departures at German airports in 2025. Curfews: local night-flight rules, simplified to one window without scheduled movements (estimate). Hub banks (FRA, MUC) and weekday factors: estimates of the typical pattern. Airspace: coarse outline of Germany, not the FIR boundary. Cargo shares (LEJ, CGN, FRA): estimates of the cargo carriers' share of those movements (plan D41).",
   "weekday_factors": [
     1.03,
     0.97,
@@ -236,7 +236,8 @@
         "17:00",
         "18:45",
         "20:30"
-      ]
+      ],
+      "cargo_share": 0.05
     },
     {
       "airport": "EDDM",
@@ -288,7 +289,8 @@
     {
       "airport": "EDDK",
       "movements_per_year": 103956,
-      "zone": "Europe/Berlin"
+      "zone": "Europe/Berlin",
+      "cargo_share": 0.25
     },
     {
       "airport": "EDDS",
@@ -302,7 +304,8 @@
     {
       "airport": "EDDP",
       "movements_per_year": 65684,
-      "zone": "Europe/Berlin"
+      "zone": "Europe/Berlin",
+      "cargo_share": 0.65
     },
     {
       "airport": "EDDV",
