@@ -73,14 +73,45 @@ fn load(args: &RunArgs) -> Result<Scenario> {
 /// Movements within this fraction of the target pass the check.
 const MOVEMENT_TOLERANCE: f64 = 0.05;
 
-/// One line per target airport; airports off target are warnings.
+/// Minutes of a duration, for logging.
+fn minutes(duration: aerocosm_core::SimDuration) -> f64 {
+    duration.as_secs_f64() / 60.0
+}
+
+/// Network punctuality, then one line per target airport: movements against
+/// the target with punctuality and delays; airports off target, or busier in
+/// an hour than their declared capacity, are warnings.
 fn log_movements(summary: &run::RunSummary, days: f64) {
+    if let Some(network) = &summary.network {
+        info!(
+            departures = network.departures(),
+            on_time_departures_pct = network.on_time_departures() * 100.0,
+            average_departure_delay_min = minutes(network.average_departure_delay()),
+            arrivals = network.arrivals(),
+            on_time_arrivals_pct = network.on_time_arrivals() * 100.0,
+            average_arrival_delay_min = minutes(network.average_arrival_delay()),
+            holds = network.holds(),
+            holding_min = network.holding_minutes(),
+            ground_delays = network.ground_delays(),
+            ground_delay_min = network.ground_delay_minutes(),
+            "punctuality"
+        );
+    }
     for report in &summary.movements {
+        let stats = &report.stats;
         let deviation_pct = report.deviation() * 100.0;
+        let on_time_pct = stats.on_time_departures() * 100.0;
+        let delay_min = minutes(stats.average_departure_delay());
+        let holding_min = stats.holding_minutes();
+        let ground_delays = stats.ground_delays();
+        let busiest_hour = stats.busiest_hour();
         if report.within(MOVEMENT_TOLERANCE, days) {
-            info!(airport = %report.airport, actual = report.actual, expected = report.expected.round(), deviation_pct, "movements");
+            info!(airport = %report.airport, actual = report.actual, expected = report.expected.round(), deviation_pct, on_time_pct, delay_min, holding_min, ground_delays, busiest_hour, "movements");
         } else {
-            warn!(airport = %report.airport, actual = report.actual, expected = report.expected.round(), deviation_pct, "movements off target");
+            warn!(airport = %report.airport, actual = report.actual, expected = report.expected.round(), deviation_pct, on_time_pct, delay_min, holding_min, ground_delays, busiest_hour, "movements off target");
+        }
+        if let Some((busiest, capacity)) = report.capacity_exceeded() {
+            warn!(airport = %report.airport, busiest_hour = busiest, capacity, "capacity exceeded");
         }
     }
 }
