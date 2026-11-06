@@ -1,6 +1,9 @@
 //! Geographic positions on a spherical Earth.
 
 mod great_circle;
+// Temporary until leg paths use it (removed in that commit).
+#[cfg_attr(not(test), allow(dead_code))]
+mod route;
 mod segment;
 
 use std::fmt;
