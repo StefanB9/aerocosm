@@ -9,11 +9,16 @@ use crate::{
 };
 
 mod airport;
+mod areas;
 mod definition;
 mod elements;
 mod route;
 
 pub use airport::AirportGround;
+pub use areas::{
+    AREAS_FORMAT_VERSION, AirportAreasDefinition, AreaDefinition, StandAreas, StandAreasDefinition,
+    StandRequest,
+};
 pub use definition::{
     AirportGroundDefinition, EdgeDefinition, EdgeKind, ExitDefinition, FORMAT_VERSION,
     GroundDefinition, HoldingPositionDefinition, Point, StandDefinition,

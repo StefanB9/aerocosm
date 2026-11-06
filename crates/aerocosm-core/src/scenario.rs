@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use crate::{
     AircraftCatalog,
     airline::AirlineCatalog,
-    ground::{GroundDefinition, GroundNetwork},
+    ground::{GroundDefinition, GroundNetwork, StandAreas, StandAreasDefinition},
     schedule::ScheduleInputs,
     traffic::TrafficTargets,
     world::World,
@@ -43,6 +43,7 @@ pub struct Scenario {
     world: World,
     traffic: Option<Traffic>,
     ground: GroundNetwork,
+    areas: StandAreas,
 }
 
 impl Scenario {
@@ -52,6 +53,7 @@ impl Scenario {
             world,
             traffic: None,
             ground: GroundNetwork::empty(),
+            areas: StandAreas::empty(),
         }
     }
 
@@ -78,6 +80,7 @@ impl Scenario {
                 targets,
             }),
             ground: GroundNetwork::empty(),
+            areas: StandAreas::empty(),
         })
     }
 
@@ -87,6 +90,18 @@ impl Scenario {
         self.ground = GroundNetwork::from_definition(definition, &self.world)
             .context("ground layouts do not match the world")?;
         Ok(self)
+    }
+
+    /// The scenario with curated stand areas (plan M4 D68).
+    pub fn with_stand_areas(mut self, definition: StandAreasDefinition) -> Result<Self> {
+        self.areas = StandAreas::new(definition, &self.world)
+            .context("stand areas do not match the world")?;
+        Ok(self)
+    }
+
+    /// The curated stand areas.
+    pub const fn stand_areas(&self) -> &StandAreas {
+        &self.areas
     }
 
     /// The airport ground layouts.
@@ -182,6 +197,24 @@ mod tests {
             airports: vec![crate::ground::definition_sample()?],
         };
         assert!(Scenario::empty().with_ground(mismatched).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_scenario_carries_stand_areas() -> Result<()> {
+        let data = data()?;
+        let frankfurt = data
+            .world
+            .airport_by_ident("EDDF".parse()?)
+            .ok_or_else(|| anyhow::anyhow!("EDDF"))?;
+        let scenario = Scenario::new(data.world);
+        assert_eq!(scenario.stand_areas().areas(frankfurt).len(), 0);
+        let definition = crate::ground::StandAreasDefinition::from_json(include_str!(
+            "../../../assets/ground/stand-areas.json"
+        ))?;
+        let scenario = scenario.with_stand_areas(definition.clone())?;
+        assert_ne!(scenario.stand_areas().areas(frankfurt).len(), 0);
+        assert!(Scenario::empty().with_stand_areas(definition).is_err());
         Ok(())
     }
 }

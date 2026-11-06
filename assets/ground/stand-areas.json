@@ -1,0 +1,109 @@
+{
+  "format_version": 1,
+  "source": "Terminal use by alliance as published by the airports and in news coverage; stand-name prefixes from the OpenStreetMap layouts in germany.ground.json, matched to the piers by position. FRA: Lufthansa and Star Alliance in Terminal 1 (piers A, B, C); the other airlines moved from Terminal 2 to the new Terminal 3 (piers G, H, J) in April-June 2026 in waves whose per-pier split is not published, so Terminals 2 and 3 form one area (Fraport; travelmole.com and aerotelegraph.de on the T3 opening, April 2026); Condor stays in Terminal 1 until its move to Terminal 3 in summer 2027 (touristik-aktuell.de); cargo carriers on the CargoCity aprons (stands F and the numbered CargoCity Sued stands). MUC: Lufthansa and Star Alliance in Terminal 2 and its satellite (stands 2xx and 3xx), the other airlines in Terminal 1 (stands 1xx); Eurowings is listed in Terminal 1 by most sources (Munich Airport, Wikipedia). Remote stands (FRA V, W; MUC 5xx, 6xx, 9xx) serve everyone.",
+  "airports": [
+    {
+      "airport": "EDDF",
+      "areas": [
+        {
+          "name": "Terminal 1",
+          "stands": [
+            "A",
+            "B",
+            "C"
+          ],
+          "airlines": [
+            "DLH",
+            "CLH",
+            "OCN",
+            "EWG",
+            "SWR",
+            "AUA",
+            "THY",
+            "LOT",
+            "CFG"
+          ]
+        },
+        {
+          "name": "Terminals 2 and 3",
+          "stands": [
+            "D",
+            "E",
+            "G",
+            "H",
+            "J"
+          ],
+          "airlines": [
+            "AFR",
+            "KLM",
+            "BAW",
+            "IBE",
+            "ITY",
+            "SAS",
+            "EZY",
+            "RYR",
+            "WZZ",
+            "TUI"
+          ]
+        },
+        {
+          "name": "CargoCity",
+          "stands": [
+            "F",
+            "1",
+            "2",
+            "3"
+          ],
+          "airlines": [
+            "BOX",
+            "FDX",
+            "UPS",
+            "BCS"
+          ],
+          "exclusive": true
+        }
+      ]
+    },
+    {
+      "airport": "EDDM",
+      "areas": [
+        {
+          "name": "Terminal 2",
+          "stands": [
+            "2",
+            "3"
+          ],
+          "airlines": [
+            "DLH",
+            "CLH",
+            "OCN",
+            "SWR",
+            "AUA",
+            "THY",
+            "LOT"
+          ]
+        },
+        {
+          "name": "Terminal 1",
+          "stands": [
+            "1"
+          ],
+          "airlines": [
+            "AFR",
+            "KLM",
+            "BAW",
+            "IBE",
+            "ITY",
+            "SAS",
+            "EZY",
+            "RYR",
+            "WZZ",
+            "TUI",
+            "CFG",
+            "EWG"
+          ]
+        }
+      ]
+    }
+  ]
+}
