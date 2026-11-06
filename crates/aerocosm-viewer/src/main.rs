@@ -14,6 +14,9 @@ mod lod;
 mod map;
 mod picking;
 mod projection;
+// Temporary until the aircraft layer draws them (removed in that commit).
+#[cfg_attr(not(test), allow(dead_code))]
+mod silhouette;
 mod tessellate;
 mod theme;
 mod ui;

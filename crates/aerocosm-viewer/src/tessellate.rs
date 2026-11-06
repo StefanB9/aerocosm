@@ -4,6 +4,7 @@ use aerocosm_basemap::Polygon;
 use anyhow::{Context, Result};
 use bevy::{
     asset::RenderAssetUsages,
+    math::Vec2,
     mesh::{Indices, Mesh, PrimitiveTopology},
 };
 use lyon_tessellation::{
@@ -53,6 +54,39 @@ pub(crate) fn fill_polygons<'a>(
             )
             .context("cannot tessellate polygon")?;
     }
+    Ok(Triangles {
+        positions: buffers.vertices,
+        indices: buffers.indices,
+    })
+}
+
+/// Triangulates one simple closed outline given in local units.
+// Temporary until the aircraft layer draws silhouettes (removed in that commit).
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn fill_outline(outline: &[Vec2]) -> Result<Triangles> {
+    let mut buffers: VertexBuffers<[f32; 2], u32> = VertexBuffers::new();
+    let mut builder = LyonPath::builder();
+    let mut points = outline.iter();
+    let Some(first) = points.next() else {
+        return Ok(Triangles {
+            positions: Vec::new(),
+            indices: Vec::new(),
+        });
+    };
+    builder.begin(point(first.x, first.y));
+    for p in points {
+        builder.line_to(point(p.x, p.y));
+    }
+    builder.end(true);
+    FillTessellator::new()
+        .tessellate_path(
+            &builder.build(),
+            &FillOptions::default(),
+            &mut BuffersBuilder::new(&mut buffers, |vertex: FillVertex| {
+                vertex.position().to_array()
+            }),
+        )
+        .context("cannot tessellate outline")?;
     Ok(Triangles {
         positions: buffers.vertices,
         indices: buffers.indices,
