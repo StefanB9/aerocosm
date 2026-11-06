@@ -10,6 +10,7 @@ mod network;
 mod overflight;
 mod rotation;
 mod timetable;
+mod trips;
 
 /// What a scheduled flight carries and where it flies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -20,4 +21,26 @@ pub enum FlightKind {
     Cargo,
     /// A flight between two edge airports that crosses the simulated airspace.
     Overflight,
+}
+
+/// An airline's flight number, e.g. `400` in `LH400` / `DLH400`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FlightNumber(u16);
+
+impl FlightNumber {
+    /// Wraps a flight number.
+    pub const fn new(number: u16) -> Self {
+        Self(number)
+    }
+
+    /// The number.
+    pub const fn value(self) -> u16 {
+        self.0
+    }
+}
+
+impl std::fmt::Display for FlightNumber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
 }

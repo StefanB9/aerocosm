@@ -12,6 +12,9 @@ use crate::CoreError;
 pub struct ClockTime(u16);
 
 impl ClockTime {
+    /// 00:00.
+    pub const MIDNIGHT: Self = Self(0);
+
     /// The time `minute` minutes after midnight, `0..1440`.
     pub fn from_minute(minute: u16) -> Result<Self> {
         if minute < 24 * 60 {

@@ -274,6 +274,7 @@ pub(super) mod tests {
 
     use super::*;
     use crate::{
+        AircraftCatalog,
         airline::{AirlineCatalog, AirlineKind},
         traffic::TrafficTargets,
         world::{AirportKind, World},
@@ -281,6 +282,7 @@ pub(super) mod tests {
 
     pub(in crate::schedule) struct Data {
         pub(in crate::schedule) world: World,
+        pub(in crate::schedule) aircraft: AircraftCatalog,
         pub(in crate::schedule) airlines: AirlineCatalog,
         pub(in crate::schedule) traffic: TrafficTargets,
     }
@@ -288,6 +290,9 @@ pub(super) mod tests {
     pub(in crate::schedule) fn data() -> Result<Data> {
         Ok(Data {
             world: World::from_json(include_str!("../../../../assets/world/germany.world.json"))?,
+            aircraft: AircraftCatalog::from_json(include_str!(
+                "../../../../assets/aircraft/types.json"
+            ))?,
             airlines: AirlineCatalog::from_json(include_str!(
                 "../../../../assets/airlines/airlines.json"
             ))?,
