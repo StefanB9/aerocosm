@@ -42,7 +42,7 @@ small components are cut off by the query box or are disconnected service areas.
 |---|----------|-----------|
 | D64 | **Source:** one Overpass JSON file per airport, fetched with a documented query (aerodrome area: aeroway taxiway, taxilane, runway, parking_position, holding_position, apron, gate, terminal). Pinned by download date and SHA-256 in `docs/data-sources.md`. Read with serde_json; no new dependency | Small files (FRA ≈ 0.9 MB), reproducible, same workflow as the other sources. overpass-api.de and Geofabrik are unreachable from cloud sessions; a public mirror works |
 | D65 | **Asset:** generated `assets/ground/germany.ground.json` under ODbL with `LICENSE-ODbL` alongside. Attribution "© OpenStreetMap contributors" goes in the viewer footer and in data-sources. The world file stays public domain | Keeps the ODbL obligations to one derived database (D53) |
-| D66 | **Coverage:** every German target airport is imported. A quality gate requires at least one stand per 10 daily movements, a connected network linking stands to every runway end in use, and holding positions at the departure runways. Airports that fail keep straight-line ground, and the importer reports why | Uses all usable data and degrades gracefully (EDDR has no stands) |
+| D66 | **Coverage:** every German target airport is imported. A quality gate requires at least one stand per 10 daily movements, a connected network linking stands to every runway end in use with the prevailing wind (OSM one-way tags often reflect one flow direction), and holding positions at the departure runways. Airports that fail keep straight-line ground, and the importer reports why | Uses all usable data and degrades gracefully (EDDR has no stands) |
 | D67 | **Network:** ways are split at shared nodes into edges with length and polyline; edges are tagged as taxiway, taxilane or runway. Stands connect to the nearest taxilane or taxiway when not joined. Runway exits are taxiway nodes on a runway's centreline, with exit angle and distance from each threshold. Positions are rounded to ~0.1 m | Graph search and reservations need explicit topology |
 | D68 | **Stands:** size class (wingspan limit) from the OSM tags where present, else from the stand's geometry and apron. A curated `assets/ground/stand-areas.json` maps airlines to terminals or aprons at the hubs (e.g. Lufthansa at FRA T1, MUC T2). Otherwise the nearest suitable free stand to the expected exit is used. Turnarounds stay on their stand | Plausible stand use without a full allocation dataset |
 | D69 | **Full stands:** an arrival with no suitable free stand taxis to a waiting spot (a remote apron edge or a curated spot) and waits there. The delay is counted in statistics and shown on boards. Supersedes D60 (gates unlimited) | Stand capacity becomes a real constraint |
@@ -61,14 +61,19 @@ small components are cut off by the query box or are disconnected service areas.
   aprons as polygons for the viewer.
 - Core: `GroundNetwork` per airport (edges, nodes, stands, holding positions, exits) loaded in
   `Scenario`; guard test on the shipped asset.
-- Curated `stand-areas.json` with sources; `docs/data-sources.md`, ODbL licence file.
+- `docs/data-sources.md`, ODbL licence file, `queries` command for the downloads.
+- *Changed during PR 1:* the curated airline areas move to PR 2, where stand assignment
+  uses them. OSM apron and terminal tags proved too inconsistent (e.g. "222;223" at FRA), so the
+  areas are defined by stand-name prefixes, which need sourcing per hub.
 - **Tests:** conversion units, proptests for graph building (lengths, split ways stay
   connected, no duplicate edges), quality gate cases, determinism (byte-identical output).
 
 ## PR 2 — Routing, stands and pushback
 
 - Shortest paths on the network (A* by length, respecting one-way tags and size limits).
-- Stand assignment (D68) at landing booking or at warm start; turnarounds stay put.
+- Curated `assets/ground/stand-areas.json` (airlines → stand-name prefixes per hub, with
+  sources) and stand assignment (D68) at landing booking or at warm start; turnarounds stay
+  put. Variants of one stand (`05`, `05A`, `05B`) are mutually exclusive.
 - Motion follows a ground route (polyline walked by distance) for taxi-out and taxi-in;
   pushback phase (D72); the landing roll ends at the chosen exit (D71).
 - Typical taxi times per airport and their use in schedule generation (D73).

@@ -10,6 +10,7 @@ below; the importer output is deterministic, so unchanged inputs give byte-ident
 | `assets/aircraft/types.json` | Hand-curated; see each entry's `source` field | — | — |
 | `assets/airlines/airlines.json` | Hand-curated from carriers' published bases and fleets (2025); see each entry's `source` field | — | — |
 | `assets/traffic/germany.json` | [ADV-Monatsstatistik 12/2025](https://www.adv.aero/wp-content/uploads/2015/11/12.2025-ADV-Monatsstatistik.pdf) (movements), [DFS 2025 traffic](https://www.dfs.de/homepage/en/media/press/2026/05-01-2026-air-traffic-in-germany-2025-more-flights-good-punctuality-level/), [EUROCONTROL European Aviation Overview 2025](https://www.eurocontrol.int/sites/default/files/2026-01/eurocontrol-european-aviation-overview-20260123-2025-review.pdf) (overflights); capacities and runway modes: [Frankfurt noise commission 2025](https://www.flk-frankfurt.de/eigene_dateien/aktuell/2025-aktuelles/juni/top_3_-_flk-beschluss_zum_entwurf_eines_geaenderten_betriebskonzepts_fuer_den_flughafen_frankfurt__26.6.2025.pdf), [Lärmaktionsplan Flughafen München 2021](https://www.regierung.oberbayern.bayern.de/mam/dokumente/bereich5/pfb/laermaktionsplanung/lap_fh-muc/anlage_11.pdf), [airliners.de on hourly coordination parameters](https://www.airliners.de/stundeneckwert-motor-hub-flughaefen-apropos-10/38723), [Düsseldorf operating rules](https://www.dus.com/de-de/konzern/nachbarn/transparenz/flugbetrieb/betriebszeiten), [City of Frankfurt noise monitoring](https://frankfurt.de/fluglaermschutz/-/media/frankfurtde/microsites/microsite-fluglaermschutz/pdf/laerm-monitoring-2024/fluglaerm-q3_2024.pdf); estimates labelled in the file's `source` field | Statistics cited, figures transcribed | Sources cited here |
+| `assets/ground/germany.ground.json` | [OpenStreetMap](https://www.openstreetmap.org/) via the [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API): aeroway taxiways, taxilanes, runways, parking positions, holding positions, aprons, terminals and aerodrome outlines around each German target airport | [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/) (`assets/ground/LICENSE.txt`) | "© OpenStreetMap contributors", required wherever the layouts are shown |
 | `assets/fonts/Inter-*.ttf` | [Inter 4.1](https://github.com/rsms/inter) (`extras/ttf`), Regular and SemiBold | SIL Open Font License 1.1 (`assets/fonts/Inter-LICENSE.txt`) | Licence file shipped alongside |
 
 ## Current snapshot
@@ -59,6 +60,33 @@ cargo run --release -p aerocosm-data -- import --ourairports /tmp/aerocosm-data/
 Then run the full check: the asset guard tests in `aerocosm-core` and `aerocosm-basemap`
 load the shipped files. Update the snapshot section above.
 
+### Airport ground layouts (OpenStreetMap)
+
+The ground file is regenerated separately from the world and basemap, from one Overpass JSON
+download per airport. Write the queries (one `IDENT<TAB>query` line per German airport with
+movement targets) and fetch them from any Overpass instance:
+
+```bash
+mkdir -p /tmp/aerocosm-data/osm
+```
+
+```bash
+cargo run -p aerocosm-data -- queries --out /tmp/aerocosm-data/osm-queries.tsv
+```
+
+```bash
+while IFS=$'\t' read -r icao query; do curl -sSf --data-urlencode "data=$query" -o /tmp/aerocosm-data/osm/$icao.json https://overpass-api.de/api/interpreter; sleep 10; done < /tmp/aerocosm-data/osm-queries.tsv
+```
+
+A response with a `remark` (the server gave up) is rejected by the importer; fetch that airport
+again. Then import, optionally writing layouts that fail the quality gate for inspection:
+
+```bash
+cargo run --release -p aerocosm-data -- ground --osm /tmp/aerocosm-data/osm --rejected /tmp/aerocosm-data/rejected
+```
+
+Update the ground snapshot section above.
+
 ## Processing notes
 
 - **Edge airports (M2, plan D29):** 23 foreign airports inside the basemap, listed in
@@ -75,3 +103,26 @@ load the shipped files. Update the snapshot section above.
   glider strips with non-numeric designators are skipped.
 - **Basemap:** clipped to 8° W–30° E, 41°–61° N (wide enough that the viewer never shows the map edge), simplified at 0.002° (~200 m), and
   rounded to 5 decimals (~1 m).
+- **Ground layouts (plan M4 D64–D68):**
+  - Ways tagged `aeroway=taxiway|taxilane|runway|parking_position` with a node inside the
+    aerodrome outline are split into edges at shared nodes, way ends, holding positions and stand
+    nodes. Interior points are simplified to 0.5 m and coordinates rounded to 7 decimals. `oneway`
+    and `maxspan` are kept.
+  - Stands:
+    - The loose end of a `parking_position` line, connected to the nearest taxiway or taxilane
+      within 60 m if neither end is joined.
+    - The middle of a line joined at both ends (drive-through).
+    - A `parking_position` node, connected the same way.
+    - Names come from `ref` or `name`, else from a named stop node on the line. Unnamed stands
+      are left out; repeated names get a `-2` suffix.
+    - The wingspan limit is the distance to the nearest stand that is not a variant of the same
+      stand (`05A`, `05B` of `05`) minus 7.5 m, kept between 20 and 80 m.
+  - Holding positions: `holding_position` nodes on the network without a type or of type
+    `runway`, within 300 m of a runway centreline, assigned to the nearer threshold.
+  - Exits: network nodes within 25 m of a runway centreline where a taxiway or taxilane leaves,
+    measured 60 m along it, at most 120° off the landing direction.
+  - The network is pruned to the part connected to a runway.
+  - Quality gate (D66): at least one stand per 10 daily movements. Every runway end in use with
+    the prevailing wind (fixed at 250° until weather arrives) needs a holding position reachable
+    from a stand, and an exit from which a stand is reachable, respecting one-way edges. Airports
+    that fail keep straight-line ground.

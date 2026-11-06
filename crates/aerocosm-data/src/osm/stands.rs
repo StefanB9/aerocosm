@@ -270,18 +270,37 @@ fn unique_names(stands: &mut [RawStand]) {
     }
 }
 
-/// Wingspan limit of each stand from the distance to its nearest neighbour,
-/// in metres.
-pub(crate) fn wingspan_limits(points: &[Xy]) -> Vec<f64> {
-    points
+/// The stand a variant belongs to: `05A` → `05`, `164Y` → `164`, and the
+/// import's own `N4-2` → `N4`. Variants overlap and share their stand's
+/// spacing.
+pub(crate) fn stand_base(name: &str) -> &str {
+    let name = match name.rsplit_once('-') {
+        Some((base, suffix))
+            if !base.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            base
+        }
+        _ => name,
+    };
+    let trimmed = name.trim_end_matches(|c: char| c.is_ascii_alphabetic());
+    if trimmed.ends_with(|c: char| c.is_ascii_digit()) {
+        trimmed
+    } else {
+        name
+    }
+}
+
+/// Wingspan limit of each stand from the distance to the nearest stand that
+/// is not a variant of it, in metres.
+pub(crate) fn wingspan_limits(stands: &[(GroundName, Xy)]) -> Vec<f64> {
+    stands
         .iter()
-        .enumerate()
-        .map(|(i, &p)| {
-            let nearest = points
+        .map(|(name, p)| {
+            let base = stand_base(name.as_str());
+            let nearest = stands
                 .iter()
-                .enumerate()
-                .filter(|&(j, _)| j != i)
-                .map(|(_, &q)| distance(p, q))
+                .filter(|(other, _)| stand_base(other.as_str()) != base)
+                .map(|(_, q)| distance(*p, *q))
                 .fold(f64::INFINITY, f64::min);
             let span = (nearest - WINGTIP_CLEARANCE).clamp(SMALLEST_SPAN, LARGEST_SPAN);
             (span * 2.0).round() / 2.0
@@ -449,11 +468,45 @@ mod tests {
         Ok(())
     }
 
+    fn named(points: &[(&str, Xy)]) -> Result<Vec<(GroundName, Xy)>> {
+        points
+            .iter()
+            .map(|(name, xy)| Ok((name.parse()?, *xy)))
+            .collect()
+    }
+
     #[test]
-    fn test_wingspan_limits_follow_spacing() {
-        let limits = wingspan_limits(&[[0.0, 0.0], [45.0, 0.0], [125.0, 0.0], [1_000.0, 0.0]]);
+    fn test_wingspan_limits_follow_spacing() -> Result<()> {
+        let limits = wingspan_limits(&named(&[
+            ("1", [0.0, 0.0]),
+            ("2", [45.0, 0.0]),
+            ("3", [125.0, 0.0]),
+            ("4", [1_000.0, 0.0]),
+        ])?);
         assert_eq!(limits, vec![37.5, 37.5, 72.5, 80.0]);
-        assert_eq!(wingspan_limits(&[[0.0, 0.0], [5.0, 0.0]]), vec![20.0, 20.0]);
+        let crowded = wingspan_limits(&named(&[("1", [0.0, 0.0]), ("2", [5.0, 0.0])])?);
+        assert_eq!(crowded, vec![20.0, 20.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_wingspan_limits_ignore_variants_of_the_same_stand() -> Result<()> {
+        // 05 with its narrow variants 05A and 05B, then 06 80 m away.
+        let limits = wingspan_limits(&named(&[
+            ("05", [0.0, 0.0]),
+            ("05A", [-20.0, 0.0]),
+            ("05B", [20.0, 0.0]),
+            ("06", [100.0, 0.0]),
+            ("N4", [500.0, 0.0]),
+            ("N4-2", [505.0, 0.0]),
+        ])?);
+        assert_eq!(limits[..4], [80.0, 80.0, 72.5, 72.5]);
+        assert_eq!(limits[4..], [80.0, 80.0]);
+        assert_eq!(stand_base("164Y"), "164");
+        assert_eq!(stand_base("V 117"), "V 117");
+        assert_eq!(stand_base("N4-2"), "N4");
+        assert_eq!(stand_base("A"), "A");
+        Ok(())
     }
 
     #[test]

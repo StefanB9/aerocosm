@@ -231,7 +231,8 @@ fn assemble(
         .iter()
         .map(|stand| graph.nodes[stand.node].xy)
         .collect();
-    let spans = wingspan_limits(&points);
+    let named: Vec<_> = kept.iter().zip(&points).map(|(s, p)| (s.name, *p)).collect();
+    let spans = wingspan_limits(&named);
     let mut stands = Vec::with_capacity(kept.len());
     for ((stand, span), p) in kept.iter().zip(spans).zip(&points) {
         stands.push(StandDefinition {

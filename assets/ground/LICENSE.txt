@@ -1,0 +1,14 @@
+germany.ground.json — airport ground layouts (stands, taxiways, holding positions, runway exits,
+aprons) derived from OpenStreetMap data.
+
+© OpenStreetMap contributors
+
+This database is made available under the Open Database License (ODbL) 1.0:
+https://opendatacommons.org/licenses/odbl/1-0/
+
+It is a derivative database of OpenStreetMap (https://www.openstreetmap.org/copyright). Any
+rights in individual contents of the database are licensed under the Database Contents License:
+https://opendatacommons.org/licenses/dbcl/1-0/
+
+How it is produced from the original data is described in docs/data-sources.md; the generator
+is `aerocosm-data ground` in this repository.
