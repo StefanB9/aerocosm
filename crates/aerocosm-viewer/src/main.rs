@@ -9,6 +9,9 @@ mod airports;
 mod camera;
 mod data;
 mod driver;
+// Temporary until the aircraft layer uses it (removed in that commit).
+#[cfg_attr(not(test), allow(dead_code))]
+mod flights;
 mod labels;
 mod lod;
 mod map;
