@@ -1,5 +1,5 @@
 {
-  "format_version": 1,
+  "format_version": 2,
   "types": [
     {
       "code": "A319",
@@ -13,6 +13,7 @@
       "approach_speed": 125.0,
       "range": 3700.0,
       "min_runway_length": 1850.0,
+      "wingspan": 35.8,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -27,6 +28,7 @@
       "approach_speed": 136.0,
       "range": 3300.0,
       "min_runway_length": 2100.0,
+      "wingspan": 35.8,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -41,6 +43,7 @@
       "approach_speed": 133.0,
       "range": 3400.0,
       "min_runway_length": 1950.0,
+      "wingspan": 35.8,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -55,6 +58,7 @@
       "approach_speed": 142.0,
       "range": 3200.0,
       "min_runway_length": 2500.0,
+      "wingspan": 35.8,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -69,6 +73,7 @@
       "approach_speed": 138.0,
       "range": 4000.0,
       "min_runway_length": 2200.0,
+      "wingspan": 35.8,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -83,6 +88,7 @@
       "approach_speed": 145.0,
       "range": 2935.0,
       "min_runway_length": 2300.0,
+      "wingspan": 35.8,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -97,6 +103,7 @@
       "approach_speed": 145.0,
       "range": 3550.0,
       "min_runway_length": 2400.0,
+      "wingspan": 35.9,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -111,6 +118,7 @@
       "approach_speed": 130.0,
       "range": 3450.0,
       "min_runway_length": 1900.0,
+      "wingspan": 35.1,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -125,6 +133,7 @@
       "approach_speed": 130.0,
       "range": 2450.0,
       "min_runway_length": 2050.0,
+      "wingspan": 28.7,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -139,6 +148,7 @@
       "approach_speed": 135.0,
       "range": 2300.0,
       "min_runway_length": 2200.0,
+      "wingspan": 28.7,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -153,6 +163,7 @@
       "approach_speed": 140.0,
       "range": 1550.0,
       "min_runway_length": 1950.0,
+      "wingspan": 24.9,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -167,6 +178,7 @@
       "approach_speed": 110.0,
       "range": 825.0,
       "min_runway_length": 1400.0,
+      "wingspan": 27.1,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -181,6 +193,7 @@
       "approach_speed": 120.0,
       "range": 1100.0,
       "min_runway_length": 1450.0,
+      "wingspan": 28.4,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -195,6 +208,7 @@
       "approach_speed": 137.0,
       "range": 6350.0,
       "min_runway_length": 2770.0,
+      "wingspan": 60.3,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -209,6 +223,7 @@
       "approach_speed": 140.0,
       "range": 8100.0,
       "min_runway_length": 2600.0,
+      "wingspan": 64.8,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -223,6 +238,7 @@
       "approach_speed": 145.0,
       "range": 7530.0,
       "min_runway_length": 2900.0,
+      "wingspan": 60.1,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -237,6 +253,7 @@
       "approach_speed": 149.0,
       "range": 7370.0,
       "min_runway_length": 3100.0,
+      "wingspan": 64.8,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -251,6 +268,7 @@
       "approach_speed": 140.0,
       "range": 8000.0,
       "min_runway_length": 2900.0,
+      "wingspan": 79.8,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -265,6 +283,7 @@
       "approach_speed": 158.0,
       "range": 7730.0,
       "min_runway_length": 3100.0,
+      "wingspan": 68.4,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -279,6 +298,7 @@
       "approach_speed": 135.0,
       "range": 2650.0,
       "min_runway_length": 2400.0,
+      "wingspan": 44.8,
       "freighter": true,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
@@ -294,6 +314,7 @@
       "approach_speed": 135.0,
       "range": 2900.0,
       "min_runway_length": 2100.0,
+      "wingspan": 38.1,
       "freighter": true,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
@@ -309,6 +330,7 @@
       "approach_speed": 140.0,
       "range": 3250.0,
       "min_runway_length": 2600.0,
+      "wingspan": 47.6,
       "freighter": true,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
@@ -324,6 +346,7 @@
       "approach_speed": 150.0,
       "range": 4970.0,
       "min_runway_length": 2800.0,
+      "wingspan": 64.8,
       "freighter": true,
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     }

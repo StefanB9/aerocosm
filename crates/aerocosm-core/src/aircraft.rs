@@ -12,7 +12,8 @@ use crate::{
 };
 
 /// Aircraft catalog file format version this build reads and writes.
-pub const CATALOG_FORMAT_VERSION: u32 = 1;
+/// Version 2 added the wingspan (plan M4 D68).
+pub const CATALOG_FORMAT_VERSION: u32 = 2;
 
 /// ICAO wake turbulence category, which drives separation minima.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -54,6 +55,8 @@ pub struct AircraftTypeDefinition {
     pub range: NauticalMiles,
     /// Take-off field length at maximum take-off weight, sea level, ISA.
     pub min_runway_length: Meters,
+    /// Wingspan, which decides the stands a type fits (plan M4 D68).
+    pub wingspan: Meters,
     /// A pure freighter: carries cargo and has no seats (D39).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub freighter: bool,
@@ -93,6 +96,9 @@ impl AircraftType {
         }
         if d.range.value() <= 0.0 || d.min_runway_length.value() <= 0.0 {
             return Err(invalid("range and minimum runway length must be positive").into());
+        }
+        if !(10.0..=90.0).contains(&d.wingspan.value()) {
+            return Err(invalid("wingspan must be within 10–90 m").into());
         }
         Ok(Self { definition })
     }
@@ -150,6 +156,11 @@ impl AircraftType {
     /// Take-off field length at maximum take-off weight.
     pub const fn min_runway_length(&self) -> Meters {
         self.definition.min_runway_length
+    }
+
+    /// Wingspan.
+    pub const fn wingspan(&self) -> Meters {
+        self.definition.wingspan
     }
 
     /// Whether this is a pure freighter.
@@ -279,6 +290,7 @@ mod tests {
             approach_speed: Knots::new(136.0)?,
             range: NauticalMiles::new(3300.0)?,
             min_runway_length: Meters::new(2100.0)?,
+            wingspan: Meters::new(35.8)?,
             freighter: false,
             source: "test fixture".to_owned(),
         })
@@ -311,6 +323,7 @@ mod tests {
         assert!((aircraft.approach_speed().value() - 136.0).abs() < f64::EPSILON);
         assert!((aircraft.range().value() - 3300.0).abs() < f64::EPSILON);
         assert!((aircraft.min_runway_length().value() - 2100.0).abs() < f64::EPSILON);
+        assert!((aircraft.wingspan().value() - 35.8).abs() < f64::EPSILON);
         assert_eq!(aircraft.source(), "test fixture");
         Ok(())
     }
@@ -352,6 +365,10 @@ mod tests {
             reason(short)?,
             "range and minimum runway length must be positive"
         );
+
+        let mut tiny = a320()?;
+        tiny.wingspan = Meters::new(5.0)?;
+        assert_eq!(reason(tiny)?, "wingspan must be within 10–90 m");
 
         let mut unnamed = a320()?;
         unnamed.name = String::new();
@@ -404,7 +421,7 @@ mod tests {
             Some(&CoreError::UnsupportedFileFormat {
                 file: "aircraft catalog",
                 found: 7,
-                supported: 1
+                supported: 2
             })
         );
         Ok(())
