@@ -108,7 +108,10 @@ What to check:
   for a week) and `peak_airborne` (about 800 at midday).
 - One `movements` line per target airport compares take-offs plus landings with the target for
   the simulated window. Airports more than 5 % (plus two movements a day) off are logged as
-  `movements off target` warnings; the week above has none.
+  `movements off target` warnings. The major airports stay within about 2 %; a small airport
+  can land just outside the tolerance for some seeds (with seed 0, EDSB at +11 %).
+- Since M3, runways at the German target airports are separated and sequenced: the week still
+  completes with movements on target, and nothing stalls in queues or holds.
 - The run starts warm, with aircraft mid-flight; `--cold-start` starts with every aircraft on
   the ground, so `peak_airborne` grows from zero.
 - `--no-traffic` simulates the static world only; without `--world` the world is empty.

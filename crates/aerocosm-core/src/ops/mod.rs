@@ -1,7 +1,9 @@
 //! Flight operations: tails flying their weekly rotations, phase by phase
 //! (plan M2, PR 3).
 
+mod control;
 mod fleet;
+mod hold;
 mod motion;
 mod path;
 mod procedure;
@@ -21,12 +23,16 @@ pub enum Phase {
     Boarding,
     /// Taxiing from the gate to the departure runway.
     TaxiOut,
+    /// At the runway holding point, waiting for take-off clearance.
+    Queue,
     /// Accelerating along the runway.
     TakeoffRoll,
     /// Climbing towards the leg's cruise altitude.
     Climb,
     /// Level at cruise altitude.
     Cruise,
+    /// Flying a holding pattern before the approach.
+    Holding,
     /// Descending towards the final approach fix.
     Descent,
     /// On the final approach path to the arrival runway.
@@ -44,7 +50,7 @@ impl Phase {
     pub const fn is_airborne(self) -> bool {
         matches!(
             self,
-            Self::Climb | Self::Cruise | Self::Descent | Self::Approach
+            Self::Climb | Self::Cruise | Self::Holding | Self::Descent | Self::Approach
         )
     }
 }

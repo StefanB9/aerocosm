@@ -37,9 +37,10 @@ impl PhaseBand {
         match phase {
             Phase::Climb => Self::Climb,
             Phase::Cruise => Self::Cruise,
-            Phase::Descent | Phase::Approach => Self::Descent,
+            Phase::Holding | Phase::Descent | Phase::Approach => Self::Descent,
             Phase::Boarding
             | Phase::TaxiOut
+            | Phase::Queue
             | Phase::TakeoffRoll
             | Phase::Landing
             | Phase::TaxiIn

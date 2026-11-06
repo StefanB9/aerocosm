@@ -54,9 +54,11 @@ pub(crate) const fn phase_name(phase: Phase) -> &'static str {
     match phase {
         Phase::Boarding => "Boarding",
         Phase::TaxiOut => "Taxiing out",
+        Phase::Queue => "Waiting for take-off",
         Phase::TakeoffRoll => "Taking off",
         Phase::Climb => "Climbing",
         Phase::Cruise => "Cruising",
+        Phase::Holding => "Holding",
         Phase::Descent => "Descending",
         Phase::Approach => "On approach",
         Phase::Landing => "Landing",
@@ -120,9 +122,11 @@ mod tests {
         let phases = [
             Phase::Boarding,
             Phase::TaxiOut,
+            Phase::Queue,
             Phase::TakeoffRoll,
             Phase::Climb,
             Phase::Cruise,
+            Phase::Holding,
             Phase::Descent,
             Phase::Approach,
             Phase::Landing,
