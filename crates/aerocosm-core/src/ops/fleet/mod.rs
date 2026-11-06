@@ -17,7 +17,7 @@ use super::{
     path::{Leg, Path, plan_leg},
     stats::Statistics,
     tail::{draw_delay, draw_taxi_in, draw_taxi_out, next_leg, off_block},
-    view::{Callsign, FlightView},
+    view::{Callsign, FlightView, Holding},
 };
 use crate::{
     Id, RngSeed, SimDuration, SimRng, SimTime, StreamId, TICK, WakeCategory,
@@ -383,6 +383,16 @@ impl Operations {
                 scheduled_departure: tail.scheduled,
                 scheduled_arrival: tail.scheduled.checked_add(flight.block()).ok()?,
                 off_block: tail.off_block,
+                holding: path.hold_fix(&motion).map(|(fix, inbound)| Holding {
+                    fix,
+                    inbound,
+                    until: self.flows[index].hold_until(),
+                }),
+                slot_time: self.flows[index]
+                    .slot_time
+                    .filter(|_| motion.phase() == Phase::Boarding),
+                expected_landing: self.flows[index].landing,
+                speed_factor: motion.speed_factor(),
             })
         })
     }
@@ -653,6 +663,48 @@ mod tests {
         assert!(at.ground_delay_minutes() > 10.0 * f64::from(at.ground_delays()) - 1e-6);
         let settled = midday()?.checked_add(SimDuration::from_minutes(10))?;
         assert_separated(&operations, settled)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_flight_views_show_holding_slots_and_sequence() -> Result<()> {
+        let (scenario, mut operations) = single_runway_frankfurt()?;
+        let frankfurt = scenario
+            .world()
+            .airport_by_ident("EDDF".parse()?)
+            .context("EDDF")?;
+        let origin = scenario
+            .world()
+            .airport(frankfurt)
+            .context("FRA")?
+            .location();
+        let (mut holding, mut slots, mut sequenced) = (0, 0, 0);
+        for _ in 0..12 {
+            run(&mut operations, &scenario, 600)?;
+            let now = operations.time();
+            for view in operations.flights() {
+                if let Some(hold) = view.holding() {
+                    holding += 1;
+                    assert_eq!(view.phase(), Phase::Holding);
+                    if view.destination() == frankfurt {
+                        assert!(hold.fix().distance_to(origin).value() < 150_000.0);
+                    }
+                }
+                if let Some(ctot) = view.slot_time() {
+                    assert_eq!(view.phase(), Phase::Boarding);
+                    assert!(ctot >= now);
+                    slots += 1;
+                }
+                if view.expected_landing().is_some() {
+                    sequenced += 1;
+                }
+                assert!((0.8..=1.0).contains(&view.speed_factor()));
+            }
+        }
+        assert!(
+            holding > 0 && slots > 0 && sequenced > 0,
+            "{holding} {slots} {sequenced}"
+        );
         Ok(())
     }
 }

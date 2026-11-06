@@ -6,6 +6,7 @@ mod flight;
 mod format;
 mod labels;
 mod panel;
+mod status;
 
 use aerocosm_core::SimSpeed;
 use bevy::{

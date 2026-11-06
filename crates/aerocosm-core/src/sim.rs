@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 
 use crate::{
     Id, RngSeed, SimDuration, SimTime,
-    ops::{BoardEntry, BoardKind, FlightView, Operations, StartMode, Statistics},
+    ops::{ActiveRunway, BoardEntry, BoardKind, FlightView, Operations, StartMode, Statistics},
     scenario::Scenario,
     schedule::{Schedule, ScheduleConfig, generate},
     world::{Airport, World},
@@ -108,14 +108,29 @@ impl Simulation {
         self.operations.iter().flat_map(Operations::flights)
     }
 
-    /// Up to `count` of `airport`'s departures or arrivals from a quarter of an
-    /// hour ago onwards, with their status; empty without traffic.
+    /// Up to `count` of `airport`'s departures or arrivals by scheduled time,
+    /// with their status: those not yet gone, and finished ones from the last
+    /// quarter of an hour; empty without traffic.
     pub fn board(&self, airport: Id<Airport>, kind: BoardKind, count: usize) -> Vec<BoardEntry> {
         self.operations
             .as_ref()
             .map_or_else(Vec::new, |operations| {
                 operations.board(airport, kind, count)
             })
+    }
+
+    /// The runway ends `airport` uses now, for landing and take-off (plan M3
+    /// D55): its operating mode for the prevailing wind, or the best-aligned
+    /// runway.
+    pub fn runways_in_use(&self, airport: Id<Airport>) -> Vec<ActiveRunway> {
+        let modes = self
+            .world()
+            .airport(airport)
+            .zip(self.scenario.traffic())
+            .map_or(&[][..], |(place, traffic)| {
+                traffic.targets().runway_modes(place.ident())
+            });
+        crate::ops::active_runways_now(self.world().runways_of(airport), modes)
     }
 
     /// Punctuality, delays, holding and movements since the start; `None`
@@ -345,6 +360,23 @@ mod tests {
         let stats = sim.statistics().context("statistics")?;
         assert!(stats.network().departures() > 0);
         assert!(simulation()?.statistics().is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn test_simulation_lists_runways_in_use() -> Result<()> {
+        let sim = germany(StartMode::Warm)?;
+        let frankfurt = sim
+            .world()
+            .airport_by_ident("EDDF".parse()?)
+            .context("EDDF")?;
+        let active = sim.runways_in_use(frankfurt);
+        let runways = sim.world().runways_of(frankfurt);
+        let name = |a: &ActiveRunway| runways[a.runway].ends()[a.end].designator().to_string();
+        let landing: Vec<String> = active.iter().filter(|a| a.arrivals).map(name).collect();
+        let departing: Vec<String> = active.iter().filter(|a| a.departures).map(name).collect();
+        assert_eq!(landing.len(), 2, "{landing:?}");
+        assert!(departing.contains(&"18".to_owned()), "{departing:?}");
         Ok(())
     }
 

@@ -68,6 +68,56 @@ pub(crate) fn mode_runway(
     best.map(|(_, choice)| choice)
 }
 
+/// A runway end in use at an airport and what it is used for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActiveRunway {
+    /// Index among the airport's runways.
+    pub runway: usize,
+    /// Which of the runway's two ends aircraft use.
+    pub end: usize,
+    /// Used for landings.
+    pub arrivals: bool,
+    /// Used for take-offs.
+    pub departures: bool,
+}
+
+/// The runway ends in use for `wind`: those of the airport's operating mode
+/// for it, or the best-aligned end in mixed mode without modes.
+pub(crate) fn active_runways(
+    runways: &[Runway],
+    modes: &[crate::traffic::RunwayMode],
+    wind: Degrees,
+) -> Vec<ActiveRunway> {
+    let Some(mode) = crate::traffic::mode_for_wind(modes, wind) else {
+        return runway_in_use(runways, wind, Meters::default())
+            .map(|choice| ActiveRunway {
+                runway: choice.runway,
+                end: choice.end,
+                arrivals: true,
+                departures: true,
+            })
+            .into_iter()
+            .collect();
+    };
+    let mut active = Vec::with_capacity(mode.arrivals.len() + mode.departures.len());
+    for (index, runway) in runways.iter().enumerate() {
+        for (end, threshold) in runway.ends().iter().enumerate() {
+            let designator = threshold.designator();
+            let arrivals = mode.arrivals.contains(&designator);
+            let departures = mode.departures.contains(&designator);
+            if arrivals || departures {
+                active.push(ActiveRunway {
+                    runway: index,
+                    end,
+                    arrivals,
+                    departures,
+                });
+            }
+        }
+    }
+    active
+}
+
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
@@ -187,6 +237,47 @@ mod tests {
             course(0.0),
         );
         assert_eq!(none, None);
+        Ok(())
+    }
+
+    #[test]
+    fn test_active_runways_follow_the_mode_or_the_wind() -> Result<()> {
+        let runways = [runway("07", 70.0, 4000.0)?, runway("18", 180.0, 4000.0)?];
+        let mode = crate::traffic::RunwayMode {
+            flow: Degrees::new(250.0)?,
+            arrivals: vec!["25".parse()?],
+            departures: vec!["25".parse()?, "18".parse()?],
+        };
+        let active = active_runways(&runways, std::slice::from_ref(&mode), PREVAILING_WIND);
+        assert_eq!(
+            active,
+            vec![
+                ActiveRunway {
+                    runway: 0,
+                    end: 1,
+                    arrivals: true,
+                    departures: true
+                },
+                ActiveRunway {
+                    runway: 1,
+                    end: 0,
+                    arrivals: false,
+                    departures: true
+                },
+            ]
+        );
+        // Without modes: the best-aligned end, used both ways.
+        let rule = active_runways(&runways, &[], PREVAILING_WIND);
+        assert_eq!(
+            rule,
+            vec![ActiveRunway {
+                runway: 0,
+                end: 1,
+                arrivals: true,
+                departures: true
+            }]
+        );
+        assert_eq!(active_runways(&[], &[], PREVAILING_WIND), Vec::new());
         Ok(())
     }
 }

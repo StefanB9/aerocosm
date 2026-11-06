@@ -2,7 +2,11 @@
 //! interpolated between ticks, with trails (D33, D49–D51). The logic lives in
 //! `flights` and `silhouette`; these systems gather state and apply it.
 
-use aerocosm_core::{Id, ops::FlightView, schedule::Tail};
+use aerocosm_core::{
+    Id,
+    ops::{FlightView, holding_pattern},
+    schedule::Tail,
+};
 use bevy::{
     app::{App, Plugin, Startup, Update},
     asset::{Assets, Handle},
@@ -41,6 +45,8 @@ use crate::{
 const AIRCRAFT_Z: f32 = 20.0;
 /// The selected or hovered aircraft draws above the others.
 const HIGHLIGHT_Z: f32 = 21.0;
+/// Opacity of holding pattern outlines.
+const HOLD_ALPHA: f32 = 0.35;
 /// Trail opacity at the aircraft, fading to zero at its oldest point.
 const TRAIL_ALPHA: f32 = 0.55;
 
@@ -67,7 +73,7 @@ struct SpriteLook {
 
 /// One material per phase band.
 #[derive(Resource)]
-struct BandMaterials([Handle<ColorMaterial>; 4]);
+struct BandMaterials([Handle<ColorMaterial>; 5]);
 
 /// The last two tick states of one tail's flight.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -299,6 +305,7 @@ fn draw_trails(
     driver: Res<SimDriver>,
     traffic: Res<TrafficView>,
     selection: Res<Selection>,
+    projection: Res<MapProjection>,
     sprites: Query<(&AircraftSprite, &Visibility)>,
     mut gizmos: Gizmos,
 ) {
@@ -333,6 +340,14 @@ fn draw_trails(
                     base.with_alpha(TRAIL_ALPHA),
                 )));
             gizmos.linestrip_gradient_2d(points);
+        }
+        if let Some(hold) = view.holding()
+            && trail_visible(scale, selected || hovered)
+        {
+            let pattern = holding_pattern(hold.fix(), hold.inbound())
+                .into_iter()
+                .map(|point| projection.project(point));
+            gizmos.linestrip_2d(pattern, PhaseBand::Holding.color().with_alpha(HOLD_ALPHA));
         }
         if selected || hovered {
             let radius = pixel_length(SizeClass::VeryLarge) * scale;

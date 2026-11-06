@@ -25,6 +25,12 @@ use crate::{data::Fonts, driver::SimDriver, theme};
 /// Rows per board.
 const ROWS: usize = 6;
 
+/// The airport panel's flow lines, refreshed with the boards.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct AirportStatus {
+    pub(crate) airport: Id<Airport>,
+}
+
 /// A board's place in the airport panel.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Board {
@@ -70,7 +76,11 @@ pub(crate) fn board_rows(
         .iter()
         .map(|entry| {
             let late = entry.delay();
-            let status = format::status(entry.status(), late);
+            let status = if entry.regulated() {
+                format::slot(&format::local_clock(zone, entry.estimated()))
+            } else {
+                format::status(entry.status(), late)
+            };
             let tone = match entry.status() {
                 FlightStatus::Departed | FlightStatus::Landed => Tone::Done,
                 _ if format::delay(late).is_some() => Tone::Late,
@@ -117,6 +127,7 @@ fn refresh_boards(
     driver: Res<SimDriver>,
     fonts: Res<Fonts>,
     boards: Query<(Entity, &Board)>,
+    statuses: Query<(Entity, &AirportStatus)>,
     new: Query<(), Added<Board>>,
     mut last_minute: Local<Option<i64>>,
 ) {
@@ -126,6 +137,12 @@ fn refresh_boards(
         return;
     }
     *last_minute = Some(minute);
+    for (entity, panel) in &statuses {
+        commands.entity(entity).despawn_children();
+        for line in super::status::status_lines(simulation, panel.airport) {
+            commands.spawn((text(&fonts, line, 12.0, theme::TEXT_MUTED), ChildOf(entity)));
+        }
+    }
     for (entity, board) in &boards {
         commands.entity(entity).despawn_children();
         let entries = simulation.board(board.airport, board.kind, ROWS);

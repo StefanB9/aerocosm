@@ -87,6 +87,11 @@ pub(crate) fn status(status: FlightStatus, late: SimDuration) -> String {
     }
 }
 
+/// A board's status for a flight held for a slot at `time`.
+pub(crate) fn slot(time: &str) -> String {
+    format!("Slot {time}")
+}
+
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
@@ -153,5 +158,6 @@ mod tests {
         assert_eq!(status(FlightStatus::Boarding, late), "Delayed +12 min");
         assert_eq!(status(FlightStatus::Departed, late), "Departed");
         assert_eq!(status(FlightStatus::Landed, SimDuration::ZERO), "Landed");
+        assert_eq!(slot("09:15"), "Slot 09:15");
     }
 }

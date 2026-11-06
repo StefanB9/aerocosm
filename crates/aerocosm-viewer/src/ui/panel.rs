@@ -7,7 +7,10 @@ use aerocosm_core::{
 };
 use bevy::prelude::*;
 
-use super::{boards::spawn_board, card, strong, text};
+use super::{
+    boards::{AirportStatus, spawn_board},
+    card, strong, text,
+};
 use crate::{airports::WorldView, data::Fonts, selection::Selection, theme};
 
 /// Shows details of the selected airport.
@@ -123,6 +126,16 @@ fn refresh_panel(
             12.0,
             theme::TEXT_MUTED,
         ),
+        ChildOf(panel),
+    ));
+    commands.spawn((
+        AirportStatus { airport: id },
+        Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: px(2),
+            margin: UiRect::top(px(6)),
+            ..default()
+        },
         ChildOf(panel),
     ));
     for kind in [BoardKind::Departures, BoardKind::Arrivals] {

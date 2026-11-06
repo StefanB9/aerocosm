@@ -15,8 +15,18 @@ mod view;
 
 pub(crate) use fleet::Operations;
 pub use fleet::board::{BoardEntry, BoardKind, FlightStatus};
+pub use hold::{PATTERN_POINTS, holding_pattern};
+pub use runway::ActiveRunway;
+
+/// The runway ends in use with the prevailing wind.
+pub(crate) fn active_runways_now(
+    runways: &[crate::world::Runway],
+    modes: &[crate::traffic::RunwayMode],
+) -> Vec<ActiveRunway> {
+    runway::active_runways(runways, modes, runway::PREVAILING_WIND)
+}
 pub use stats::{AirportStats, Statistics};
-pub use view::{Callsign, FlightView};
+pub use view::{Callsign, FlightView, Holding};
 
 /// What an aircraft is doing on a leg, in the order it happens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

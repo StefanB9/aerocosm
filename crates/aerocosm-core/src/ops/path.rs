@@ -184,6 +184,14 @@ pub(crate) fn plan_leg(
 }
 
 impl Path {
+    /// The fix and inbound course of the hold `motion` is flying, if any.
+    pub(crate) fn hold_fix(&self, motion: &Motion) -> Option<(LatLon, Degrees)> {
+        (motion.phase() == Phase::Holding).then(|| {
+            let along = Meters::from_raw(motion.along());
+            (self.enroute.point_at(along), self.enroute.bearing_at(along))
+        })
+    }
+
     /// Indices of the runways used at the origin and the destination.
     pub(crate) const fn runways(&self) -> (Option<usize>, Option<usize>) {
         (self.departure_runway, self.arrival_runway)

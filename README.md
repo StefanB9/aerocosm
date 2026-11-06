@@ -198,7 +198,18 @@ For a smoother experience use `cargo run --release -p aerocosm-viewer` (slower t
     dragging the map, Escape or selecting something else stops following.
 16. **Boards:** the airport panel lists the next six departures and arrivals in local time
     with callsign, other airport and status (Scheduled, Boarding, Departed, Landed, or
-    "Delayed +n min" in amber); they update every simulated minute.
+    "Delayed +n min" in amber); they update every simulated minute. Departures held at the
+    gate for a congested destination show "Slot hh:mm"; late flights stay listed until they go,
+    and arrival times follow the arrival manager's landing slots.
+17. **Runway control:** above the boards, the airport panel names the runways in use
+    (Frankfurt: landing 25L 25R, take-off 25C 18), how many aircraft are holding for the airport
+    or waiting for take-off right now and how many are held for slots, and the punctuality since
+    the start. At runway zoom, coral arrows point into the landing runways and green arrows
+    down the take-off runways.
+18. **Holding:** at busy times, violet aircraft fly racetracks about 35 NM before the final
+    approach fix, with a faint outline of the pattern once zoomed in; their flight panel says
+    "Holding, expected out hh:mm". Sequenced arrivals show "Expected landing", slowed ones
+    "Speed control −n %", and slot-held departures "Slot (CTOT) hh:mm".
 
 ## Browser viewer
 

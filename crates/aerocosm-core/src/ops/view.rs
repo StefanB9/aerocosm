@@ -41,6 +41,32 @@ impl fmt::Display for Callsign {
     }
 }
 
+/// A holding pattern being flown.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Holding {
+    pub(super) fix: LatLon,
+    pub(super) inbound: Degrees,
+    pub(super) until: Option<SimTime>,
+}
+
+impl Holding {
+    /// The holding fix.
+    pub const fn fix(&self) -> LatLon {
+        self.fix
+    }
+
+    /// Inbound course to the fix.
+    pub const fn inbound(&self) -> Degrees {
+        self.inbound
+    }
+
+    /// Expected time out of the hold; `None` while waiting at the final fix
+    /// for the approach.
+    pub const fn until(&self) -> Option<SimTime> {
+        self.until
+    }
+}
+
 /// A snapshot of one active flight: boarding, moving or just landed.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FlightView {
@@ -59,6 +85,10 @@ pub struct FlightView {
     pub(super) scheduled_departure: SimTime,
     pub(super) scheduled_arrival: SimTime,
     pub(super) off_block: SimTime,
+    pub(super) holding: Option<Holding>,
+    pub(super) slot_time: Option<SimTime>,
+    pub(super) expected_landing: Option<SimTime>,
+    pub(super) speed_factor: f64,
 }
 
 impl FlightView {
@@ -135,6 +165,27 @@ impl FlightView {
     /// Actual off-block time, or the expected one while boarding.
     pub const fn off_block(&self) -> SimTime {
         self.off_block
+    }
+
+    /// The holding pattern, while holding.
+    pub const fn holding(&self) -> Option<Holding> {
+        self.holding
+    }
+
+    /// Calculated take-off time while held at the gate for a congested
+    /// destination (D58).
+    pub const fn slot_time(&self) -> Option<SimTime> {
+        self.slot_time
+    }
+
+    /// Landing time booked by the arrival manager, once sequenced.
+    pub const fn expected_landing(&self) -> Option<SimTime> {
+        self.expected_landing
+    }
+
+    /// Fraction of normal speed flown under speed control (1 without).
+    pub const fn speed_factor(&self) -> f64 {
+        self.speed_factor
     }
 }
 
