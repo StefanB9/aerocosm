@@ -163,11 +163,16 @@ Update the ground snapshot section above.
       `at_most`. EDDK follows the VATSIM Germany knowledge base (unofficial; cargo aprons E/F
       code E, its A380 positions code F, feeder apron W code C–D, V at most D) and an estimate of
       code C for the terminal piers A–D, whose OSM stands sit too close for the A320s using them.
+      EDDP follows the same knowledge base's per-bay wingspan limits for the DHL hub apron 4
+      (bays A–E, stands 401–487) and an estimate of code C for the airline stands of apron 1.
   - Holding positions: `holding_position` nodes on the network without a type or of type
     `runway`, within 300 m of a runway centreline, assigned to the nearer threshold.
   - Exits: network nodes within 25 m of a runway centreline where a taxiway or taxilane leaves,
     measured 60 m along it, at most 120° off the landing direction.
   - The network is pruned to the part connected to a runway.
+  - Stands without a taxi route (respecting one-way edges) to the entry of every departure runway
+    in use, or from an exit of every arrival runway in use, are left out (`unroutable` in the
+    import report); the simulation could not use them.
   - Quality gate (D66): at least one stand per 10 daily movements. Every runway end in use with
     the prevailing wind (fixed at 250° until weather arrives) needs a holding position reachable
     from a stand, and an exit from which a stand is reachable, respecting one-way edges. Airports

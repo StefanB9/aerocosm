@@ -7,6 +7,7 @@ mod layout;
 mod local;
 mod names;
 mod overpass;
+mod prune;
 mod query;
 mod runways;
 mod sizes;
@@ -47,6 +48,9 @@ pub struct AirportGroundReport {
     pub stands: usize,
     /// Stands left out because they do not connect to a runway.
     pub dropped_stands: usize,
+    /// Stands left out because no route leads from them to a departure
+    /// runway in use, or to them from an arrival runway.
+    pub unroutable_stands: usize,
     /// Network edges.
     pub edges: usize,
     /// Runway holding positions.
@@ -61,10 +65,12 @@ impl fmt::Display for AirportGroundReport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}: {} stands ({} unconnected), {} edges, {} holding positions, {} exits",
+            "{}: {} stands ({} unconnected, {} unroutable), {} edges, {} holding positions, {} \
+             exits",
             self.airport,
             self.stands,
             self.dropped_stands,
+            self.unroutable_stands,
             self.edges,
             self.holding_positions,
             self.exits
@@ -109,15 +115,18 @@ pub fn import_ground(
             .with_context(|| format!("{ident} is not in the world"))?;
         let data = overpass::read_overpass(&source.json)
             .with_context(|| format!("cannot read the OSM data of {ident}"))?;
-        let layout = layout::build_layout(&data, world, airport, sizes)
+        let mut layout = layout::build_layout(&data, world, airport, sizes)
             .with_context(|| format!("cannot build the layout of {ident}"))?;
         let requirements = gate::requirements(world, airport, traffic);
+        let unroutable = prune::prune_stands(&mut layout.definition, world, &requirements)
+            .with_context(|| format!("cannot check the stands of {ident}"))?;
         let rejected = gate::check(&layout.definition, &requirements).err();
         let definition = &layout.definition;
         reports.push(AirportGroundReport {
             airport: ident,
             stands: definition.stands.len(),
             dropped_stands: layout.dropped_stands,
+            unroutable_stands: unroutable,
             edges: definition.edges.len(),
             holding_positions: definition.holding_positions.len(),
             exits: definition.exits.len(),
@@ -161,6 +170,7 @@ mod tests {
             airport: "EDDF".parse()?,
             stands: 300,
             dropped_stands: 12,
+            unroutable_stands: 3,
             edges: 2_000,
             holding_positions: 150,
             exits: 40,
@@ -168,7 +178,8 @@ mod tests {
         };
         assert_eq!(
             report.to_string(),
-            "EDDF: 300 stands (12 unconnected), 2000 edges, 150 holding positions, 40 exits — ok"
+            "EDDF: 300 stands (12 unconnected, 3 unroutable), 2000 edges, 150 holding positions, \
+             40 exits — ok"
         );
         report.rejected = Some("3 stands, 9 needed".to_owned());
         assert!(

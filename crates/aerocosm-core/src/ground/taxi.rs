@@ -342,6 +342,44 @@ mod tests {
     }
 
     #[test]
+    fn test_every_shipped_stand_routes_to_and_from_the_runways_in_use() -> Result<()> {
+        let (world, ground, traffic) = shipped()?;
+        let span = Meters::new(1.0)?;
+        let mut stranded = Vec::new();
+        for layout in ground.airports() {
+            let airport = layout.airport();
+            let place = world.airport(airport).context("airport")?;
+            let runways = world.runways_of(airport);
+            let modes = traffic.runway_modes(place.ident());
+            for active in crate::ops::active_runways_now(runways, modes) {
+                let end = &runways[active.runway].ends()[active.end];
+                let designator = end.designator();
+                let entry = layout.departure_entry(designator, end.threshold());
+                for stand in layout.stands() {
+                    let out = !active.departures
+                        || entry
+                            .is_some_and(|e| layout.route(stand.node(), e.node(), span).is_some());
+                    let back = !active.arrivals
+                        || layout
+                            .exits()
+                            .iter()
+                            .filter(|e| e.runway() == designator)
+                            .any(|e| layout.route(e.node(), stand.node(), span).is_some());
+                    if !(out && back) {
+                        stranded.push(format!("{} {} {designator}", place.ident(), stand.name()));
+                    }
+                }
+            }
+        }
+        assert!(
+            stranded.is_empty(),
+            "{} stranded: {stranded:?}",
+            stranded.len()
+        );
+        Ok(())
+    }
+
+    #[test]
     fn test_typical_taxi_times_at_the_hubs_are_plausible() -> Result<()> {
         let (world, ground, traffic) = shipped()?;
         let times = ground.taxi_times(&world, Some(&traffic));
