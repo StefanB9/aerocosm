@@ -115,6 +115,21 @@ same inputs ⇒ same world.
 **Dependency boundary:** core ← basemap ← data (and the viewer); core ← binaries. Core has no
 UI or binary-specific dependencies. The viewer never depends on `aerocosm-data`. Never reverse.
 
+**Data tiers: realism first, open fallback.** Use the most accurate source available for every
+kind of data, and give every feature a working fallback for users without access to it.
+- *Baseline tier:* open data (public domain, ODbL, …) plus hand curation, generated into
+  `assets/`, committed and loaded by guard tests. Anyone who clones the repository can build and
+  run it, and every test and calibration target uses it.
+- *Premium tier:* subscription data (e.g. Navigraph, which users access with their own
+  subscription). Fetched by the binaries or the importer with the user's credentials, cached
+  locally outside the repository (git-ignored), never committed. It overrides the baseline
+  where it has data.
+- The core never fetches: premium data enters as `Scenario` inputs like any other, behind traits
+  so tests use mocks; same seed + same inputs (including the tier) ⇒ same world. A run records
+  which tier it used.
+- A feature that uses premium data ships with its baseline path and tests for both. New data
+  needs in plans say which tier provides them and what the fallback is.
+
 **Tooling is Rust.** No Python, shell or other scripts in the project: every developer task is
 a `cargo xtask` subcommand in `crates/xtask` (alias in `.cargo/config.toml`), with its logic
 tested behind traits for processes, files and sockets.

@@ -4,6 +4,20 @@
 The generated assets are committed; raw downloads are not. Regenerate them with the steps
 below; the importer output is deterministic, so unchanged inputs give byte-identical files.
 
+## Data tiers
+
+Data comes in two tiers (see `CLAUDE.md`, "Data tiers"): the **baseline** listed below is open,
+committed and used by all tests; a **premium** tier of subscription data (planned: Navigraph,
+through each user's own subscription) is fetched and cached locally, never committed, and
+overrides the baseline where it has data. Every feature works on the baseline alone.
+
+| Data | Baseline (committed) | Premium (planned, local only) |
+|------|----------------------|-------------------------------|
+| Airports, runways | OurAirports | Navigraph (AIRAC) |
+| Stands, taxiways | OpenStreetMap + `stand-sizes.json` / `stand-areas.json` curation | Navigraph gates and airport data, where available |
+| Departure and arrival procedures | Simplified procedures (plan M3 D59) | Navigraph SIDs, STARs, approaches |
+| Airways, waypoints, airspace | — (direct routes) | Navigraph |
+
 | Asset | Source | Licence | Attribution |
 |-------|--------|---------|-------------|
 | `assets/world/germany.world.json` | [OurAirports](https://ourairports.com/data/) `airports.csv`, `runways.csv` | Public domain | Not required; credited here |
