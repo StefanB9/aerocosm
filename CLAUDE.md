@@ -21,6 +21,7 @@ aerocosm/                              (workspace root)
 │   ├── ground/germany.ground.json     Generated from OpenStreetMap by `aerocosm-data ground`;
 │   │                                  ODbL (ground/LICENSE.txt), attribution required (M4)
 │   ├── ground/stand-areas.json        Hand-curated airline → stand-name prefixes (FRA, MUC)
+│   ├── ground/stand-sizes.json        Hand-curated stand-name prefixes → ICAO size codes (CGN)
 │   └── fonts/                         Inter (SIL OFL), embedded by the viewer
 ├── web/index.html                     Browser loader: picks the WebGPU or WebGL2 build
 └── crates/
@@ -73,7 +74,8 @@ aerocosm/                              (workspace root)
     │       ├── ourairports/           CSV records, airport/runway conversion, surfaces
     │       ├── natural_earth/         GeoJSON subset, layer import
     │       ├── osm/                   Overpass JSON → ground layouts: graph, stands, runways
-    │       │                          (holding positions, exits), quality gate, queries
+    │       │                          (holding positions, exits), sizes.rs (curated stand
+    │       │                          codes), quality gate, queries
     │       └── geometry/              clip (rings, lines), Douglas–Peucker simplify
     ├── aerocosm-viewer/               (binary — Bevy 0.20 viewer, native and wasm)
     │   └── src/

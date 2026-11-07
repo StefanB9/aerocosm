@@ -16,7 +16,7 @@ use aerocosm_core::{
 use aerocosm_data::{
     import_all,
     natural_earth::NaturalEarthSources,
-    osm::{OsmSource, ground_airports, import_ground, overpass_query},
+    osm::{OsmSource, StandSizes, ground_airports, import_ground, overpass_query},
     ourairports::OurAirportsSources,
 };
 use anyhow::{Context, Result};
@@ -111,6 +111,7 @@ struct GroundPaths {
     world: PathBuf,
     traffic: PathBuf,
     ground: PathBuf,
+    sizes: PathBuf,
 }
 
 impl GroundPaths {
@@ -119,6 +120,7 @@ impl GroundPaths {
             world: assets.join("world").join("germany.world.json"),
             traffic: assets.join("traffic").join("germany.json"),
             ground: assets.join("ground").join("germany.ground.json"),
+            sizes: assets.join("ground").join("stand-sizes.json"),
         }
     }
 }
@@ -151,7 +153,8 @@ fn ground(args: &GroundArgs) -> Result<()> {
             });
         }
     }
-    let output = import_ground(&sources, &world, &traffic)?;
+    let sizes = StandSizes::from_json(&read(&paths.sizes)?).context("invalid stand size file")?;
+    let output = import_ground(&sources, &world, &traffic, &sizes)?;
     for report in &output.reports {
         info!(%report, "airport");
     }

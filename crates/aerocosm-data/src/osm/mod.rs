@@ -9,6 +9,7 @@ mod names;
 mod overpass;
 mod query;
 mod runways;
+mod sizes;
 mod stands;
 
 use std::fmt;
@@ -20,7 +21,10 @@ use aerocosm_core::{
 };
 use anyhow::{Context, Result};
 
-pub use self::query::{ground_airports, overpass_query};
+pub use self::{
+    query::{ground_airports, overpass_query},
+    sizes::{Code, SIZES_VERSION, StandSizes},
+};
 
 /// Attribution the `ODbL` requires for the ground file (plan M4 D65).
 pub const ATTRIBUTION: &str = "© OpenStreetMap contributors";
@@ -91,6 +95,7 @@ pub fn import_ground(
     sources: &[OsmSource],
     world: &World,
     traffic: &TrafficTargets,
+    sizes: &StandSizes,
 ) -> Result<GroundImport> {
     let mut sources: Vec<&OsmSource> = sources.iter().collect();
     sources.sort_by_key(|source| source.airport);
@@ -104,7 +109,7 @@ pub fn import_ground(
             .with_context(|| format!("{ident} is not in the world"))?;
         let data = overpass::read_overpass(&source.json)
             .with_context(|| format!("cannot read the OSM data of {ident}"))?;
-        let layout = layout::build_layout(&data, world, airport)
+        let layout = layout::build_layout(&data, world, airport, sizes)
             .with_context(|| format!("cannot build the layout of {ident}"))?;
         let requirements = gate::requirements(world, airport, traffic);
         let rejected = gate::check(&layout.definition, &requirements).err();
@@ -183,8 +188,8 @@ mod tests {
             airport: "EDDF".parse()?,
             json: "{\"elements\": []}".to_owned(),
         };
-        assert!(import_ground(&[source], &world, &traffic).is_err());
-        let empty = import_ground(&[], &world, &traffic)?;
+        assert!(import_ground(&[source], &world, &traffic, &StandSizes::default()).is_err());
+        let empty = import_ground(&[], &world, &traffic, &StandSizes::default())?;
         assert_eq!(empty.reports.len(), 0);
         assert_eq!(empty.rejected.len(), 0);
         assert!(empty.ground_json.contains("OpenStreetMap"));
@@ -270,7 +275,12 @@ mod tests {
         let traffic =
             TrafficTargets::from_json(include_str!("../../../../assets/traffic/germany.json"))?;
         let source = grid_source()?;
-        let first = import_ground(std::slice::from_ref(&source), &world, &traffic)?;
+        let first = import_ground(
+            std::slice::from_ref(&source),
+            &world,
+            &traffic,
+            &StandSizes::default(),
+        )?;
         let report = first.reports.first().context("a report")?;
         assert_eq!(report.rejected, None, "{report}");
         assert_eq!((report.stands, report.holding_positions), (2, 2));
@@ -284,7 +294,7 @@ mod tests {
             .collect();
         assert_eq!(names, ["1", "2"]);
         // Same input, same bytes.
-        let second = import_ground(&[source], &world, &traffic)?;
+        let second = import_ground(&[source], &world, &traffic, &StandSizes::default())?;
         assert_eq!(first.ground_json, second.ground_json);
         Ok(())
     }

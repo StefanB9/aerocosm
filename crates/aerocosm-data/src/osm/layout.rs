@@ -20,6 +20,7 @@ use super::{
     names::ground_name,
     overpass::{OsmData, OsmWay},
     runways::{LocalRunway, RawExit, RawHolding, exits, holding_positions},
+    sizes::StandSizes,
     stands::{Area, RawStand, area_of, attach_stands, wingspan_limits},
 };
 use crate::geometry::simplify;
@@ -106,7 +107,12 @@ pub(crate) struct Layout {
 }
 
 /// Builds `airport`'s ground layout from its OSM download.
-pub(crate) fn build_layout(data: &OsmData, world: &World, airport: Id<Airport>) -> Result<Layout> {
+pub(crate) fn build_layout(
+    data: &OsmData,
+    world: &World,
+    airport: Id<Airport>,
+    sizes: &StandSizes,
+) -> Result<Layout> {
     let site = world.airport(airport).context("airport id out of range")?;
     let ident = site.ident();
     let location = site.location();
@@ -164,6 +170,7 @@ pub(crate) fn build_layout(data: &OsmData, world: &World, airport: Id<Airport>) 
             aprons: &aprons,
             terminals: &terminals,
             outlines: &apron_outlines,
+            sizes,
         },
     )?;
     Ok(Layout {
@@ -180,6 +187,7 @@ struct Parts<'a> {
     aprons: &'a [Area],
     terminals: &'a [Area],
     outlines: &'a [Vec<Xy>],
+    sizes: &'a StandSizes,
 }
 
 fn degrees(value: f64) -> Result<Degrees> {
@@ -243,7 +251,7 @@ fn assemble(
             name: stand.name,
             node: index[stand.node].context("kept stand without a node")?,
             heading: degrees(stand.heading)?,
-            max_wingspan: meters(span)?,
+            max_wingspan: meters(parts.sizes.limit(ident, stand.name.as_str(), span))?,
             area: area_of(*p, parts.aprons, parts.terminals),
         });
     }

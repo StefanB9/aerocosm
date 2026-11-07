@@ -1,3 +1,4 @@
+| `assets/ground/stand-sizes.json` | Hand-curated: stand size limits (ICAO codes) where the OSM spacing misjudges them, at EDDK; see its `source` field | — | — |
 # Data sources
 
 The generated assets are committed; raw downloads are not. Regenerate them with the steps
@@ -151,8 +152,14 @@ Update the ground snapshot section above.
     - A `parking_position` node, connected the same way.
     - Names come from `ref` or `name`, else from a named stop node on the line. Unnamed stands
       are left out; repeated names get a `-2` suffix.
-    - The wingspan limit is the distance to the nearest stand that is not a variant of the same
-      stand (`05A`, `05B` of `05`) minus 7.5 m, kept between 20 and 80 m.
+    - The wingspan limit is the largest ICAO aerodrome code (A–F, Annex 14) whose wingspan plus
+      wingtip clearance fits the distance to the nearest stand that is not a variant of the same
+      stand (`05A`, `05B` of `05`), with 5 % allowance for mapping error.
+    - Where that spacing misjudges an apron, `assets/ground/stand-sizes.json` bounds the code:
+      the rule with the longest stand-name prefix raises it to `at_least` and caps it at
+      `at_most`. EDDK follows the VATSIM Germany knowledge base (unofficial; cargo aprons E/F
+      code E, its A380 positions code F, feeder apron W code C–D, V at most D) and an estimate of
+      code C for the terminal piers A–D, whose OSM stands sit too close for the A320s using them.
   - Holding positions: `holding_position` nodes on the network without a type or of type
     `runway`, within 300 m of a runway centreline, assigned to the nearer threshold.
   - Exits: network nodes within 25 m of a runway centreline where a taxiway or taxilane leaves,

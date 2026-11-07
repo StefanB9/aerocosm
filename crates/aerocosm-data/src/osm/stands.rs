@@ -25,6 +25,11 @@ const CODES: [(f64, f64); 6] = [
     (65.0, 7.5),
     (80.0, 7.5),
 ];
+/// The largest wingspan of ICAO code `index` (0 = A … 5 = F), m.
+pub(crate) fn code_wingspan(index: usize) -> f64 {
+    CODES.get(index).map_or(CODES[5].0, |(span, _)| *span)
+}
+
 /// Stands mapped up to 5 % closer than the code's spacing still count.
 const MAPPING_TOLERANCE: f64 = 1.05;
 /// A stand within this distance of a terminal belongs to it.
