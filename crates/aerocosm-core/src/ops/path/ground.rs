@@ -265,6 +265,46 @@ mod tests {
     }
 
     #[test]
+    fn test_departures_hold_short_off_the_runway_at_munich() -> Result<()> {
+        let world = data()?.world;
+        let network = GroundNetwork::from_json(
+            include_str!("../../../../../assets/ground/germany.ground.json"),
+            &world,
+        )?;
+        let id = world.airport_by_ident("EDDM".parse()?).context("EDDM")?;
+        let ground = network.airport(id).context("MUC layout")?;
+        let (runway, end) = world
+            .runways_of(id)
+            .iter()
+            .find_map(|r| {
+                r.ends()
+                    .iter()
+                    .find(|end| end.designator().to_string() == "26L")
+                    .map(|end| (r, end))
+            })
+            .context("26L")?;
+        let on_runway = ground.nodes_on(runway);
+        let span = Meters::new(35.8)?;
+        let mut planned = 0;
+        for index in 0..ground.stands().len() {
+            let stand = Id::from_usize(index)?;
+            let Some(plan) = departure(ground, stand, ("26L".parse()?, end.threshold()), span)
+            else {
+                continue;
+            };
+            planned += 1;
+            assert!(
+                !on_runway.contains(&plan.hold),
+                "stand {}: holds short on the runway at node {}",
+                ground.stands()[index].name(),
+                plan.hold.as_usize()
+            );
+        }
+        assert_ne!(planned, 0);
+        Ok(())
+    }
+
+    #[test]
     fn test_departures_push_back_from_contact_stands() -> Result<()> {
         let (world, network, id) = frankfurt()?;
         let ground = network.airport(id).context("FRA layout")?;

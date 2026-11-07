@@ -13,7 +13,7 @@ use crate::{
     Id, LatLon, SimTime,
     geo::Polyline,
     ground::{
-        Node, Stand, TAXI_SPEED,
+        Edge, EdgeKind, Node, Stand, TAXI_SPEED,
         reserve::{NODE_BUFFER, PlanRequest, Reservations, TimedRoute, plan_route},
     },
     ops::{
@@ -24,6 +24,9 @@ use crate::{
     world::Airport,
 };
 
+/// Taxiing along an active runway costs this many times its duration on
+/// top: only where nothing else leads on.
+const ACTIVE_RUNWAY_SURCHARGE: f64 = 100.0;
 /// Plans may run this far ahead, ms.
 const HORIZON: i64 = 30 * 60_000;
 /// A departure is expected to wait this long at the holding position, ms.
@@ -209,6 +212,8 @@ pub(super) struct Taxi {
     unimpeded: i64,
     /// Waiting at a spot for a stand, trying again at this time.
     waiting: Option<i64>,
+    /// Holding short of a runway to cross it, since this time.
+    crossing: Option<(RunwayKey, i64)>,
 }
 
 /// How a taxi starts: its goal, the polyline already taxied and its length,
@@ -259,12 +264,15 @@ impl Operations {
         let control: &Control = &self.control;
         let runway_of = &airside.runway_of;
         let airport = plan.airport;
+        // Leaving the runway it is on (an arrival vacating) is no crossing.
+        let own = runway_of.get(plan.from.as_usize()).copied().flatten();
         let blocked = |node: Id<Node>, from: i64, until: i64| {
             !escape
                 && runway_of
                     .get(node.as_usize())
                     .copied()
                     .flatten()
+                    .filter(|runway| Some(*runway) != own)
                     .is_some_and(|runway| {
                         !control.may_cross(
                             RunwayKey { airport, runway },
@@ -272,6 +280,26 @@ impl Operations {
                             time_of(until),
                         )
                     })
+        };
+        // Taxi along an active runway only where nothing else leads on
+        // (backtracking), except off the one it is on.
+        let surcharge = |edge: Id<Edge>| {
+            let along_active = !escape
+                && layout.edge(edge).is_some_and(|edge| {
+                    edge.kind() == EdgeKind::Runway
+                        && [edge.from(), edge.to()].iter().any(|node| {
+                            runway_of
+                                .get(node.as_usize())
+                                .copied()
+                                .flatten()
+                                .is_some_and(|runway| Some(runway) != own)
+                        })
+                });
+            if along_active {
+                ACTIVE_RUNWAY_SURCHARGE
+            } else {
+                0.0
+            }
         };
         plan_route(
             layout,
@@ -289,6 +317,7 @@ impl Operations {
                 start_wait: plan.start_wait,
                 start_shared: plan.shared,
                 blocked,
+                surcharge,
             },
         )
     }
@@ -346,6 +375,7 @@ impl Operations {
             started: plan.start,
             unimpeded,
             waiting: None,
+            crossing: None,
             route,
         });
         Polyline::new(&points).ok()

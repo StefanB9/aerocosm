@@ -36,6 +36,9 @@ impl Operations {
             return None;
         }
         if let Some((since, retry)) = taxi.blocked {
+            if let Some((key, _)) = taxi.crossing {
+                self.hold_short(index, key, now);
+            }
             if end >= retry {
                 self.replan(scenario, index, now, since);
             }
@@ -93,22 +96,31 @@ impl Operations {
                 return false;
             };
             let at = taxi.departed;
-            let (Some(step), Some(next)) = (taxi.route.steps.get(at), taxi.route.steps.get(at + 1))
+            let (Some(&step), Some(&next)) =
+                (taxi.route.steps.get(at), taxi.route.steps.get(at + 1))
             else {
                 return true;
             };
+            let airport = taxi.airport;
+            let Some(airside) = self.ground.airside(airport) else {
+                return true;
+            };
+            let runway_at =
+                |node: Id<Node>| airside.runway_of.get(node.as_usize()).copied().flatten();
+            // Onto a runway other than the one it is on: a crossing.
+            let entering = runway_at(next.node).filter(|r| runway_at(step.node) != Some(*r));
             if end < step.leave {
+                // Holding short: ask for the crossing while waiting.
+                if let Some(runway) = entering.filter(|_| ms(now) >= step.arrive) {
+                    self.hold_short(index, RunwayKey { airport, runway }, now);
+                }
                 return true;
             }
-            let airport = taxi.airport;
             let last = at + 2 == taxi.route.steps.len();
             let stay = if last && taxi.route.open {
                 QUEUE_ESTIMATE
             } else {
                 0
-            };
-            let Some(airside) = self.ground.airside(airport) else {
-                return true;
             };
             let edge_ok = next.via.is_none_or(|(edge, forward)| {
                 airside
@@ -122,12 +134,8 @@ impl Operations {
                 next.leave.max(next.arrive + stay) + NODE_BUFFER,
                 owner,
             );
-            let runway = airside
-                .runway_of
-                .get(next.node.as_usize())
-                .copied()
-                .flatten();
-            let crossing_ok = runway.is_none_or(|runway| {
+            let runway = runway_at(next.node);
+            let crossing_ok = entering.is_none_or(|runway| {
                 self.control.may_cross(
                     RunwayKey { airport, runway },
                     now,
@@ -135,13 +143,13 @@ impl Operations {
                 )
             });
             if !(edge_ok && node_ok && crossing_ok) {
-                if let Some(runway) = runway.filter(|_| !crossing_ok) {
-                    self.control
-                        .crossing_wanted(RunwayKey { airport, runway }, now);
+                if let Some(runway) = entering.filter(|_| !crossing_ok) {
+                    self.hold_short(index, RunwayKey { airport, runway }, now);
                 }
                 self.block(index, step.node, ms(now));
                 return false;
             }
+            // On the runway (crossing or vacating): it stays occupied.
             if let Some(runway) = runway {
                 self.control.crossing(
                     RunwayKey { airport, runway },
@@ -149,9 +157,26 @@ impl Operations {
                 );
             }
             if let Some(taxi) = self.taxis[index].as_mut() {
+                if entering.is_some() {
+                    taxi.crossing = None;
+                }
                 taxi.departed += 1;
             }
         }
+    }
+
+    /// Tail `index` holds short of runway `key` and asks to cross; take-offs
+    /// give way once it has waited long enough (plan M4 D77).
+    fn hold_short(&mut self, index: usize, key: RunwayKey, now: SimTime) {
+        let Some(taxi) = self.taxis[index].as_mut() else {
+            return;
+        };
+        let since = match taxi.crossing {
+            Some((held, since)) if held == key => since,
+            _ => ms(now),
+        };
+        taxi.crossing = Some((key, since));
+        self.control.crossing_wanted(key, time_of(since), now);
     }
 
     /// Stops at `node`: frees the rest of the plan and holds the node.

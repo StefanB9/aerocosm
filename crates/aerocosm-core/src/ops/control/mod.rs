@@ -17,6 +17,9 @@ const TAKEOFF_OCCUPANCY: SimDuration = SimDuration::from_secs(45);
 const ARRIVAL_GAP: SimDuration = SimDuration::from_secs(90);
 /// Take-offs give way to an aircraft that has waited this long to cross.
 const CROSSING_PATIENCE: SimDuration = SimDuration::from_secs(60);
+/// A crossing request lapses unless renewed within this time: the aircraft
+/// may have found another way.
+const CROSSING_RENEWAL: SimDuration = SimDuration::from_secs(20);
 /// A runway may be crossed this long after a touchdown at the earliest.
 const CROSSING_AFTER_LANDING: SimDuration = SimDuration::from_secs(20);
 /// A crossing ends at least this long before the next touchdown.
@@ -41,8 +44,9 @@ struct RunwayState {
     /// Predicted touchdown of the last aircraft cleared to approach.
     last_landing: Option<(SimTime, WakeCategory)>,
     occupied_until: Option<SimTime>,
-    /// Since when an aircraft has waited to cross (plan M4 D77).
-    crossing_waits: Option<SimTime>,
+    /// Since when an aircraft has waited to cross (plan M4 D77), and when
+    /// it last asked.
+    crossing_waits: Option<(SimTime, SimTime)>,
 }
 
 /// Altitude of holding level `level`, m.
@@ -146,9 +150,9 @@ impl Control {
             .last_landing
             .is_none_or(|(touchdown, _)| touchdown <= now || touchdown >= gap);
         // An aircraft waiting a minute to cross goes first.
-        let crossers = runway
-            .crossing_waits
-            .is_none_or(|since| now < after(since, CROSSING_PATIENCE));
+        let crossers = runway.crossing_waits.is_none_or(|(since, asked)| {
+            now < after(since, CROSSING_PATIENCE) || now > after(asked, CROSSING_RENEWAL)
+        });
         free && spaced && booked && cleared && crossers
     }
 
@@ -193,11 +197,16 @@ impl Control {
         free && !landing
     }
 
-    /// Records that an aircraft has waited to cross since `since`: after a
-    /// minute, take-offs give way to it.
-    pub(crate) fn crossing_wanted(&mut self, key: RunwayKey, since: SimTime) {
+    /// Records that an aircraft, asking `now`, has waited to cross since
+    /// `since`: after a minute, take-offs give way to it while it keeps
+    /// asking.
+    pub(crate) fn crossing_wanted(&mut self, key: RunwayKey, since: SimTime, now: SimTime) {
         let runway = self.runway(key);
-        runway.crossing_waits = Some(runway.crossing_waits.map_or(since, |s| s.min(since)));
+        let first = runway
+            .crossing_waits
+            .filter(|(_, asked)| now <= after(*asked, CROSSING_RENEWAL))
+            .map_or(since, |(earlier, _)| earlier.min(since));
+        runway.crossing_waits = Some((first, now));
     }
 
     /// Records a crossing under way until `until`.
@@ -350,11 +359,17 @@ mod tests {
     #[test]
     fn test_take_offs_give_way_to_a_waiting_crossing() -> Result<()> {
         let mut control = control();
-        control.crossing_wanted(key(), at(0)?);
+        control.crossing_wanted(key(), at(0)?, at(0)?);
         assert!(control.may_take_off(key(), WakeCategory::Medium, at(30)?));
+        // Renewed while it waits: take-offs stop after a minute.
+        control.crossing_wanted(key(), at(0)?, at(55)?);
         assert!(!control.may_take_off(key(), WakeCategory::Medium, at(60)?));
         control.crossing(key(), at(90)?);
         assert!(control.may_take_off(key(), WakeCategory::Medium, at(90)?));
+        // A request nobody renews lapses: the aircraft found another way.
+        control.crossing_wanted(key(), at(100)?, at(170)?);
+        assert!(!control.may_take_off(key(), WakeCategory::Medium, at(180)?));
+        assert!(control.may_take_off(key(), WakeCategory::Medium, at(200)?));
         Ok(())
     }
 

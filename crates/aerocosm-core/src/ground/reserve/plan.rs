@@ -21,7 +21,7 @@ const BLOCKED_RETRY: i64 = 15_000;
 
 /// What to plan.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct PlanRequest<B> {
+pub(crate) struct PlanRequest<B, C> {
     pub(crate) from: Id<Node>,
     pub(crate) to: Id<Node>,
     /// When the aircraft is at `from`, ready to go, ms.
@@ -43,6 +43,9 @@ pub(crate) struct PlanRequest<B> {
     /// Whether a node may not be passed during `[from, until)`, e.g. an
     /// active runway in use.
     pub(crate) blocked: B,
+    /// Extra cost of an edge, as a multiple of its duration, e.g. along an
+    /// active runway: used only where nothing else leads on.
+    pub(crate) surcharge: C,
 }
 
 /// One node of a timed route.
@@ -182,9 +185,9 @@ fn millis(seconds: f64) -> i64 {
 /// The earliest departure from `here` (reached at `time`) along `edge`
 /// that conflicts with nothing; `None` if waiting would itself conflict or
 /// the deadline passes.
-fn departure<B: Fn(Id<Node>, i64, i64) -> bool>(
+fn departure<B: Fn(Id<Node>, i64, i64) -> bool, C>(
     table: &Reservations,
-    request: &PlanRequest<B>,
+    request: &PlanRequest<B, C>,
     here: Id<Node>,
     time: i64,
     edge: (Id<Edge>, bool, Id<Node>),
@@ -228,10 +231,10 @@ fn departure<B: Fn(Id<Node>, i64, i64) -> bool>(
 
 /// Plans `request` around the reservations in `table`; `None` if no route
 /// reaches the goal before the deadline.
-pub(crate) fn plan_route<B: Fn(Id<Node>, i64, i64) -> bool>(
+pub(crate) fn plan_route<B: Fn(Id<Node>, i64, i64) -> bool, C: Fn(Id<Edge>) -> f64>(
     ground: &AirportGround,
     table: &Reservations,
-    request: &PlanRequest<B>,
+    request: &PlanRequest<B, C>,
 ) -> Option<TimedRoute> {
     let count = ground.nodes().len();
     let (start, goal) = (request.from.as_usize(), request.to.as_usize());
@@ -300,7 +303,7 @@ pub(crate) fn plan_route<B: Fn(Id<Node>, i64, i64) -> bool>(
                     LEAD_IN_PENALTY - 1.0
                 }
                 _ => 0.0,
-            };
+            } + (request.surcharge)(edge_id);
             #[allow(clippy::cast_precision_loss)]
             let cost =
                 current.cost + (leave + duration - current.time) as f64 + penalty * duration as f64;
@@ -324,7 +327,7 @@ pub(crate) fn plan_route<B: Fn(Id<Node>, i64, i64) -> bool>(
 }
 
 /// The route ending at label `found`, from its predecessors.
-fn trace<B>(labels: &[Label], found: usize, request: &PlanRequest<B>) -> Option<TimedRoute> {
+fn trace<B, C>(labels: &[Label], found: usize, request: &PlanRequest<B, C>) -> Option<TimedRoute> {
     let mut steps = Vec::new();
     let mut cursor = Some(found);
     let mut leave_next = labels.get(found)?.time + request.stay;
@@ -439,8 +442,10 @@ mod tests {
 
     /// Nothing is ever blocked.
     type Never = fn(Id<Node>, i64, i64) -> bool;
+    /// No edge costs extra.
+    type Open = fn(Id<Edge>) -> f64;
 
-    fn request(from: u32, to: u32, start: i64, owner: u32) -> PlanRequest<Never> {
+    fn request(from: u32, to: u32, start: i64, owner: u32) -> PlanRequest<Never, Open> {
         PlanRequest {
             from: Id::new(from),
             to: Id::new(to),
@@ -454,6 +459,7 @@ mod tests {
             start_wait: i64::MAX,
             start_shared: false,
             blocked: |_, _, _| false,
+            surcharge: |_| 0.0,
         }
     }
 
@@ -479,6 +485,28 @@ mod tests {
         assert_eq!(route.points_until(&ground, 1).len(), 2);
         assert!((schedule.last().map_or(0.0, |b| b.1) - 200.0).abs() < 2.0);
         assert_eq!(route.points(&ground).len(), 3);
+        Ok(())
+    }
+
+    #[test]
+    fn test_plan_route_avoids_costly_edges() -> Result<()> {
+        let ground = grid(3)?;
+        let table = Reservations::new(ground.nodes().len(), ground.edges().len());
+        // Edge 0 joins nodes 0 and 1, on the straight way.
+        let mut around = request(0, 2, 0, 1);
+        around.surcharge = |edge| if edge.index() == 0 { 100.0 } else { 0.0 };
+        let route = plan_route(&ground, &table, &around).context("a detour")?;
+        assert!(
+            route
+                .steps
+                .iter()
+                .all(|s| s.via.is_none_or(|(e, _)| e.index() != 0))
+        );
+        assert_eq!(route.steps.last().map(|s| s.node.index()), Some(2));
+        // Where every way costs extra, the shortest is still taken.
+        around.surcharge = |_| 100.0;
+        let straight = plan_route(&ground, &table, &around).context("a route")?;
+        assert_eq!(straight.steps.len(), 3);
         Ok(())
     }
 
@@ -527,6 +555,7 @@ mod tests {
         let gate = |node: Id<Node>, from: i64, _until: i64| node.index() == 1 && from < 100_000;
         let blocked = PlanRequest {
             blocked: gate,
+            surcharge: runway.surcharge,
             from: runway.from,
             to: runway.to,
             start: runway.start,
