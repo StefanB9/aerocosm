@@ -57,14 +57,16 @@ aerocosm/                              (workspace root)
     │       │                          delay split); fleet/flow.rs applies it per tail, with
     │       │                          ground delays at off-block; fleet/stands.rs (stand
     │       │                          bookkeeping); stats.rs (punctuality); fleet/ground/
-    │       │                          (plan M4 PR 3: ground control: departure.rs, arrival.rs,
-    │       │                          drive.rs follow timed plans, stop.rs stops on edges)
+    │       │                          (plan M4 PR 4: ground controller: grant.rs clearances by
+    │       │                          priority, deadlocks; departure.rs pushback, arrival.rs
+    │       │                          exits and stands, drive.rs taxis to the clearance limit)
     │       ├── ground/                Airport ground layouts (plan M4): file format, validated
     │       │                          networks (nodes, edges, stands, holding positions, exits),
     │       │                          route.rs (A*), areas.rs (stand choice), taxi.rs (entries,
-    │       │                          exits, typical taxi times for schedules), reserve/ (time
-    │       │                          reservations, timed A*), runways.rs (runway nodes, waiting
-    │       │                          spots), spacing.rs (nodes too close for two aircraft)
+    │       │                          exits, typical taxi times for schedules), clearance.rs
+    │       │                          (clearance points, holders, edge directions, flows),
+    │       │                          runways.rs (runway nodes, waiting spots), spacing.rs
+    │       │                          (points too close for two aircraft)
     │       ├── scenario.rs            Scenario: world + optional traffic and ground (D45)
     │       ├── units.rs               Meters, Feet, NauticalMiles, Knots, Degrees, …
     │       ├── geo/                   LatLon, great-circle maths, Segment and Route (waypoints
