@@ -15,11 +15,18 @@ use super::{
 /// Lead-ins and stand nodes farther than this from a taxi lane stay
 /// unconnected (and are dropped with their component).
 const CONNECT_LIMIT: f64 = 60.0;
-/// Clearance between neighbouring parked aircraft (ICAO Annex 14, code C).
-const WINGTIP_CLEARANCE: f64 = 7.5;
-/// Wingspan limits of stands are kept in this range.
-const SMALLEST_SPAN: f64 = 20.0;
-const LARGEST_SPAN: f64 = 80.0;
+/// ICAO aerodrome code wingspans and stand wingtip clearances (Annex 14),
+/// m: codes A to F.
+const CODES: [(f64, f64); 6] = [
+    (15.0, 3.0),
+    (24.0, 3.0),
+    (36.0, 4.5),
+    (52.0, 7.5),
+    (65.0, 7.5),
+    (80.0, 7.5),
+];
+/// Stands mapped up to 5 % closer than the code's spacing still count.
+const MAPPING_TOLERANCE: f64 = 1.05;
 /// A stand within this distance of a terminal belongs to it.
 const TERMINAL_REACH: f64 = 250.0;
 
@@ -270,8 +277,9 @@ fn unique_names(stands: &mut [RawStand]) {
     }
 }
 
-/// Wingspan limit of each stand from the distance to the nearest stand that
-/// is not a variant of it, in metres.
+/// Wingspan limit of each stand: the largest ICAO aerodrome code (A–F) whose
+/// wingspan plus wingtip clearance fits the distance to the nearest stand
+/// that is not a variant of it, allowing for mapping error; in metres.
 pub(crate) fn wingspan_limits(stands: &[(GroundName, Xy)]) -> Vec<f64> {
     stands
         .iter()
@@ -282,8 +290,11 @@ pub(crate) fn wingspan_limits(stands: &[(GroundName, Xy)]) -> Vec<f64> {
                 .filter(|(other, _)| stand_base(other.as_str()) != base)
                 .map(|(_, q)| distance(*p, *q))
                 .fold(f64::INFINITY, f64::min);
-            let span = (nearest - WINGTIP_CLEARANCE).clamp(SMALLEST_SPAN, LARGEST_SPAN);
-            (span * 2.0).round() / 2.0
+            CODES
+                .iter()
+                .rev()
+                .find(|(span, clearance)| span + clearance <= nearest * MAPPING_TOLERANCE)
+                .map_or(CODES[0].0, |(span, _)| *span)
         })
         .collect()
 }
@@ -463,9 +474,13 @@ mod tests {
             ("3", [125.0, 0.0]),
             ("4", [1_000.0, 0.0]),
         ])?);
-        assert_eq!(limits, vec![37.5, 37.5, 72.5, 80.0]);
+        // 45 m apart: code C (36 m); 80 m: code E (65 m); alone: code F.
+        assert_eq!(limits, vec![36.0, 36.0, 65.0, 80.0]);
+        // Mapped a little tight (39 m) still takes an A320.
+        let tight = wingspan_limits(&named(&[("1", [0.0, 0.0]), ("2", [39.0, 0.0])])?);
+        assert_eq!(tight, vec![36.0, 36.0]);
         let crowded = wingspan_limits(&named(&[("1", [0.0, 0.0]), ("2", [5.0, 0.0])])?);
-        assert_eq!(crowded, vec![20.0, 20.0]);
+        assert_eq!(crowded, vec![15.0, 15.0]);
         Ok(())
     }
 
@@ -480,7 +495,7 @@ mod tests {
             ("N4", [500.0, 0.0]),
             ("N4-2", [505.0, 0.0]),
         ])?);
-        assert_eq!(limits[..4], [80.0, 80.0, 72.5, 72.5]);
+        assert_eq!(limits[..4], [80.0, 80.0, 65.0, 65.0]);
         assert_eq!(limits[4..], [80.0, 80.0]);
         Ok(())
     }
