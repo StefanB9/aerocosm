@@ -11,6 +11,7 @@ aerocosm/                              (workspace root)
 ├── Cargo.toml                         [workspace] manifest — all dependency versions here
 ├── docs/plan/                         Approved plans
 ├── docs/data-sources.md               Dataset sources, licences, snapshot, regeneration steps
+├── docs/known-issues.md               Open problems with their cause and intended fix
 ├── assets/                            Committed data (each file is loaded by a guard test)
 │   ├── aircraft/types.json            Hand-curated aircraft catalog (incl. freighters)
 │   ├── airlines/airlines.json         Hand-curated airline catalog (bases, network, fleet mix)
