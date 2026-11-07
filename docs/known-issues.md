@@ -20,8 +20,7 @@ head-on, a held-up departure taking its turn) are local. Where queues meet (the 
 holding positions, junctions near busy aprons) they can still wait on each other in a cycle.
 
 **Intended fix:** an explicit conflict-resolution layer instead of more local rules, e.g. a
-first-in-first-out queue along the last taxiway to each holding position, and one aircraft at
-a time through each junction area, with a fixed priority order. Planned as M4 PR 4.
+ground controller issuing progressive clearances (plan M4 D79–D83). In work as M4 PR 4.
 
 ### Pushback is not checked against neighbouring traffic
 
@@ -31,8 +30,7 @@ Frankfurt (the spacing test asks for 20 m).
 
 **Why:** pushback motion runs outside ground control's tick-by-tick checks.
 
-**Intended fix:** drive pushbacks through ground control like taxis, so they stop on their
-edge like everybody else.
+**Intended fix:** pushbacks cleared and moving under the ground controller (plan M4 D82, PR 4).
 
 ### Stand shares overnight
 
