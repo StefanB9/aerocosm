@@ -1,7 +1,9 @@
 //! Following timed plans tick by tick, holding up and planning again when
 //! the way ahead is not free (plan M4 D70, D75, D77).
 
-use super::{ESCAPE_AFTER, Plan, QUEUE_ESTIMATE, RETRY, SPOT_ESTIMATE, Start, Target, ms, time_of};
+use super::{
+    ESCAPE_AFTER, Plan, QUEUE_ESTIMATE, RETRY, SPOT_ESTIMATE, Start, Target, backoff, ms, time_of,
+};
 use crate::{
     Id, SimDuration, SimTime, TICK,
     ground::{
@@ -68,8 +70,9 @@ impl Operations {
             .taxied(airport, SimDuration::from_millis(delay.max(0)));
         match target {
             Target::Hold => {
+                // The taxi stays on record until line-up: it still holds
+                // the holding position.
                 motion.queue_now();
-                self.taxis[index] = None;
                 None
             }
             Target::Stand(_) => {
@@ -129,7 +132,7 @@ impl Operations {
                     .edge_free_after(edge, step.leave, next.arrive, forward, owner)
                     .is_none()
             });
-            let node_ok = !airside.table.node_taken(
+            let node_ok = !airside.table.node_held(
                 next.node,
                 next.arrive - NODE_BUFFER,
                 next.leave.max(next.arrive + stay) + NODE_BUFFER,
@@ -192,11 +195,12 @@ impl Operations {
         // Blocked again before passing another node: still stuck since the
         // first time, however often it re-planned.
         let since = *taxi.stuck_since.get_or_insert(now);
-        taxi.blocked = Some((since, now + RETRY));
+        let retry = now + backoff(now - since, RETRY);
+        taxi.blocked = Some((since, retry));
         let airport = taxi.airport;
         if let Some(airside) = self.ground.airside_mut(airport) {
             airside.table.release(owner);
-            airside.table.hold(node, now, now + RETRY, owner);
+            airside.table.hold(node, now, retry, owner);
         }
     }
 
@@ -231,15 +235,32 @@ impl Operations {
         };
         let escape = ms(now) - since >= ESCAPE_AFTER;
         let owner = Self::owner(index);
+        // Still queued behind whoever holds the next node: no new plan would
+        // get further, so wait on without searching.
+        let ahead = taxi.route.steps.get(at + 1).map(|s| s.node);
+        let queued = !escape
+            && ahead.is_some_and(|node| {
+                self.ground.airside(plan.airport).is_some_and(|airside| {
+                    airside
+                        .table
+                        .node_taken(node, ms(now), ms(now) + NODE_BUFFER, owner)
+                })
+            });
         if let Some(airside) = self.ground.airside_mut(plan.airport) {
             airside.table.release(owner);
         }
-        let Some(route) = self.plan_taxi(scenario, index, &plan, escape) else {
+        let route = if queued {
+            None
+        } else {
+            self.plan_taxi(scenario, index, &plan, escape)
+        };
+        let Some(route) = route else {
+            let retry = ms(now) + backoff(ms(now) - since, RETRY);
             if let Some(airside) = self.ground.airside_mut(plan.airport) {
-                airside.table.hold(here, ms(now), ms(now) + RETRY, owner);
+                airside.table.hold(here, ms(now), retry, owner);
             }
             if let Some(taxi) = self.taxis[index].as_mut() {
-                taxi.blocked = Some((since, ms(now) + RETRY));
+                taxi.blocked = Some((since, retry));
             }
             return;
         };

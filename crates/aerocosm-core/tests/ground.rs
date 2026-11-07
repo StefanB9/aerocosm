@@ -69,8 +69,9 @@ fn describe(flight: &FlightView, simulation: &Simulation) -> String {
         .and_then(|a| simulation.world().airports().nth(a))
         .map_or_else(String::new, |(_, a)| a.ident().to_string());
     format!(
-        "{} {:?} at {airport} {}",
+        "{} tail {} {:?} at {airport} {}",
         flight.callsign(),
+        flight.tail().as_usize(),
         flight.phase(),
         flight.position()
     )
@@ -106,6 +107,11 @@ fn observe(simulation: &mut Simulation, hours: u32, every: u32) -> Result<Observ
         for flights in by_airport.values() {
             for (index, a) in flights.iter().enumerate() {
                 for b in &flights[index + 1..] {
+                    // An escaped aircraft taxies ignoring others, counted as
+                    // a ground conflict (D75).
+                    if a.ground_conflict() || b.ground_conflict() {
+                        continue;
+                    }
                     let gap = a.position().distance_to(b.position()).value();
                     if gap < observed.closest.0 {
                         observed.closest = (
@@ -128,36 +134,46 @@ fn observe(simulation: &mut Simulation, hours: u32, every: u32) -> Result<Observ
 /// (plan M4 D69, D75), and the taxis to the waiting spot and on to the stand
 /// take a quarter of an hour each at most.
 const LONGEST_TAXI: SimDuration = SimDuration::from_secs(60 * 60);
-/// Taxiing aircraft never stand on the same spot (D70): their reference
-/// points stay half an airliner's length apart, m.
+/// Taxiing aircraft never stand on the same spot (D70) unless one escaped a
+/// deadlock (D75): their reference points stay half an airliner's length
+/// apart, m.
 const CLOSEST: f64 = 20.0;
 
 #[test]
 fn test_ground_traffic_keeps_apart_and_flows() -> Result<()> {
-    let mut simulation = simulation(7)?;
-    let observed = observe(&mut simulation, 4, 10)?;
-    let stats = simulation.statistics().context("statistics")?.network();
-    assert!(stats.taxis() > 500, "{}", stats.taxis());
-    assert!(
-        observed.closest.0 >= CLOSEST,
-        "{:.1} m: {}",
-        observed.closest.0,
-        observed.closest.1
-    );
-    assert!(
-        observed.longest.0 <= LONGEST_TAXI,
-        "{} s: {}",
-        observed.longest.0.as_millis() / 1000,
-        observed.longest.1
-    );
-    // Near zero (D75): at most one taxi in a hundred ends in a conflict,
-    // in the morning bank; shared stands where large stands run out.
-    assert!(
-        stats.ground_conflicts() * 100 <= stats.taxis(),
-        "{} conflicts in {} taxis",
-        stats.ground_conflicts(),
-        stats.taxis()
-    );
+    for seed in [3, 7] {
+        let mut simulation = simulation(seed)?;
+        let observed = observe(&mut simulation, 4, 10)?;
+        let stats = simulation.statistics().context("statistics")?.network();
+        assert!(stats.taxis() > 500, "seed {seed}: {}", stats.taxis());
+        assert!(
+            observed.closest.0 >= CLOSEST,
+            "seed {seed}: {:.1} m: {}",
+            observed.closest.0,
+            observed.closest.1
+        );
+        assert!(
+            observed.longest.0 <= LONGEST_TAXI,
+            "seed {seed}: {} s: {}",
+            observed.longest.0.as_millis() / 1000,
+            observed.longest.1
+        );
+        // Near zero (D75): at most one taxi in a hundred escapes a deadlock
+        // in the morning bank.
+        assert!(
+            stats.ground_conflicts() * 100 <= stats.taxis(),
+            "seed {seed}: {} conflicts in {} taxis",
+            stats.ground_conflicts(),
+            stats.taxis()
+        );
+        // Stands run short only where few fit the largest freighters (D69).
+        assert!(
+            stats.stand_shares() * 50 <= stats.taxis(),
+            "seed {seed}: {} stand shares in {} taxis",
+            stats.stand_shares(),
+            stats.taxis()
+        );
+    }
     Ok(())
 }
 

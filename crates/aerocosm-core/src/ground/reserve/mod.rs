@@ -97,6 +97,14 @@ impl Reservations {
             .any(|w| overlaps((w.from, w.until), (from, until)))
     }
 
+    /// Whether an aircraft may not enter `node` (or a node near it) for
+    /// `[from, until)`: like [`Self::node_taken`], except that someone
+    /// waiting there holds it until it leaves, whatever its estimate.
+    pub(crate) fn node_held(&self, node: Id<Node>, from: i64, until: i64, owner: u32) -> bool {
+        self.around(node, owner)
+            .any(|w| w.from < until && (w.open || from < w.until))
+    }
+
     /// The end of the latest window of someone other than `owner` on `node`
     /// or a node near it overlapping `[from, until)`, if any.
     pub(crate) fn node_free_after(
@@ -261,6 +269,24 @@ mod tests {
         table.prune(6_000);
         assert_eq!(table.windows(Id::new(1)).len(), 0);
         assert_eq!(table.windows(Id::new(9)).len(), 0);
+    }
+
+    #[test]
+    fn test_open_windows_hold_until_released() {
+        let mut table = Reservations::new(1, 0);
+        // Waiting there with an estimated end at 20 s.
+        table.hold(Id::new(0), 0, 20_000, 7);
+        // Planning trusts the estimate…
+        assert!(!table.node_taken(Id::new(0), 30_000, 40_000, 1));
+        // …but entering the node waits until the holder has gone.
+        assert!(table.node_held(Id::new(0), 30_000, 40_000, 1));
+        assert!(!table.node_held(Id::new(0), 30_000, 40_000, 7));
+        table.release(7);
+        assert!(!table.node_held(Id::new(0), 30_000, 40_000, 1));
+        // A closed window ends when it says.
+        table.occupy(Id::new(0), 0, 20_000, 7);
+        assert!(!table.node_held(Id::new(0), 30_000, 40_000, 1));
+        assert!(table.node_held(Id::new(0), 10_000, 40_000, 1));
     }
 
     #[test]

@@ -4,7 +4,7 @@
 use super::Operations;
 use crate::{
     Id, LatLon,
-    ground::{Stand, StandRequest, TAXI_SPEED},
+    ground::{Node, Stand, StandRequest, TAXI_SPEED},
     ops::path::arrival_route,
     scenario::Scenario,
     world::{Airport, codes::AirlineIcao},
@@ -78,16 +78,16 @@ impl StandBook {
 }
 
 impl Operations {
-    /// Puts tail `index` on the best stand at `airport` near `near`, unless
-    /// it already stands there; `None` at unmapped airports or when no stand
-    /// fits its aircraft.
+    /// Puts tail `index` on the best stand at `airport` near `near` (and
+    /// reachable from node `from`, if given), unless it already stands there;
+    /// `None` at unmapped airports or when no stand fits its aircraft.
     pub(super) fn take_stand(
         &mut self,
         scenario: &Scenario,
         index: usize,
         airport: Id<Airport>,
         airline: AirlineIcao,
-        near: LatLon,
+        near: (LatLon, Option<Id<Node>>),
     ) -> Option<Id<Stand>> {
         self.find_stand(scenario, index, airport, airline, near, true)
     }
@@ -100,9 +100,10 @@ impl Operations {
         index: usize,
         airport: Id<Airport>,
         airline: AirlineIcao,
-        near: LatLon,
+        near: (LatLon, Option<Id<Node>>),
         shared: bool,
     ) -> Option<Id<Stand>> {
+        let (near, from) = near;
         if let Some((at, stand)) = self.parked[index]
             && at == airport
         {
@@ -117,11 +118,41 @@ impl Operations {
         };
         let areas = scenario.stand_areas().areas(airport);
         let book = &self.stands;
+        // One-way taxiways split some networks: only stands it can get to.
+        let reach = from.map(|node| layout.reachable_from(node));
+        let reachable = |stand: Id<Stand>| {
+            reach.as_ref().is_none_or(|reach| {
+                layout
+                    .stands()
+                    .get(stand.as_usize())
+                    .is_some_and(|s| reach.get(s.node().as_usize()).copied().unwrap_or(false))
+            })
+        };
         let stand = layout
-            .choose_stand(areas, &request, |stand| book.is_free(airport, stand))
+            .choose_stand(areas, &request, |stand| {
+                book.is_free(airport, stand) && reachable(stand)
+            })
             .or_else(|| {
                 shared
-                    .then(|| layout.choose_stand(areas, &request, |_| true))
+                    .then(|| layout.choose_stand(areas, &request, reachable))
+                    .flatten()
+            })
+            .or_else(|| {
+                // Too large for every stand (a small airfield's apron): the
+                // largest there is rather than none.
+                let largest = layout
+                    .stands()
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| Id::from_usize(*i).is_ok_and(reachable))
+                    .map(|(_, s)| s.max_wingspan())
+                    .max_by(|a, b| a.value().total_cmp(&b.value()))?;
+                let smaller = StandRequest {
+                    wingspan: largest,
+                    ..request
+                };
+                shared
+                    .then(|| layout.choose_stand(areas, &smaller, reachable))
                     .flatten()
             });
         if let Some(stand) = stand {
@@ -150,7 +181,7 @@ impl Operations {
         let (exit, near) = self.paths[index]
             .as_ref()
             .and_then(|path| path.exit().map(|exit| (exit, path.exit_point())))?;
-        let stand = self.take_stand(scenario, index, destination, airline, near)?;
+        let stand = self.take_stand(scenario, index, destination, airline, (near, None))?;
         let layout = scenario.ground().airport(destination)?;
         let (route, heading) = arrival_route(layout, exit, stand, self.wingspans[index])?;
         let path = self.paths[index].as_mut()?;
@@ -325,6 +356,37 @@ mod tests {
         }
         assert_eq!(first.parked, second.parked);
         assert_eq!(first.stands, second.stands);
+        Ok(())
+    }
+
+    #[test]
+    fn test_aircraft_too_large_for_every_stand_take_the_largest() -> Result<()> {
+        let (scenario, mut operations) = mapped(StartMode::Cold, 3)?;
+        let airport = scenario
+            .world()
+            .airport_by_ident("EDVE".parse()?)
+            .context("EDVE")?;
+        let layout = scenario.ground().airport(airport).context("layout")?;
+        let largest = layout
+            .stands()
+            .iter()
+            .map(|s| s.max_wingspan().value())
+            .fold(0.0, f64::max);
+        let near = layout.nodes()[0].position();
+        operations.release_stand(0);
+        operations.wingspans[0] = crate::units::Meters::new(largest + 10.0)?;
+        // No free stand fits…
+        let airline = "KLM".parse()?;
+        assert_eq!(
+            operations.find_stand(&scenario, 0, airport, airline, (near, None), false),
+            None
+        );
+        // …so a shared one is the largest there is.
+        let stand = operations
+            .take_stand(&scenario, 0, airport, airline, (near, None))
+            .context("a stand")?;
+        let span = layout.stands()[stand.as_usize()].max_wingspan().value();
+        assert!((span - largest).abs() < 1e-9, "{span} of {largest}");
         Ok(())
     }
 

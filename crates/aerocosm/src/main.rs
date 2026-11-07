@@ -103,6 +103,7 @@ fn log_movements(summary: &run::RunSummary, days: f64) {
             taxi_delay_min = minutes(network.average_taxi_delay()),
             stand_waits = network.stand_waits(),
             ground_conflicts = network.ground_conflicts(),
+            stand_shares = network.stand_shares(),
             "punctuality"
         );
     }
@@ -117,10 +118,11 @@ fn log_movements(summary: &run::RunSummary, days: f64) {
         let taxi_delay_min = minutes(stats.average_taxi_delay());
         let stand_waits = stats.stand_waits();
         let ground_conflicts = stats.ground_conflicts();
+        let stand_shares = stats.stand_shares();
         if report.within(MOVEMENT_TOLERANCE, days) {
-            info!(airport = %report.airport, actual = report.actual, expected = report.expected.round(), deviation_pct, on_time_pct, delay_min, holding_min, ground_delays, busiest_hour, taxi_delay_min, stand_waits, ground_conflicts, "movements");
+            info!(airport = %report.airport, actual = report.actual, expected = report.expected.round(), deviation_pct, on_time_pct, delay_min, holding_min, ground_delays, busiest_hour, taxi_delay_min, stand_waits, ground_conflicts, stand_shares, "movements");
         } else {
-            warn!(airport = %report.airport, actual = report.actual, expected = report.expected.round(), deviation_pct, on_time_pct, delay_min, holding_min, ground_delays, busiest_hour, taxi_delay_min, stand_waits, ground_conflicts, "movements off target");
+            warn!(airport = %report.airport, actual = report.actual, expected = report.expected.round(), deviation_pct, on_time_pct, delay_min, holding_min, ground_delays, busiest_hour, taxi_delay_min, stand_waits, ground_conflicts, stand_shares, "movements off target");
         }
         if let Some((busiest, capacity)) = report.capacity_exceeded() {
             warn!(airport = %report.airport, busiest_hour = busiest, capacity, "capacity exceeded");

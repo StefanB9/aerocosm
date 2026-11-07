@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 
 use super::{
     DEPARTURE_INTERVAL, ENGINE_START, GATE_ESCAPE_AFTER, GATE_RETRY, MAX_INTERVAL, MAX_TAXI_WAIT,
-    PUSH_SPEED, Plan, QUEUE_ESTIMATE, RETRY, Start, Target, ms, waits,
+    PUSH_SPEED, Plan, QUEUE_ESTIMATE, RETRY, Start, Target, backoff, ms, waits,
 };
 use crate::{
     Id, SimDuration, SimTime,
@@ -84,7 +84,7 @@ impl Operations {
         } else {
             None
         };
-        let retry = SimDuration::from_millis(GATE_RETRY);
+        let retry = SimDuration::from_millis(backoff(ms(now) - since, GATE_RETRY));
         let Some(route) = route else {
             return Ok(Some(retry));
         };

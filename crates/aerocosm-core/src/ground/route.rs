@@ -65,6 +65,36 @@ impl PartialOrd for Entry {
 }
 
 impl AirportGround {
+    /// Per node, whether a route from `from` leads there, respecting one-way
+    /// edges (any wingspan).
+    pub(crate) fn reachable_from(&self, from: Id<Node>) -> Vec<bool> {
+        let mut seen = vec![false; self.nodes().len()];
+        let Some(first) = seen.get_mut(from.as_usize()) else {
+            return seen;
+        };
+        *first = true;
+        let mut stack = vec![from];
+        while let Some(here) = stack.pop() {
+            for &edge in self.edges_at(here) {
+                let Some(edge) = self.edge(edge) else {
+                    continue;
+                };
+                let forward = edge.from() == here;
+                if !forward && edge.oneway() {
+                    continue;
+                }
+                let next = if forward { edge.to() } else { edge.from() };
+                if let Some(slot) = seen.get_mut(next.as_usize())
+                    && !*slot
+                {
+                    *slot = true;
+                    stack.push(next);
+                }
+            }
+        }
+        seen
+    }
+
     /// The cheapest route from `from` to `to` for an aircraft of `wingspan`,
     /// or `None` if there is none.
     pub fn route(&self, from: Id<Node>, to: Id<Node>, wingspan: Meters) -> Option<GroundRoute> {
@@ -322,6 +352,26 @@ mod tests {
         ground.edges[5].max_wingspan = Some(span(52.0)?);
         assert!(ground.route(Id::new(0), Id::new(2), span(65.0)?).is_none());
         assert!(ground.route(Id::new(0), Id::new(2), span(36.0)?).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_reachable_from_follows_one_way_edges() -> Result<()> {
+        let (_, mut ground) = square()?;
+        assert!(ground.reachable_from(Id::new(0)).iter().all(|&r| r));
+        // A one-way spur 0→4 with no way back: from 4 only 5, 2, 3, 1 and 0
+        // via the square, but nothing reaches 4 from 5.
+        ground.edges[4].oneway = true;
+        ground.edges[5].oneway = true;
+        ground.edges[5] = Edge {
+            from: Id::new(5),
+            to: Id::new(4),
+            ..ground.edges[5].clone()
+        };
+        let from_four = ground.reachable_from(Id::new(4));
+        assert_eq!(from_four, vec![false, false, false, false, true, false]);
+        assert!(ground.reachable_from(Id::new(5))[4]);
+        assert_eq!(ground.reachable_from(Id::new(99)), vec![false; 6]);
         Ok(())
     }
 

@@ -89,6 +89,7 @@ pub struct FlightView {
     pub(super) slot_time: Option<SimTime>,
     pub(super) expected_landing: Option<SimTime>,
     pub(super) speed_factor: f64,
+    pub(super) ground_conflict: bool,
 }
 
 impl FlightView {
@@ -186,6 +187,12 @@ impl FlightView {
     /// Fraction of normal speed flown under speed control (1 without).
     pub const fn speed_factor(&self) -> f64 {
         self.speed_factor
+    }
+
+    /// Whether it taxies on a route planned around nobody, after ground
+    /// control found no conflict-free one (plan M4 D75).
+    pub const fn ground_conflict(&self) -> bool {
+        self.ground_conflict
     }
 }
 

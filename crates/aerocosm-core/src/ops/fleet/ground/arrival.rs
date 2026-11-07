@@ -3,7 +3,7 @@
 
 use super::{EXIT_WAIT, Plan, RETRY, SPOT_ESCAPE_AFTER, SPOT_ESTIMATE, Start, Target, ms};
 use crate::{
-    Id, LatLon, SimTime,
+    Id, SimTime,
     ground::Node,
     ops::fleet::Operations,
     scenario::Scenario,
@@ -37,16 +37,25 @@ impl Operations {
         // SAFETY: a landing roll takes minutes.
         #[allow(clippy::cast_possible_truncation)]
         let start = ms(now) + (self.profiles[index].landing_seconds() * 1000.0) as i64;
-        let free = self.find_stand(scenario, index, destination, airline, near, false);
+        let free = self.find_stand(
+            scenario,
+            index,
+            destination,
+            airline,
+            (near, Some(exit)),
+            false,
+        );
         let spot = if free.is_none() {
-            self.free_spot(scenario, destination, near)
+            self.free_spot(scenario, index, destination, exit)
         } else {
             None
         };
         let stand = match (free, spot) {
             (Some(stand), _) => Some(stand),
             (None, Some(_)) => None,
-            (None, None) => self.take_stand(scenario, index, destination, airline, near),
+            (None, None) => {
+                self.take_stand(scenario, index, destination, airline, (near, Some(exit)))
+            }
         };
         let (to, target, stay, open) = match (stand, spot) {
             (Some(stand), _) => (
@@ -112,30 +121,31 @@ impl Operations {
         true
     }
 
-    /// The free waiting spot nearest `near`.
+    /// The free waiting spot with the shortest taxi from `from` for tail
+    /// `index`.
     pub(super) fn free_spot(
         &self,
         scenario: &Scenario,
+        index: usize,
         airport: Id<Airport>,
-        near: LatLon,
+        from: Id<Node>,
     ) -> Option<Id<Node>> {
         let layout = scenario.ground().airport(airport)?;
         let airside = self.ground.airside(airport)?;
+        let lengths = layout.lengths_from(from, self.wingspans[index], false);
+        let length = |spot: Id<Node>| {
+            lengths
+                .get(spot.as_usize())
+                .copied()
+                .unwrap_or(f64::INFINITY)
+        };
         airside
             .spots
             .iter()
             .zip(&airside.spot_owner)
-            .filter(|(_, owner)| owner.is_none())
+            .filter(|&(&spot, owner)| owner.is_none() && length(spot).is_finite())
             .map(|(spot, _)| *spot)
-            .min_by(|a, b| {
-                let d = |n: &Id<Node>| {
-                    layout.nodes()[n.as_usize()]
-                        .position()
-                        .distance_to(near)
-                        .value()
-                };
-                d(a).total_cmp(&d(b))
-            })
+            .min_by(|a, b| length(*a).total_cmp(&length(*b)))
     }
 
     /// At a waiting spot: takes a stand as soon as one is free and taxies
@@ -165,12 +175,12 @@ impl Operations {
         else {
             return;
         };
-        // After half an hour it shares a stand rather than wait on (D75).
-        let free = self.find_stand(scenario, index, airport, airline, near, false);
+        // After half an hour it shares a stand rather than wait on (D69).
+        let free = self.find_stand(scenario, index, airport, airline, (near, Some(here)), false);
         let shared = free.is_none() && escape;
         let stand = free.or_else(|| {
             shared
-                .then(|| self.take_stand(scenario, index, airport, airline, near))
+                .then(|| self.take_stand(scenario, index, airport, airline, (near, Some(here))))
                 .flatten()
         });
         let Some(stand) = stand else {
@@ -180,7 +190,7 @@ impl Operations {
             return;
         };
         if shared {
-            self.stats.ground_conflict(airport);
+            self.stats.shared_stand(airport);
         }
         let Some(layout) = scenario.ground().airport(airport) else {
             return;

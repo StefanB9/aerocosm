@@ -108,9 +108,18 @@ mod tests {
     use crate::{Id, ground::GroundNetwork, test_data::data};
 
     /// Every spot keeps `SPOT_CLEARANCE` from the edges it is not on,
-    /// sampled every 2 m.
+    /// sampled every 2 m, and leads on to a stand.
     fn assert_spots_clear(ground: &AirportGround, spots: &[Id<Node>]) -> Result<()> {
+        let span = crate::units::Meters::new(1.0)?;
         for &spot in spots {
+            assert!(
+                ground
+                    .stands()
+                    .iter()
+                    .any(|stand| ground.route(spot, stand.node(), span).is_some()),
+                "no stand reachable from spot {}",
+                spot.as_usize()
+            );
             let at = ground.nodes()[spot.as_usize()].position();
             for (index, edge) in ground.edges().iter().enumerate() {
                 if ground.edges_at(spot).contains(&Id::from_usize(index)?) {

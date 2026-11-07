@@ -267,7 +267,7 @@ impl Operations {
             .context("origin out of range")?
             .location();
         let airline = self.airline_of(index, leg)?;
-        self.take_stand(scenario, index, origin, airline, near);
+        self.take_stand(scenario, index, origin, airline, (near, None));
         Ok(())
     }
 
@@ -353,6 +353,7 @@ impl Operations {
                     // Lining up: the holding position is free again.
                     let origin = self.flight(index, leg)?.origin();
                     self.ground.release(origin, u32::try_from(index)?);
+                    self.taxis[index] = None;
                     let hold = self.paths[index]
                         .as_ref()
                         .and_then(Path::departure_nodes)
@@ -498,6 +499,7 @@ impl Operations {
                     .filter(|_| motion.phase() == Phase::Boarding),
                 expected_landing: self.flows[index].landing,
                 speed_factor: motion.speed_factor(),
+                ground_conflict: self.escaped(index),
             })
         })
     }

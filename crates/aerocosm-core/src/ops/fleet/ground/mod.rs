@@ -13,7 +13,7 @@ use crate::{
     Id, LatLon, SimTime,
     geo::Polyline,
     ground::{
-        Edge, EdgeKind, Node, Stand, TAXI_SPEED,
+        AirportGround, Edge, EdgeKind, Node, Stand, TAXI_SPEED,
         reserve::{NODE_BUFFER, PlanRequest, Reservations, TimedRoute, plan_route},
     },
     ops::{
@@ -30,7 +30,9 @@ const ACTIVE_RUNWAY_SURCHARGE: f64 = 100.0;
 /// Aircraft waiting at nodes closer than this would overlap (an A321 is 45 m
 /// long), m.
 const AIRCRAFT_SPACING: f64 = 45.0;
-/// Plans may run this far ahead, ms.
+/// Taxi routes are at most this many times as long as the straight line.
+const ROUTE_WINDING: f64 = 3.0;
+/// Plans may wait this long on top of the time to taxi there, ms.
 const HORIZON: i64 = 30 * 60_000;
 /// A departure is expected to wait this long at the holding position, ms.
 /// Short, so the holding position passes a departure a minute; real waits
@@ -62,6 +64,27 @@ const SPOT_ESCAPE_AFTER: i64 = 1_800_000;
 /// Pushback speed, m/s, and engine start, s (as in motion).
 const PUSH_SPEED: f64 = 1.0;
 const ENGINE_START: f64 = 60.0;
+
+/// How long an aircraft held up for `held` ms waits before trying again:
+/// a quarter of that, from `least` up to four times it. Congested airports
+/// then plan less often, not more, ms.
+fn backoff(held: i64, least: i64) -> i64 {
+    (held / 4).clamp(least, 4 * least)
+}
+
+/// The latest arrival a plan accepts, ms: the horizon past the time it
+/// takes to cover a winding route, or none for an escape, which waits for
+/// nobody (D75).
+fn deadline(layout: &AirportGround, plan: &Plan, escape: bool) -> i64 {
+    if escape {
+        return i64::MAX;
+    }
+    let straight = layout.remaining(plan.from.as_usize(), plan.to.as_usize());
+    // SAFETY: airport distances, a few kilometres at taxi speed.
+    #[allow(clippy::cast_possible_truncation)]
+    let travel = (ROUTE_WINDING * straight / TAXI_SPEED * 1000.0) as i64;
+    plan.start + HORIZON + travel
+}
 
 /// Time a route spends waiting before its last node, ms.
 fn waits(route: &TimedRoute) -> i64 {
@@ -326,7 +349,7 @@ impl Operations {
                 owner: Self::owner(index),
                 stay: plan.stay,
                 open: plan.open,
-                deadline: plan.start + HORIZON,
+                deadline: deadline(layout, plan, escape),
                 start_wait: plan.start_wait,
                 start_shared: plan.shared,
                 blocked,
@@ -397,6 +420,11 @@ impl Operations {
         Polyline::new(&points).ok()
     }
 
+    /// Whether tail `index` follows a route planned around nobody (D75).
+    pub(super) fn escaped(&self, index: usize) -> bool {
+        self.taxis[index].as_ref().is_some_and(|taxi| taxi.escaped)
+    }
+
     /// Tail `index` follows a route planned around nobody (D75).
     fn mark_escaped(&mut self, index: usize) {
         if let Some(taxi) = self.taxis[index].as_mut() {
@@ -407,5 +435,20 @@ impl Operations {
     /// Whether tail `index` is on a controlled taxi in `phase`.
     pub(super) fn controlled(&self, index: usize, phase: Phase) -> bool {
         matches!(phase, Phase::TaxiOut | Phase::TaxiIn) && self.taxis[index].is_some()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_backoff_grows_with_the_hold_up() {
+        // A quarter of the time held so far, between once and four times the
+        // shortest retry.
+        assert_eq!(backoff(0, RETRY), RETRY);
+        assert_eq!(backoff(120_000, RETRY), 30_000);
+        assert_eq!(backoff(3_600_000, RETRY), 4 * RETRY);
+        assert_eq!(backoff(-5, GATE_RETRY), GATE_RETRY);
     }
 }
