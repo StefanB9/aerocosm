@@ -89,6 +89,20 @@ impl Operations {
         airline: AirlineIcao,
         near: LatLon,
     ) -> Option<Id<Stand>> {
+        self.find_stand(scenario, index, airport, airline, near, true)
+    }
+
+    /// Like [`Self::take_stand`]; with `shared` false only a free stand is
+    /// taken, else none.
+    pub(super) fn find_stand(
+        &mut self,
+        scenario: &Scenario,
+        index: usize,
+        airport: Id<Airport>,
+        airline: AirlineIcao,
+        near: LatLon,
+        shared: bool,
+    ) -> Option<Id<Stand>> {
         if let Some((at, stand)) = self.parked[index]
             && at == airport
         {
@@ -105,7 +119,11 @@ impl Operations {
         let book = &self.stands;
         let stand = layout
             .choose_stand(areas, &request, |stand| book.is_free(airport, stand))
-            .or_else(|| layout.choose_stand(areas, &request, |_| true));
+            .or_else(|| {
+                shared
+                    .then(|| layout.choose_stand(areas, &request, |_| true))
+                    .flatten()
+            });
         if let Some(stand) = stand {
             self.stands.take(airport, stand);
             self.parked[index] = Some((airport, stand));

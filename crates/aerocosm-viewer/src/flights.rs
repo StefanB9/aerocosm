@@ -51,6 +51,7 @@ impl PhaseBand {
             | Phase::Pushback
             | Phase::TaxiOut
             | Phase::Queue
+            | Phase::LineUp
             | Phase::TakeoffRoll
             | Phase::Landing
             | Phase::TaxiIn
@@ -207,6 +208,7 @@ mod tests {
     fn test_phase_bands() {
         assert_eq!(PhaseBand::of(Phase::Boarding), PhaseBand::Ground);
         assert_eq!(PhaseBand::of(Phase::Pushback), PhaseBand::Ground);
+        assert_eq!(PhaseBand::of(Phase::LineUp), PhaseBand::Ground);
         assert_eq!(PhaseBand::of(Phase::TakeoffRoll), PhaseBand::Ground);
         assert_eq!(PhaseBand::of(Phase::Climb), PhaseBand::Climb);
         assert_eq!(PhaseBand::of(Phase::Cruise), PhaseBand::Cruise);

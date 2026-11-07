@@ -5,7 +5,7 @@ use std::{cmp::Ordering, collections::BinaryHeap};
 
 use super::{AirportGround, EdgeKind, Exit, GroundNetwork, Node};
 use crate::{
-    Id, SimDuration,
+    Id, LatLon, SimDuration,
     ops::active_runways_now,
     traffic::TrafficTargets,
     units::Meters,
@@ -29,13 +29,22 @@ const RUNWAY_PENALTY: f64 = 4.0;
 pub const RAPID_EXIT: f64 = 45.0;
 
 impl AirportGround {
-    /// Where departures from `runway` enter it: the entry nearest its
-    /// threshold, for a full-length take-off.
-    pub fn departure_entry(&self, runway: RunwayDesignator) -> Option<&Exit> {
+    /// Where departures from `runway` enter it: the runway node with a
+    /// taxiway nearest its `threshold`, for a full-length take-off. Entries
+    /// at runway ends often point the take-off way and so are recorded only
+    /// as exits of the opposite end; both ends count.
+    pub fn departure_entry(&self, runway: RunwayDesignator, threshold: LatLon) -> Option<&Exit> {
+        let opposite = runway.reciprocal();
+        let away = |exit: &&Exit| {
+            self.nodes()[exit.node().as_usize()]
+                .position()
+                .distance_to(threshold)
+                .value()
+        };
         self.exits()
             .iter()
-            .filter(|exit| exit.runway() == runway)
-            .min_by(|a, b| a.distance().value().total_cmp(&b.distance().value()))
+            .filter(|exit| exit.runway() == runway || exit.runway() == opposite)
+            .min_by(|a, b| away(a).total_cmp(&away(b)))
     }
 
     /// The first exit from `runway` a landing can make: a rapid exit after
@@ -128,7 +137,7 @@ impl AirportGround {
     /// entry, and the median route from the nearest arrival exit to a stand.
     pub fn typical_taxi(
         &self,
-        departures: &[RunwayDesignator],
+        departures: &[(RunwayDesignator, LatLon)],
         arrivals: &[RunwayDesignator],
     ) -> Option<TaxiTimes> {
         let wingspan = Meters::from_raw(TYPICAL_WINGSPAN);
@@ -154,7 +163,9 @@ impl AirportGround {
         };
         let entries = departures
             .iter()
-            .filter_map(|runway| self.departure_entry(*runway).map(Exit::node))
+            .filter_map(|(runway, threshold)| {
+                self.departure_entry(*runway, *threshold).map(Exit::node)
+            })
             .collect();
         let exits = arrivals
             .iter()
@@ -229,10 +240,10 @@ impl GroundNetwork {
             let designator = |use_: &crate::ops::ActiveRunway| {
                 runways[use_.runway].ends()[use_.end].designator()
             };
-            let departures: Vec<RunwayDesignator> = active
+            let departures: Vec<(RunwayDesignator, LatLon)> = active
                 .iter()
                 .filter(|a| a.departures)
-                .map(designator)
+                .map(|a| (designator(a), runways[a.runway].ends()[a.end].threshold()))
                 .collect();
             let arrivals: Vec<RunwayDesignator> = active
                 .iter()
@@ -278,8 +289,16 @@ mod tests {
         definition.exits.extend([rapid, late]);
         let ground = AirportGround::new(definition, &data()?.world)?;
         let runway: RunwayDesignator = "07C".parse()?;
-        let entry = ground.departure_entry(runway).context("an entry")?;
+        let at = |lat: f64| LatLon::new(lat, 8.56);
+        let entry = ground
+            .departure_entry(runway, at(50.034)?)
+            .context("an entry")?;
         assert_eq!(entry.node(), Id::new(3));
+        // From the other end: the 07C exit nearest the 25C threshold.
+        let other = ground
+            .departure_entry("25C".parse()?, at(50.0352)?)
+            .context("an entry from 25C")?;
+        assert_eq!(other.node(), Id::new(4));
         let m = Meters::new;
         // The rapid exit at 1,300 m suits a short roll; a long roll misses it
         // and the 90° exit at 2,400 m alike.
@@ -295,7 +314,7 @@ mod tests {
             .landing_exit(runway, m(5_000.0)?, m(5_000.0)?)
             .context("exit")?;
         assert_eq!(longest.node(), Id::new(4));
-        assert!(ground.departure_entry("25C".parse()?).is_none());
+        assert!(ground.departure_entry("09".parse()?, at(50.0)?).is_none());
         Ok(())
     }
 

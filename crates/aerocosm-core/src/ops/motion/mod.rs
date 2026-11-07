@@ -27,6 +27,8 @@ const TAXI_SPEED: f64 = 8.0;
 const PUSH_SPEED: f64 = 1.0;
 /// Engine start after the pushback, s.
 const ENGINE_START: f64 = 60.0;
+/// Line-up speed from the holding position onto the runway, m/s.
+pub(crate) const LINEUP_SPEED: f64 = 5.0;
 /// Rotation speed relative to the approach speed.
 const ROTATE_FACTOR: f64 = 1.15;
 /// Initial climb speed relative to the approach speed.
@@ -117,6 +119,25 @@ impl Motion {
             hold_at: NO_HOLD,
             hold_altitude: 0.0,
         }
+    }
+
+    /// Placed by ground control `along` the taxi route at `speed` m/s
+    /// (plan M4 D70); the phase stays.
+    pub(crate) const fn taxi_at(&mut self, along: f64, speed: f64) {
+        self.along = along;
+        self.speed = speed;
+    }
+
+    /// At the runway holding position: queues for take-off.
+    pub(crate) const fn queue_now(&mut self) {
+        self.enter(Phase::Queue);
+        self.speed = 0.0;
+    }
+
+    /// On the stand: the leg is over.
+    pub(crate) const fn arrive_now(&mut self) {
+        self.enter(Phase::Arrived);
+        self.speed = 0.0;
     }
 
     /// Taxies in for `seconds` after landing (known at touchdown).
@@ -226,7 +247,21 @@ impl Motion {
             }
             Phase::Queue => {
                 if clearance(Request::Takeoff) {
+                    if p.lineup_length() > 0.0 {
+                        self.enter(Phase::LineUp);
+                        self.speed = LINEUP_SPEED;
+                    } else {
+                        self.enter(Phase::TakeoffRoll);
+                    }
+                }
+                None
+            }
+            Phase::LineUp => {
+                self.speed = LINEUP_SPEED;
+                self.along += LINEUP_SPEED * dt;
+                if self.along >= p.lineup_length() - 0.01 {
                     self.enter(Phase::TakeoffRoll);
+                    self.speed = 0.0;
                 }
                 None
             }

@@ -137,7 +137,7 @@ impl AirportGround {
     }
 
     /// Straight-line distance between two nodes: never more than a route.
-    fn remaining(&self, from: usize, to: usize) -> f64 {
+    pub(crate) fn remaining(&self, from: usize, to: usize) -> f64 {
         let (a, b) = (self.nodes()[from].xy, self.nodes()[to].xy);
         (b[0] - a[0]).hypot(b[1] - a[1]) * 0.999
     }

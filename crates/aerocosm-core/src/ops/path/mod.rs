@@ -20,9 +20,12 @@ use crate::{
 /// Where a leg's parts lie.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Path {
-    /// From the stand (or the airport point) to the runway entry; starts
-    /// with the pushback where there is one.
+    /// From the stand (or the airport point) to the runway holding
+    /// position (or entry); starts with the pushback where there is one.
     taxi_out: Polyline,
+    /// From the holding position onto the runway; a single point without
+    /// one.
+    lineup: Polyline,
     takeoff: Segment,
     enroute: Route,
     approach: Segment,
@@ -40,6 +43,13 @@ pub(crate) struct Path {
     /// The exit node at a mapped destination, from which the taxi-in is
     /// routed once a stand is assigned.
     exit: Option<Id<Node>>,
+    /// At a mapped origin: the holding position, where the pushback ends,
+    /// and the pushback's points (plan M4 PR 3).
+    hold: Option<Id<Node>>,
+    joint: Option<Id<Node>>,
+    push_points: Vec<LatLon>,
+    /// From the holding position node on to where the line-up starts.
+    queue_points: Vec<LatLon>,
 }
 
 /// A leg ready to fly: geometry and profile.
@@ -70,6 +80,37 @@ impl Path {
     /// Whether the taxi-out follows a route from a stand.
     pub(crate) const fn routed_out(&self) -> bool {
         self.routed_out
+    }
+
+    /// The holding position and pushback end of a routed departure.
+    pub(crate) fn departure_nodes(&self) -> Option<(Id<Node>, Id<Node>)> {
+        self.hold.zip(self.joint)
+    }
+
+    /// The pushback's points, from the stand.
+    pub(crate) fn push_points(&self) -> &[LatLon] {
+        &self.push_points
+    }
+
+    /// From the holding position node on to where the line-up starts.
+    pub(crate) fn queue_points(&self) -> &[LatLon] {
+        &self.queue_points
+    }
+
+    /// Taxies out along `route` (pushback included); returns its length, m.
+    pub(crate) fn set_taxi_out(&mut self, route: Polyline) -> f64 {
+        self.taxi_out = route;
+        self.taxi_out.length().value()
+    }
+
+    /// Heading on the destination stand, once known.
+    pub(crate) const fn stand_in_heading(&self) -> Option<Degrees> {
+        self.stand_in
+    }
+
+    /// Sets the heading on the destination stand.
+    pub(crate) const fn set_stand_in(&mut self, heading: Degrees) {
+        self.stand_in = Some(heading);
     }
 
     /// The exit node at a mapped destination.
@@ -104,6 +145,7 @@ impl Path {
             }
             Phase::TaxiOut => on(&self.taxi_out, along),
             Phase::Queue => on(&self.taxi_out, self.taxi_out.length()),
+            Phase::LineUp => on(&self.lineup, along),
             Phase::Holding => super::hold::racetrack(
                 self.enroute.point_at(along),
                 self.enroute.bearing_at(along),

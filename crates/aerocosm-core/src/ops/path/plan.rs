@@ -36,6 +36,9 @@ type End = (LatLon, Degrees, Option<(usize, RunwayDesignator)>);
 /// Runways down to this fraction of the type's take-off field length are
 /// used, as in schedule generation.
 const RUNWAY_MARGIN: f64 = 0.75;
+/// Departures prefer the parallel runway nearest a point this far along
+/// the course, m.
+const SIDE_PROBE: f64 = 5_000.0;
 /// Turn radius of procedures: 210 kt at 25° of bank.
 const TURN_RADIUS: f64 = 2_550.0;
 
@@ -84,6 +87,23 @@ fn runway_end(
     })
 }
 
+/// The lengths of `path`'s parts into `inputs`.
+fn measure(path: &Path, inputs: &mut ProfileInputs) {
+    inputs.enroute_length = path.enroute.length().value();
+    inputs.taxi_out_length = path.taxi_out.length().value();
+    inputs.taxi_in_length = path.taxi_in.length().value();
+    if path.exit.is_some() {
+        // The roll ends at the planned exit.
+        inputs.landing_length = path.landing.length().value().max(1.0);
+    }
+}
+
+/// Where a landing on the threshold `arrival` heading `course` stops
+/// braking, without a mapped exit.
+fn roll_out(arrival: LatLon, course: Degrees, profile: &Profile) -> LatLon {
+    arrival.destination(course, Meters::from_raw(profile.landing_length()))
+}
+
 /// The aircraft's speeds and rates and the field elevations, in SI units.
 fn profile_inputs(aircraft: &AircraftType, from: &Airport, to: &Airport) -> ProfileInputs {
     let speed = |knots: crate::units::Knots| knots.to_meters_per_second().value();
@@ -120,6 +140,10 @@ fn exit_at(
 /// The taxi-out of a leg.
 struct TaxiOut {
     taxi: Polyline,
+    lineup: Polyline,
+    nodes: Option<(Id<Node>, Id<Node>)>,
+    push_points: Vec<LatLon>,
+    queue_points: Vec<LatLon>,
     roll_start: LatLon,
     stand_heading: Option<Degrees>,
     pushback: f64,
@@ -140,10 +164,14 @@ fn taxi_out(
     let layout = ground.network.airport(origin);
     let stand = layout.zip(ground.origin_stand);
     if let Some(((layout, stand), runway)) = stand.zip(runway)
-        && let Some(plan) = departure(layout, stand, runway, wingspan)
+        && let Some(plan) = departure(layout, stand, (runway, threshold), wingspan)
     {
         return Ok(TaxiOut {
             taxi: plan.taxi,
+            lineup: plan.lineup,
+            nodes: Some((plan.hold, plan.joint)),
+            push_points: plan.push_points,
+            queue_points: plan.queue_points,
             roll_start: plan.entry,
             stand_heading: Some(plan.stand_heading),
             pushback: plan.pushback,
@@ -160,6 +188,10 @@ fn taxi_out(
     let start = parked.map_or(airport_point, |(point, _)| point);
     Ok(TaxiOut {
         taxi: Polyline::new(&[start, threshold])?,
+        lineup: Polyline::new(&[threshold])?,
+        nodes: None,
+        push_points: Vec::new(),
+        queue_points: Vec::new(),
         roll_start: threshold,
         stand_heading: parked.map(|(_, heading)| heading),
         pushback: 0.0,
@@ -182,6 +214,9 @@ pub(crate) fn plan_leg(
         .airport(destination)
         .context("destination out of range")?;
     let direct = from.location().initial_bearing_to(to.location());
+    let ahead = from
+        .location()
+        .destination(direct, Meters::from_raw(SIDE_PROBE));
     // Depart from the mode's runway closest to the course; land on the one
     // whose final is nearest the origin.
     let (departure_point, departure_course, departure_runway) = runway_end(
@@ -190,7 +225,12 @@ pub(crate) fn plan_leg(
         origin,
         aircraft,
         Use::Departure,
-        |end| angle_between(end.true_heading(), direct),
+        |end| {
+            // Parallel runways align equally: the one on the side of the
+            // course wins, by a degree per kilometre.
+            angle_between(end.true_heading(), direct)
+                + end.threshold().distance_to(ahead).value() / 1000.0
+        },
         direct,
     )?;
     let (arrival, arrival_course, arrival_runway) = runway_end(
@@ -219,8 +259,8 @@ pub(crate) fn plan_leg(
         departure_point,
     )?;
     inputs.pushback_length = out.pushback;
-    let (taxi_out, roll_start, stand_out, routed) =
-        (out.taxi, out.roll_start, out.stand_heading, out.routed);
+    inputs.lineup_length = out.lineup.length().value();
+    let roll_start = out.roll_start;
     let planned_exit = exit_at(
         ground,
         destination,
@@ -239,13 +279,7 @@ pub(crate) fn plan_leg(
             inputs.exit_speed = exit_speed;
             (point, Some(node))
         }
-        None => (
-            arrival.destination(
-                arrival_course,
-                Meters::from_raw(provisional.landing_length()),
-            ),
-            None,
-        ),
+        None => (roll_out(arrival, arrival_course, &provisional), None),
     };
     let turn_point = departure_turn_point(
         liftoff,
@@ -255,27 +289,28 @@ pub(crate) fn plan_leg(
     let mut waypoints = vec![liftoff, turn_point];
     waypoints.extend(arrival_points(turn_point, arrival, arrival_course));
     let fix = waypoints[waypoints.len() - 1];
+    let enroute =
+        Route::new(&waypoints, Meters::from_raw(TURN_RADIUS)).context("cannot route the leg")?;
     let path = Path {
-        taxi_out,
+        taxi_out: out.taxi,
+        lineup: out.lineup,
         takeoff: Segment::new(roll_start, liftoff)?,
-        enroute: Route::new(&waypoints, Meters::from_raw(TURN_RADIUS))
-            .context("cannot route the leg")?,
+        enroute,
         approach: Segment::new(fix, arrival)?,
         landing: Segment::new(arrival, roll_end)?,
         taxi_in: Polyline::new(&[roll_end, to.location()])?,
         departure_runway: departure_runway.map(|(index, _)| index),
         arrival_runway: arrival_runway.map(|(index, _)| index),
-        routed_out: routed,
-        stand_out,
+        routed_out: out.routed,
+        stand_out: out.stand_heading,
         stand_in: None,
         exit,
+        hold: out.nodes.map(|(hold, _)| hold),
+        joint: out.nodes.map(|(_, joint)| joint),
+        push_points: out.push_points,
+        queue_points: out.queue_points,
     };
-    inputs.enroute_length = path.enroute.length().value();
-    inputs.taxi_out_length = path.taxi_out.length().value();
-    inputs.taxi_in_length = path.taxi_in.length().value();
-    if exit.is_some() {
-        inputs.landing_length = path.landing.length().value().max(1.0);
-    }
+    measure(&path, &mut inputs);
     Ok(Leg {
         path,
         profile: Profile::new(&inputs),
@@ -398,6 +433,27 @@ mod tests {
     }
 
     #[test]
+    fn test_parallel_departure_runways_split_by_side() -> Result<()> {
+        let data = data()?;
+        let munich = airport(&data, "EDDM")?;
+        let runway_of = |destination: &str| -> Result<String> {
+            let leg = plan_leg(
+                &data.world,
+                &data.traffic,
+                unmapped(),
+                a320(&data)?,
+                munich,
+                airport(&data, destination)?,
+            )?;
+            let index = leg.path.departure_runway.context("a runway")?;
+            Ok(data.world.runways_of(munich)[index].name())
+        };
+        // Hamburg is north, Zurich south-west: different parallel runways.
+        assert_ne!(runway_of("EDDH")?, runway_of("LSZH")?);
+        Ok(())
+    }
+
+    #[test]
     fn test_runway_modes_pick_runways_by_direction() -> Result<()> {
         let data = data()?;
         let (frankfurt, munich) = (airport(&data, "EDDF")?, airport(&data, "EDDM")?);
@@ -485,10 +541,18 @@ mod tests {
             leg.profile.pushback_length() > 10.0,
             "A14 is a nose-in stand"
         );
-        // Taxied to the runway: the take-off starts where the taxi ends, on 18.
+        // Taxied to the holding position of 18, lined up, then the roll.
         let end = leg.path.taxi_out.point_at(leg.path.taxi_out.length());
+        let lined = leg.path.lineup.point_at(Meters::default());
+        assert!(end.distance_to(lined).value() < 0.5);
+        let onto = leg.path.lineup.point_at(leg.path.lineup.length());
         let roll = leg.path.takeoff.point_at(Meters::default());
-        assert!(end.distance_to(roll).value() < 0.5);
+        assert!(onto.distance_to(roll).value() < 0.5);
+        assert!(
+            leg.profile.lineup_length() > 20.0,
+            "{}",
+            leg.profile.lineup_length()
+        );
         assert!(leg.path.taxi_out.length().value() > 1_000.0);
         // At Munich the roll ends at an exit node.
         let exit = leg.path.exit().context("an exit at MUC")?;

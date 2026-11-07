@@ -18,12 +18,16 @@ use crate::{
 /// Variants of a stand lie within this distance of it, m.
 const VARIANT_REACH: f64 = 60.0;
 /// Metres per degree of latitude, for the flat frame of route estimates.
-const METRES_PER_DEGREE: f64 = 111_195.0;
+pub(super) const METRES_PER_DEGREE: f64 = 111_195.0;
 
 /// An airport's taxi network with stands, holding positions and exits.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AirportGround {
     pub(super) airport: Id<Airport>,
+    /// `[lat, lon]` of the flat frame's origin (the first node), and metres
+    /// per degree of longitude there.
+    pub(super) origin: [f64; 2],
+    pub(super) east: f64,
     pub(super) nodes: Vec<Node>,
     pub(super) edges: Vec<Edge>,
     /// `links[link_starts[n]..link_starts[n + 1]]` are the edges at node `n`.
@@ -166,6 +170,8 @@ impl AirportGround {
         let variants = Self::find_variants(&nodes, &stands)?;
         Ok(Self {
             airport,
+            origin,
+            east,
             nodes,
             edges,
             link_starts,

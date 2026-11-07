@@ -12,7 +12,9 @@ mod airport;
 mod areas;
 mod definition;
 mod elements;
+pub(crate) mod reserve;
 mod route;
+mod runways;
 mod taxi;
 
 pub use airport::AirportGround;
