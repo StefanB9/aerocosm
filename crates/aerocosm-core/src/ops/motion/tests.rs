@@ -118,6 +118,37 @@ fn test_motion_pushes_back_then_taxies_from_the_push_point() {
 }
 
 #[test]
+fn test_motion_lines_up_after_the_take_off_clearance() {
+    let mut inputs = profile(400_000.0).inputs;
+    inputs.lineup_length = 100.0;
+    let lined = Profile::new(&inputs);
+    let mut motion = Motion::start(&lined, 60.0, 300.0);
+    while motion.phase() != Phase::Queue {
+        motion.advance_free(&lined, 1.0);
+    }
+    // Held short until cleared.
+    motion.advance(&lined, 1.0, &mut |_| false);
+    assert_eq!(motion.phase(), Phase::Queue);
+    motion.advance(&lined, 1.0, &mut |request| request == Request::Takeoff);
+    assert_eq!(motion.phase(), Phase::LineUp);
+    for _ in 0..19 {
+        motion.advance_free(&lined, 1.0);
+    }
+    assert_eq!(motion.phase(), Phase::LineUp);
+    assert!((motion.along() - 95.0).abs() < 1e-6, "{}", motion.along());
+    motion.advance_free(&lined, 1.0);
+    assert_eq!(motion.phase(), Phase::TakeoffRoll);
+    // Without a line-up the roll starts at the clearance.
+    let plain = profile(400_000.0);
+    let mut direct = Motion::start(&plain, 60.0, 300.0);
+    while direct.phase() == Phase::TaxiOut {
+        direct.advance_free(&plain, 1.0);
+    }
+    direct.advance_free(&plain, 1.0);
+    assert_eq!(direct.phase(), Phase::TakeoffRoll);
+}
+
+#[test]
 fn test_motion_rolls_out_to_the_planned_exit() -> Result<()> {
     // An exit 2,500 m down the runway, left at 15 m/s.
     let profile = ground_profile(0.0, 2_500.0, 15.0);
@@ -138,6 +169,9 @@ fn test_motion_rolls_out_to_the_planned_exit() -> Result<()> {
         slowest >= 15.0 - 1e-9,
         "never slower than the exit speed: {slowest}"
     );
+    // About 10 s braking from 70 to 15 m/s, then the rest at 15 m/s.
+    let seconds = profile.landing_seconds();
+    assert!(seconds > 100.0 && seconds < 200.0, "{seconds}");
     // The default roll ends where braking reaches taxi speed.
     let plain = profile_default_landing();
     assert!(plain > 1_000.0 && plain < 1_500.0, "{plain}");

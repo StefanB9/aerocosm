@@ -5,12 +5,17 @@ use anyhow::{Context, Result};
 
 pub(super) mod board;
 mod flow;
+mod ground;
 mod stands;
 mod start;
 
 use start::Rotation;
 
-use self::{flow::Flow, stands::StandBook};
+use self::{
+    flow::Flow,
+    ground::{GroundControl, Taxi},
+    stands::StandBook,
+};
 use super::{
     Phase, StartMode,
     control::Control,
@@ -33,6 +38,8 @@ use crate::{
 
 /// Old landing slots are forgotten every this many milliseconds.
 const PRUNE_EVERY: i64 = 600_000;
+/// Ground control's open reservations are refreshed every this many ms.
+const GROUND_REFRESH: i64 = 10_000;
 /// Boarding starts this long before off-block.
 const BOARDING: SimDuration = SimDuration::from_minutes(30);
 /// Where one tail is in its rotation.
@@ -80,6 +87,12 @@ pub(crate) struct Operations {
     stands: StandBook,
     /// The stand each tail stands on, while it is on one.
     parked: Vec<Option<(Id<Airport>, Id<Stand>)>>,
+    /// Ground control at mapped airports (plan M4 PR 3).
+    ground: GroundControl,
+    /// Each tail's controlled taxi, while it taxies under control.
+    taxis: Vec<Option<Taxi>>,
+    /// Since when each tail waits at its stand for a taxi plan, ms.
+    gate_blocked: Vec<Option<i64>>,
     /// Punctuality, delays and movements since the start.
     stats: Statistics,
     /// Take-offs and touchdowns at controlled runways, for tests.
@@ -176,6 +189,9 @@ impl Operations {
             wingspans,
             stands: StandBook::new(scenario),
             parked: vec![None; tail_count],
+            ground: GroundControl::new(scenario),
+            taxis: vec![None; tail_count],
+            gate_blocked: vec![None; tail_count],
             stats: {
                 let mut stats = Statistics::new(world.airport_count());
                 stats.set_start(start);
@@ -251,7 +267,7 @@ impl Operations {
             .context("origin out of range")?
             .location();
         let airline = self.airline_of(index, leg)?;
-        self.take_stand(scenario, index, origin, airline, near);
+        self.take_stand(scenario, index, origin, airline, (near, None));
         Ok(())
     }
 
@@ -264,6 +280,9 @@ impl Operations {
         let now = self.time;
         if now.as_millis() % PRUNE_EVERY == 0 {
             self.prune_control(now)?;
+        }
+        if now.as_millis() % GROUND_REFRESH == 0 {
+            self.ground.refresh(now);
         }
         for index in 0..self.tails.len() {
             self.step_tail(scenario, index, now)
@@ -304,6 +323,15 @@ impl Operations {
                         self.tails[index].off_block = add(now, delay)?;
                         return Ok(());
                     }
+                    if let Some(wait) =
+                        self.plan_departure(scenario, index, flight.origin(), now)?
+                    {
+                        // No way out yet, or the runway queue is long: wait at
+                        // the stand and ask again.
+                        self.tails[index].off_block = add(now, wait)?;
+                        return Ok(());
+                    }
+                    let start = Motion::start(&self.profiles[index], out, back);
                     self.release_stand(index);
                     let tail = &mut self.tails[index];
                     tail.off_block = now;
@@ -314,7 +342,24 @@ impl Operations {
             }
             Some(mut motion) => {
                 let leg = self.tails[index].leg;
-                let event = self.fly(index, leg, &mut motion, now, TICK.as_secs_f64())?;
+                let before = motion.phase();
+                let event = if self.controlled(index, before) {
+                    let airline = self.airline_of(index, leg)?;
+                    self.drive_taxi(scenario, index, &mut motion, now, airline)
+                } else {
+                    self.fly(index, leg, &mut motion, now, TICK.as_secs_f64())?
+                };
+                if before == Phase::Queue && motion.phase() != Phase::Queue {
+                    // Lining up: the holding position is free again.
+                    let origin = self.flight(index, leg)?.origin();
+                    self.ground.release(origin, u32::try_from(index)?);
+                    self.taxis[index] = None;
+                    let hold = self.paths[index]
+                        .as_ref()
+                        .and_then(Path::departure_nodes)
+                        .map(|(hold, _)| hold);
+                    self.lined_up(origin, hold, now);
+                }
                 self.tails[index].motion = Some(motion);
                 // Most ticks have no event; only events need the flight.
                 match event {
@@ -329,8 +374,9 @@ impl Operations {
                         self.touched_down(index, leg, now)?;
                         let destination = self.flight(index, leg)?.destination();
                         let airline = self.airline_of(index, leg)?;
-                        if let Some(seconds) =
-                            self.stand_on_arrival(scenario, index, destination, airline)
+                        if !self.plan_arrival(scenario, index, destination, airline, now)
+                            && let Some(seconds) =
+                                self.stand_on_arrival(scenario, index, destination, airline)
                             && let Some(motion) = self.tails[index].motion.as_mut()
                         {
                             motion.set_taxi_in(seconds);
@@ -453,6 +499,7 @@ impl Operations {
                     .filter(|_| motion.phase() == Phase::Boarding),
                 expected_landing: self.flows[index].landing,
                 speed_factor: motion.speed_factor(),
+                ground_conflict: self.escaped(index),
             })
         })
     }

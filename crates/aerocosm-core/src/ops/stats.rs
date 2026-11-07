@@ -23,6 +23,15 @@ pub struct AirportStats {
     ground_delay: i64,
     /// Take-offs plus landings per clock hour since the start.
     hours: Vec<u32>,
+    /// Controlled taxis and their delay over unimpeded taxiing, ms (plan M4).
+    taxis: u32,
+    taxi_delay: i64,
+    /// Arrivals sent to a waiting spot for want of a stand.
+    stand_waits: u32,
+    /// Taxis that went ahead without a conflict-free plan (D75).
+    ground_conflicts: u32,
+    /// Arrivals that shared a stand after waiting for one too long (D69).
+    stand_shares: u32,
 }
 
 fn share(part: u32, whole: u32) -> f64 {
@@ -95,6 +104,31 @@ impl AirportStats {
         minutes
     }
 
+    /// Taxis under ground control (plan M4).
+    pub const fn taxis(&self) -> u32 {
+        self.taxis
+    }
+
+    /// Average delay of a controlled taxi over taxiing unimpeded.
+    pub fn average_taxi_delay(&self) -> SimDuration {
+        average(self.taxi_delay, self.taxis)
+    }
+
+    /// Arrivals that waited at a spot for a stand.
+    pub const fn stand_waits(&self) -> u32 {
+        self.stand_waits
+    }
+
+    /// Taxis that went ahead without a conflict-free plan (D75).
+    pub const fn ground_conflicts(&self) -> u32 {
+        self.ground_conflicts
+    }
+
+    /// Arrivals that shared a stand after waiting for one too long (D69).
+    pub const fn stand_shares(&self) -> u32 {
+        self.stand_shares
+    }
+
     /// Most take-offs plus landings in one clock hour.
     pub fn busiest_hour(&self) -> u32 {
         self.hours.iter().copied().max().unwrap_or(0)
@@ -111,6 +145,11 @@ impl AirportStats {
         self.holding_seconds += other.holding_seconds;
         self.ground_delays += other.ground_delays;
         self.ground_delay += other.ground_delay;
+        self.taxis += other.taxis;
+        self.taxi_delay += other.taxi_delay;
+        self.stand_waits += other.stand_waits;
+        self.ground_conflicts += other.ground_conflicts;
+        self.stand_shares += other.stand_shares;
     }
 }
 
@@ -174,6 +213,34 @@ impl Statistics {
     }
 
     /// A take-off or landing at `airport` at `time`.
+    pub(crate) fn taxied(&mut self, airport: Id<Airport>, delay: SimDuration) {
+        if let Some(stats) = self.airports.get_mut(airport.as_usize()) {
+            stats.taxis += 1;
+            stats.taxi_delay += delay.as_millis();
+        }
+    }
+
+    /// Records an arrival sent to a waiting spot.
+    pub(crate) fn waited_for_stand(&mut self, airport: Id<Airport>) {
+        if let Some(stats) = self.airports.get_mut(airport.as_usize()) {
+            stats.stand_waits += 1;
+        }
+    }
+
+    /// Records an arrival sharing a stand.
+    pub(crate) fn shared_stand(&mut self, airport: Id<Airport>) {
+        if let Some(stats) = self.airports.get_mut(airport.as_usize()) {
+            stats.stand_shares += 1;
+        }
+    }
+
+    /// Records a taxi that went ahead without a conflict-free plan.
+    pub(crate) fn ground_conflict(&mut self, airport: Id<Airport>) {
+        if let Some(stats) = self.airports.get_mut(airport.as_usize()) {
+            stats.ground_conflicts += 1;
+        }
+    }
+
     pub(crate) fn moved(&mut self, airport: Id<Airport>, time: SimTime) {
         let Some(start) = self.start else {
             return;
@@ -213,6 +280,32 @@ mod tests {
 
     fn minutes(value: i32) -> SimDuration {
         SimDuration::from_minutes(value)
+    }
+
+    #[test]
+    fn test_ground_control_counts() {
+        let mut stats = Statistics::new(2);
+        let airport = Id::new(0);
+        stats.taxied(airport, SimDuration::from_secs(60));
+        stats.taxied(airport, SimDuration::from_secs(180));
+        stats.waited_for_stand(airport);
+        stats.ground_conflict(airport);
+        stats.ground_conflict(Id::new(9));
+        stats.shared_stand(airport);
+        stats.shared_stand(airport);
+        let at = stats.airport(airport);
+        assert_eq!(at.taxis(), 2);
+        assert_eq!(at.average_taxi_delay(), SimDuration::from_secs(120));
+        assert_eq!(
+            (at.stand_waits(), at.ground_conflicts(), at.stand_shares()),
+            (1, 1, 2)
+        );
+        assert_eq!(stats.network().stand_shares(), 2);
+        assert_eq!(stats.network().taxis(), 2);
+        assert_eq!(
+            stats.airport(Id::new(1)).average_taxi_delay(),
+            SimDuration::ZERO
+        );
     }
 
     #[test]

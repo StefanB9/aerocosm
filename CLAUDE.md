@@ -11,6 +11,7 @@ aerocosm/                              (workspace root)
 ├── Cargo.toml                         [workspace] manifest — all dependency versions here
 ├── docs/plan/                         Approved plans
 ├── docs/data-sources.md               Dataset sources, licences, snapshot, regeneration steps
+├── docs/known-issues.md               Open problems with their cause and intended fix
 ├── assets/                            Committed data (each file is loaded by a guard test)
 │   ├── aircraft/types.json            Hand-curated aircraft catalog (incl. freighters)
 │   ├── airlines/airlines.json         Hand-curated airline catalog (bases, network, fleet mix)
@@ -21,12 +22,16 @@ aerocosm/                              (workspace root)
 │   ├── ground/germany.ground.json     Generated from OpenStreetMap by `aerocosm-data ground`;
 │   │                                  ODbL (ground/LICENSE.txt), attribution required (M4)
 │   ├── ground/stand-areas.json        Hand-curated airline → stand-name prefixes (FRA, MUC)
+│   ├── ground/stand-sizes.json        Hand-curated stand-name prefixes → ICAO size codes
+│   │                                  (CGN, LEJ)
 │   └── fonts/                         Inter (SIL OFL), embedded by the viewer
 ├── web/index.html                     Browser loader: picks the WebGPU or WebGL2 build
 └── crates/
     ├── aerocosm-core/                 (library — deterministic simulation, no I/O, no UI)
     │   ├── benches/core.rs            Criterion micro-benchmarks
     │   ├── tests/schedule.rs          Schedule generation on the shipped data
+    │   ├── tests/ground.rs            Ground control on the shipped data: spacing, flow,
+    │   │                              determinism
     │   └── src/
     │       ├── lib.rs                 Module declarations + re-exports
     │       ├── error.rs               CoreError (thiserror)
@@ -51,11 +56,15 @@ aerocosm/                              (workspace root)
     │       │                          separation, landing timelines, runway state, arrival
     │       │                          delay split); fleet/flow.rs applies it per tail, with
     │       │                          ground delays at off-block; fleet/stands.rs (stand
-    │       │                          bookkeeping); stats.rs (punctuality)
+    │       │                          bookkeeping); stats.rs (punctuality); fleet/ground/
+    │       │                          (plan M4 PR 3: ground control: departure.rs, arrival.rs,
+    │       │                          drive.rs follow timed plans, stop.rs stops on edges)
     │       ├── ground/                Airport ground layouts (plan M4): file format, validated
     │       │                          networks (nodes, edges, stands, holding positions, exits),
     │       │                          route.rs (A*), areas.rs (stand choice), taxi.rs (entries,
-    │       │                          exits, typical taxi times for schedules)
+    │       │                          exits, typical taxi times for schedules), reserve/ (time
+    │       │                          reservations, timed A*), runways.rs (runway nodes, waiting
+    │       │                          spots), spacing.rs (nodes too close for two aircraft)
     │       ├── scenario.rs            Scenario: world + optional traffic and ground (D45)
     │       ├── units.rs               Meters, Feet, NauticalMiles, Knots, Degrees, …
     │       ├── geo/                   LatLon, great-circle maths, Segment and Route (waypoints
@@ -73,7 +82,9 @@ aerocosm/                              (workspace root)
     │       ├── ourairports/           CSV records, airport/runway conversion, surfaces
     │       ├── natural_earth/         GeoJSON subset, layer import
     │       ├── osm/                   Overpass JSON → ground layouts: graph, stands, runways
-    │       │                          (holding positions, exits), quality gate, queries
+    │       │                          (holding positions, exits), sizes.rs (curated stand
+    │       │                          codes), prune.rs (unroutable stands), quality gate,
+    │       │                          queries
     │       └── geometry/              clip (rings, lines), Douglas–Peucker simplify
     ├── aerocosm-viewer/               (binary — Bevy 0.20 viewer, native and wasm)
     │   └── src/

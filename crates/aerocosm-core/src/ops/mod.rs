@@ -41,6 +41,8 @@ pub enum Phase {
     TaxiOut,
     /// At the runway holding point, waiting for take-off clearance.
     Queue,
+    /// Cleared for take-off, taxiing onto the runway (plan M4 D78).
+    LineUp,
     /// Accelerating along the runway.
     TakeoffRoll,
     /// Climbing towards the leg's cruise altitude.

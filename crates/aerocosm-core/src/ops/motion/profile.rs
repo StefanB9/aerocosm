@@ -36,6 +36,9 @@ pub(crate) struct ProfileInputs {
     pub(crate) landing_length: f64,
     /// Speed at which the runway is left, m/s; 0 for taxi speed.
     pub(crate) exit_speed: f64,
+    /// From the holding position onto the runway, m; 0 when the roll starts
+    /// where the aircraft queued (plan M4 D78).
+    pub(crate) lineup_length: f64,
 }
 
 /// A leg's precomputed speeds, altitudes and segment lengths.
@@ -127,6 +130,20 @@ impl Profile {
         }
     }
 
+    /// Seconds from touchdown to the exit: braking to the exit speed, then
+    /// rolling at it.
+    pub(crate) fn landing_seconds(&self) -> f64 {
+        let (approach, exit) = (self.inputs.approach_speed, self.exit_speed());
+        let braking = (approach - exit).max(0.0) / BRAKING;
+        let braked = (approach * approach - exit * exit).max(0.0) / (2.0 * BRAKING);
+        braking + (self.landing_length() - braked).max(0.0) / exit.max(1.0)
+    }
+
+    /// Sets the taxi-out length once ground control has routed it, m.
+    pub(crate) const fn set_taxi_out_length(&mut self, length: f64) {
+        self.inputs.taxi_out_length = length;
+    }
+
     /// Taxi-out length, pushback included, m.
     pub(crate) const fn taxi_out_length(&self) -> f64 {
         self.inputs.taxi_out_length
@@ -135,6 +152,11 @@ impl Profile {
     /// Sets the taxi-in length once the route to the stand is known, m.
     pub(crate) const fn set_taxi_in_length(&mut self, length: f64) {
         self.inputs.taxi_in_length = length;
+    }
+
+    /// Length of the line-up, m.
+    pub(crate) const fn lineup_length(&self) -> f64 {
+        self.inputs.lineup_length
     }
 
     /// Length of the pushback, m.

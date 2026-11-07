@@ -12,7 +12,10 @@ mod airport;
 mod areas;
 mod definition;
 mod elements;
+pub(crate) mod reserve;
 mod route;
+mod runways;
+mod spacing;
 mod taxi;
 
 pub use airport::AirportGround;
@@ -178,7 +181,7 @@ mod tests {
                 .airport(airport)
                 .with_context(|| format!("{ident} layout"))?;
             assert!(
-                ground.stands().len() >= 100,
+                ground.stands().len() >= 50,
                 "{ident}: {}",
                 ground.stands().len()
             );

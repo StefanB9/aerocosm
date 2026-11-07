@@ -9,7 +9,7 @@ use crate::{
     ops::{
         Phase,
         control::{RunwayKey, level_altitude, plan_arrival},
-        motion::{Event, FINAL_LENGTH, Motion, Profile, Request},
+        motion::{Event, FINAL_LENGTH, LINEUP_SPEED, Motion, Profile, Request},
     },
 };
 
@@ -202,7 +202,9 @@ impl Operations {
             .control
             .book_arrival(key, eta, self.wakes[index], profile.approach_speed());
         self.flows[index].provisional = Some(slot);
-        let delay = slot.duration_since(eta);
+        // Whole seconds, so the gate time falls on a tick.
+        let delay =
+            SimDuration::from_millis((slot.duration_since(eta).as_millis() + 999) / 1000 * 1000);
         if delay <= GROUND_DELAY_THRESHOLD {
             return Ok(None);
         }
@@ -237,6 +239,7 @@ impl Operations {
         let profile = self.profiles[index];
         let flow = self.resolve(index, leg)?;
         let wake: WakeCategory = self.wakes[index];
+        let lineup = after_seconds(now, profile.lineup_length() / LINEUP_SPEED).duration_since(now);
         let at_fix = motion.along() >= profile.enroute_length() - 1.0;
         let touchdown = after_seconds(now, FINAL_LENGTH / profile.approach_speed());
         let speed = profile.approach_speed();
@@ -247,9 +250,9 @@ impl Operations {
         let mut cleared_takeoff = false;
         let event = motion.advance(&profile, dt, &mut |request| match request {
             Request::Takeoff => flow.departure.is_none_or(|key| {
-                let clear = control.may_take_off(key, wake, now);
+                let clear = control.may_line_up(key, wake, now, lineup);
                 if clear {
-                    control.took_off(key, wake, now);
+                    control.took_off(key, wake, now, lineup);
                     cleared_takeoff = true;
                 }
                 clear

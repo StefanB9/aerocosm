@@ -126,6 +126,13 @@ What to check:
   airports aircraft use real stands and taxi routes, and block times include each airport's
   typical routed taxi times. `--no-ground` taxies in straight lines everywhere; `--ground` and
   `--stand-areas` name other files.
+- Since M4 PR 3, ground control plans every taxi there with time reservations: departures
+  push back when their turn at the runway comes, queue at the holding position and line up;
+  arrivals vacate at real exits and wait at a waiting spot when no stand is free. The
+  `punctuality` and `movements` lines add `taxis`, `taxi_delay_min` (over an unimpeded taxi),
+  `stand_waits`, `ground_conflicts` (deadlock escapes, about 1 % of taxis) and `stand_shares`
+  (arrivals that shared a stand after 30 minutes, mostly overnight at Munich). See
+  `docs/known-issues.md`.
 - The run starts warm, with aircraft mid-flight; `--cold-start` starts with every aircraft on
   the ground, so `peak_airborne` grows from zero.
 - `--no-traffic` simulates the static world only; without `--world` the world is empty.
