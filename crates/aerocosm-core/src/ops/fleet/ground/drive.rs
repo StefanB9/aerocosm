@@ -81,6 +81,7 @@ impl Operations {
             Target::Spot(_) => {
                 if let Some(taxi) = self.taxis[index].as_mut() {
                     taxi.waiting = Some(end);
+                    taxi.spot_since = end;
                 }
                 None
             }
@@ -135,14 +136,16 @@ impl Operations {
                 owner,
             );
             let runway = runway_at(next.node);
-            let crossing_ok = entering.is_none_or(|runway| {
-                self.control.may_cross(
-                    RunwayKey { airport, runway },
-                    now,
-                    time_of(next.leave + NODE_BUFFER),
-                )
-            });
-            if !(edge_ok && node_ok && crossing_ok) {
+            let escaped = self.taxis[index].as_ref().is_some_and(|t| t.escaped);
+            let crossing_ok = escaped
+                || entering.is_none_or(|runway| {
+                    self.control.may_cross(
+                        RunwayKey { airport, runway },
+                        now,
+                        time_of(next.leave + NODE_BUFFER),
+                    )
+                });
+            if !(escaped || edge_ok && node_ok && crossing_ok) {
                 if let Some(runway) = entering.filter(|_| !crossing_ok) {
                     self.hold_short(index, RunwayKey { airport, runway }, now);
                 }
@@ -161,6 +164,7 @@ impl Operations {
                     taxi.crossing = None;
                 }
                 taxi.departed += 1;
+                taxi.stuck_since = None;
             }
         }
     }
@@ -185,7 +189,10 @@ impl Operations {
         let Some(taxi) = self.taxis[index].as_mut() else {
             return;
         };
-        taxi.blocked = Some((now, now + RETRY));
+        // Blocked again before passing another node: still stuck since the
+        // first time, however often it re-planned.
+        let since = *taxi.stuck_since.get_or_insert(now);
+        taxi.blocked = Some((since, now + RETRY));
         let airport = taxi.airport;
         if let Some(airside) = self.ground.airside_mut(airport) {
             airside.table.release(owner);
@@ -236,10 +243,11 @@ impl Operations {
             }
             return;
         };
+        self.continue_from(scenario, index, &plan, route, at);
         if escape {
             self.stats.ground_conflict(plan.airport);
+            self.mark_escaped(index);
         }
-        self.continue_from(scenario, index, &plan, route, at);
     }
 
     /// Replaces the rest of a taxi from step `at` with `route`.
@@ -257,7 +265,8 @@ impl Operations {
         let Some(taxi) = self.taxis[index].as_ref() else {
             return;
         };
-        let (target, started, unimpeded) = (taxi.target, taxi.started, taxi.unimpeded);
+        let (target, started, unimpeded, stuck_since) =
+            (taxi.target, taxi.started, taxi.unimpeded, taxi.stuck_since);
         let mut base = taxi.base.clone();
         let travelled = taxi.route.points_until(layout, at);
         base.extend(travelled.iter().skip(usize::from(!base.is_empty())));
@@ -292,6 +301,7 @@ impl Operations {
         if let Some(taxi) = self.taxis[index].as_mut() {
             taxi.started = started;
             taxi.unimpeded = unimpeded;
+            taxi.stuck_since = stuck_since;
         }
         if let Some(path) = self.paths[index].as_mut() {
             if kind_out {

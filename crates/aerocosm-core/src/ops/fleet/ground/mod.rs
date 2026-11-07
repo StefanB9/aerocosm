@@ -27,6 +27,9 @@ use crate::{
 /// Taxiing along an active runway costs this many times its duration on
 /// top: only where nothing else leads on.
 const ACTIVE_RUNWAY_SURCHARGE: f64 = 100.0;
+/// Aircraft waiting at nodes closer than this would overlap (an A321 is 45 m
+/// long), m.
+const AIRCRAFT_SPACING: f64 = 45.0;
 /// Plans may run this far ahead, ms.
 const HORIZON: i64 = 30 * 60_000;
 /// A departure is expected to wait this long at the holding position, ms.
@@ -54,6 +57,8 @@ const DEPARTURE_INTERVAL: i64 = 60_000;
 const MAX_INTERVAL: i64 = 300_000;
 /// A departure held at its gate this long goes regardless (D75), ms.
 const GATE_ESCAPE_AFTER: i64 = 1_800_000;
+/// An arrival waiting at a spot this long shares a stand (D69, D75), ms.
+const SPOT_ESCAPE_AFTER: i64 = 1_800_000;
 /// Pushback speed, m/s, and engine start, s (as in motion).
 const PUSH_SPEED: f64 = 1.0;
 const ENGINE_START: f64 = 60.0;
@@ -136,7 +141,8 @@ impl GroundControl {
             let spots = layout.waiting_spots(&on_runway);
             if let Some(slot) = airports.get_mut(airport.as_usize()) {
                 *slot = Some(Airside {
-                    table: Reservations::new(layout.nodes().len(), layout.edges().len()),
+                    table: Reservations::new(layout.nodes().len(), layout.edges().len())
+                        .with_neighbours(layout.close_nodes(AIRCRAFT_SPACING)),
                     runway_of,
                     spot_owner: vec![None; spots.len()],
                     spots,
@@ -212,6 +218,13 @@ pub(super) struct Taxi {
     unimpeded: i64,
     /// Waiting at a spot for a stand, trying again at this time.
     waiting: Option<i64>,
+    /// When it reached the spot.
+    spot_since: i64,
+    /// Since when it has been held up without passing a node, across
+    /// re-plans (D75).
+    stuck_since: Option<i64>,
+    /// Planned around nobody (D75): it no longer checks the way ahead.
+    escaped: bool,
     /// Holding short of a runway to cross it, since this time.
     crossing: Option<(RunwayKey, i64)>,
 }
@@ -375,10 +388,20 @@ impl Operations {
             started: plan.start,
             unimpeded,
             waiting: None,
+            spot_since: 0,
+            stuck_since: None,
+            escaped: false,
             crossing: None,
             route,
         });
         Polyline::new(&points).ok()
+    }
+
+    /// Tail `index` follows a route planned around nobody (D75).
+    fn mark_escaped(&mut self, index: usize) {
+        if let Some(taxi) = self.taxis[index].as_mut() {
+            taxi.escaped = true;
+        }
     }
 
     /// Whether tail `index` is on a controlled taxi in `phase`.

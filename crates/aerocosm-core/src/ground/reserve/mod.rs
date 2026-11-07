@@ -43,6 +43,8 @@ pub(crate) struct Pass {
 pub(crate) struct Reservations {
     nodes: Vec<Vec<Window>>,
     edges: Vec<Vec<Pass>>,
+    /// Per node, the other nodes too close to it for two aircraft.
+    near: Vec<Vec<Id<Node>>>,
 }
 
 fn overlaps(a: (i64, i64), b: (i64, i64)) -> bool {
@@ -55,7 +57,27 @@ impl Reservations {
         Self {
             nodes: vec![Vec::new(); nodes],
             edges: vec![Vec::new(); edges],
+            near: Vec::new(),
         }
+    }
+
+    /// The table with `near`, per node, the nodes too close to it for two
+    /// aircraft: a window on one holds them all.
+    pub(crate) fn with_neighbours(mut self, near: Vec<Vec<Id<Node>>>) -> Self {
+        self.near = near;
+        self
+    }
+
+    /// The windows of others on `node` and the nodes near it.
+    fn around(&self, node: Id<Node>, owner: u32) -> impl Iterator<Item = &Window> {
+        let near = self
+            .near
+            .get(node.as_usize())
+            .map_or(&[][..], Vec::as_slice);
+        std::iter::once(node)
+            .chain(near.iter().copied())
+            .flat_map(|n| self.windows(n))
+            .filter(move |w| w.owner != owner)
     }
 
     /// The windows on `node`.
@@ -68,15 +90,15 @@ impl Reservations {
         self.edges.get(edge.as_usize()).map_or(&[], Vec::as_slice)
     }
 
-    /// Whether someone other than `owner` holds `node` during `[from, until)`.
+    /// Whether someone other than `owner` holds `node`, or a node near it,
+    /// during `[from, until)`.
     pub(crate) fn node_taken(&self, node: Id<Node>, from: i64, until: i64, owner: u32) -> bool {
-        self.windows(node)
-            .iter()
-            .any(|w| w.owner != owner && overlaps((w.from, w.until), (from, until)))
+        self.around(node, owner)
+            .any(|w| overlaps((w.from, w.until), (from, until)))
     }
 
     /// The end of the latest window of someone other than `owner` on `node`
-    /// overlapping `[from, until)`, if any.
+    /// or a node near it overlapping `[from, until)`, if any.
     pub(crate) fn node_free_after(
         &self,
         node: Id<Node>,
@@ -84,9 +106,8 @@ impl Reservations {
         until: i64,
         owner: u32,
     ) -> Option<i64> {
-        self.windows(node)
-            .iter()
-            .filter(|w| w.owner != owner && overlaps((w.from, w.until), (from, until)))
+        self.around(node, owner)
+            .filter(|w| overlaps((w.from, w.until), (from, until)))
             .map(|w| w.until)
             .max()
     }
@@ -240,6 +261,22 @@ mod tests {
         table.prune(6_000);
         assert_eq!(table.windows(Id::new(1)).len(), 0);
         assert_eq!(table.windows(Id::new(9)).len(), 0);
+    }
+
+    #[test]
+    fn test_nodes_close_together_are_held_together() {
+        // Nodes 0 and 1 lie closer than an aircraft is long; node 2 apart.
+        let mut table = Reservations::new(3, 0).with_neighbours(vec![
+            vec![Id::new(1)],
+            vec![Id::new(0)],
+            Vec::new(),
+        ]);
+        table.occupy(Id::new(1), 0, 10_000, 7);
+        assert!(table.node_taken(Id::new(0), 5_000, 6_000, 1));
+        assert_eq!(table.node_free_after(Id::new(0), 0, 2_000, 1), Some(10_000));
+        assert!(!table.node_taken(Id::new(2), 5_000, 6_000, 1));
+        // Its own windows never stop the holder.
+        assert!(!table.node_taken(Id::new(0), 5_000, 6_000, 7));
     }
 
     #[test]

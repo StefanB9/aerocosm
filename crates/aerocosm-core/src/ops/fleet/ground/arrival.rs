@@ -1,7 +1,7 @@
 //! Arrivals under ground control: stand or waiting spot at touchdown, and
 //! the wait for a stand (plan M4 D69, D76).
 
-use super::{EXIT_WAIT, Plan, RETRY, SPOT_ESTIMATE, Start, Target, ms};
+use super::{EXIT_WAIT, Plan, RETRY, SPOT_ESCAPE_AFTER, SPOT_ESTIMATE, Start, Target, ms};
 use crate::{
     Id, LatLon, SimTime,
     ground::Node,
@@ -102,6 +102,9 @@ impl Operations {
         ) else {
             return false;
         };
+        if escaped {
+            self.mark_escaped(index);
+        }
         if let Some(path) = self.paths[index].as_mut() {
             let length = path.set_taxi_in(polyline, heading.unwrap_or_default());
             self.profiles[index].set_taxi_in_length(length);
@@ -151,6 +154,7 @@ impl Operations {
             return;
         }
         let (airport, at) = (taxi.airport, taxi.route.steps.len().saturating_sub(1));
+        let escape = ms(now) - taxi.spot_since >= SPOT_ESCAPE_AFTER;
         let Some(here) = taxi.route.steps.last().map(|s| s.node) else {
             return;
         };
@@ -161,12 +165,23 @@ impl Operations {
         else {
             return;
         };
-        let Some(stand) = self.find_stand(scenario, index, airport, airline, near, false) else {
+        // After half an hour it shares a stand rather than wait on (D75).
+        let free = self.find_stand(scenario, index, airport, airline, near, false);
+        let shared = free.is_none() && escape;
+        let stand = free.or_else(|| {
+            shared
+                .then(|| self.take_stand(scenario, index, airport, airline, near))
+                .flatten()
+        });
+        let Some(stand) = stand else {
             if let Some(taxi) = self.taxis[index].as_mut() {
                 taxi.waiting = Some(ms(now) + RETRY);
             }
             return;
         };
+        if shared {
+            self.stats.ground_conflict(airport);
+        }
         let Some(layout) = scenario.ground().airport(airport) else {
             return;
         };
@@ -181,8 +196,14 @@ impl Operations {
             open: false,
         };
         let owner = Self::owner(index);
-        let Some(route) = self.plan_taxi(scenario, index, &plan, false) else {
-            // Keep the stand; try the route again shortly.
+        // Keep the stand and try the route again shortly; after half an hour
+        // go regardless (D75).
+        let (route, forced) = match self.plan_taxi(scenario, index, &plan, false) {
+            Some(route) => (Some(route), false),
+            None if escape => (self.plan_taxi(scenario, index, &plan, true), true),
+            None => (None, false),
+        };
+        let Some(route) = route else {
             if let Some(taxi) = self.taxis[index].as_mut() {
                 taxi.waiting = Some(ms(now) + RETRY);
             }
@@ -198,5 +219,9 @@ impl Operations {
             path.set_stand_in(heading);
         }
         self.continue_from(scenario, index, &plan, route, at);
+        if forced {
+            self.stats.ground_conflict(airport);
+            self.mark_escaped(index);
+        }
     }
 }

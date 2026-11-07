@@ -123,6 +123,9 @@ impl Operations {
                 },
             )
             .context("cannot build the taxi-out")?;
+        if escape {
+            self.mark_escaped(index);
+        }
         if let Some(path) = self.paths[index].as_mut() {
             let length = path.set_taxi_out(polyline);
             self.profiles[index].set_taxi_out_length(length);
