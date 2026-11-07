@@ -162,6 +162,16 @@ fn lead_in_stand(
             (open, connect)
         }
     };
+    // A stop node of the same name at the stand end is this stand again.
+    if let Some(id) = graph.nodes[open].osm
+        && data
+            .nodes
+            .get(&id)
+            .and_then(|node| stand_name(&node.tags))
+            .is_some_and(|node_name| node_name == name)
+    {
+        used.insert(id);
+    }
     // Facing the stand end along the lead-in's last stretch.
     let edge = adjacency[open].first().copied()?;
     let before = graph.edges[edge].next_after(open, &graph.nodes);
@@ -282,26 +292,55 @@ fn unique_names(stands: &mut [RawStand]) {
     }
 }
 
-/// Wingspan limit of each stand: the largest ICAO aerodrome code (A–F) whose
-/// wingspan plus wingtip clearance fits the distance to the nearest stand
-/// that is not a variant of it, allowing for mapping error; in metres.
-pub(crate) fn wingspan_limits(stands: &[(GroundName, Xy)]) -> Vec<f64> {
+/// Wingspan limit of each stand (name, position, heading): the largest ICAO
+/// aerodrome code (A–F) whose parked footprint keeps the wingtip clearance
+/// to every stand that is not a variant of it, allowing for mapping error;
+/// in metres.
+///
+/// A parked aircraft is taken as a square as long as its wingspan (true to
+/// about a tenth for airliners) reaching back from the stand point, so that
+/// stands side by side are judged by their spacing and rows parked nose to
+/// nose by the gap between the noses.
+pub(crate) fn wingspan_limits(stands: &[(GroundName, Xy, f64)]) -> Vec<f64> {
     stands
         .iter()
-        .map(|(name, p)| {
+        .map(|(name, p, heading)| {
             let base = stand_base(name.as_str());
-            let nearest = stands
-                .iter()
-                .filter(|(other, _)| stand_base(other.as_str()) != base)
-                .map(|(_, q)| distance(*p, *q))
-                .fold(f64::INFINITY, f64::min);
+            let fits = |span: f64, clearance: f64| {
+                stands
+                    .iter()
+                    .filter(|(other, _, _)| stand_base(other.as_str()) != base)
+                    .all(|(_, q, other_heading)| {
+                        footprint_gap(*p, *heading, *q, *other_heading, span) * MAPPING_TOLERANCE
+                            >= span + clearance
+                    })
+            };
             CODES
                 .iter()
                 .rev()
-                .find(|(span, clearance)| span + clearance <= nearest * MAPPING_TOLERANCE)
+                .find(|(span, clearance)| fits(*span, *clearance))
                 .map_or(CODES[0].0, |(span, _)| *span)
         })
         .collect()
+}
+
+/// The distance between the centres of two parked footprints of size
+/// `span` measured along the first's axes (the larger of the two), m.
+fn footprint_gap(p: Xy, heading: f64, q: Xy, other_heading: f64, span: f64) -> f64 {
+    let forward = |degrees: f64| {
+        let radians = degrees.to_radians();
+        [radians.sin(), radians.cos()]
+    };
+    let [fx, fy] = forward(heading);
+    let [gx, gy] = forward(other_heading);
+    let half = span / 2.0;
+    let delta = [
+        (q[0] - gx * half) - (p[0] - fx * half),
+        (q[1] - gy * half) - (p[1] - fy * half),
+    ];
+    let along = delta[0] * fx + delta[1] * fy;
+    let across = delta[0] * fy - delta[1] * fx;
+    along.abs().max(across.abs())
 }
 
 /// A named apron or terminal outline.
@@ -408,6 +447,38 @@ mod tests {
     }
 
     #[test]
+    fn test_stand_nodes_ending_a_named_lead_in_are_one_stand() -> Result<()> {
+        let tagged = |id: i64, name: &str| {
+            let node = grid_node(id);
+            format!(
+                "{},\"tags\":{{\"aeroway\":\"parking_position\",\"ref\":\"{name}\"}}}}",
+                &node[..node.len() - 1]
+            )
+        };
+        // A lead-in named 4 north from node 2, ending at a stop node also
+        // named 4 (as at Weeze).
+        let data = data(
+            &[
+                way(1, &[0, 1, 2, 3, 4], "\"aeroway\":\"taxilane\""),
+                way(
+                    2,
+                    &[2, 102, 202],
+                    "\"aeroway\":\"parking_position\",\"ref\":\"4\"",
+                ),
+            ],
+            &[tagged(202, "4")],
+        )?;
+        let plane = plane();
+        let junctions: HashSet<i64> = [202].into();
+        let mut graph = Graph::build(&data, &plane, |_| true, &junctions);
+        let stands = attach_stands(&mut graph, &data, &plane);
+        let names: Vec<&str> = stands.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["4"]);
+        assert!(stands[0].heading < 1.0 || stands[0].heading > 359.0);
+        Ok(())
+    }
+
+    #[test]
     fn test_drive_through_stands_park_mid_line() -> Result<()> {
         // Lanes along rows 0 and 10; a stand line from one to the other.
         let data = data(
@@ -464,10 +535,11 @@ mod tests {
         Ok(())
     }
 
-    fn named(points: &[(&str, Xy)]) -> Result<Vec<(GroundName, Xy)>> {
+    /// Stands facing north.
+    fn named(points: &[(&str, Xy)]) -> Result<Vec<(GroundName, Xy, f64)>> {
         points
             .iter()
-            .map(|(name, xy)| Ok((name.parse()?, *xy)))
+            .map(|(name, xy)| Ok((name.parse()?, *xy, 0.0)))
             .collect()
     }
 
@@ -486,6 +558,33 @@ mod tests {
         assert_eq!(tight, vec![36.0, 36.0]);
         let crowded = wingspan_limits(&named(&[("1", [0.0, 0.0]), ("2", [5.0, 0.0])])?);
         assert_eq!(crowded, vec![15.0, 15.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_wingspan_limits_measure_from_the_parked_footprint() -> Result<()> {
+        // Two rows facing each other nose to nose 23 m apart, 43 m between
+        // neighbours in a row (as at Weeze): code C.
+        let mut stands = Vec::new();
+        for (index, y) in [0.0, 43.0, 86.0].into_iter().enumerate() {
+            stands.push((format!("{}", index + 1).parse()?, [0.0, y], 90.0));
+            stands.push((format!("{}", index + 4).parse()?, [23.0, y], 270.0));
+        }
+        assert!(
+            wingspan_limits(&stands)
+                .iter()
+                .all(|span| (span - 36.0).abs() < 1e-9)
+        );
+        // In line one behind the other 23 m apart: their bodies overlap.
+        let in_line = vec![
+            ("1".parse()?, [0.0, 0.0], 90.0),
+            ("2".parse()?, [23.0, 0.0], 90.0),
+        ];
+        assert!(
+            wingspan_limits(&in_line)
+                .iter()
+                .all(|span| (span - 15.0).abs() < 1e-9)
+        );
         Ok(())
     }
 

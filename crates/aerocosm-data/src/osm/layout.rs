@@ -242,7 +242,7 @@ fn assemble(
     let named: Vec<_> = kept
         .iter()
         .zip(&points)
-        .map(|(s, p)| (s.name, *p))
+        .map(|(s, p)| (s.name, *p, s.heading))
         .collect();
     let spans = wingspan_limits(&named);
     let mut stands = Vec::with_capacity(kept.len());

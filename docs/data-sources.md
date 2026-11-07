@@ -152,9 +152,12 @@ Update the ground snapshot section above.
     - A `parking_position` node, connected the same way.
     - Names come from `ref` or `name`, else from a named stop node on the line. Unnamed stands
       are left out; repeated names get a `-2` suffix.
-    - The wingspan limit is the largest ICAO aerodrome code (A–F, Annex 14) whose wingspan plus
-      wingtip clearance fits the distance to the nearest stand that is not a variant of the same
-      stand (`05A`, `05B` of `05`), with 5 % allowance for mapping error.
+    - A `parking_position` node ending a lead-in of the same name is that stand, not another.
+    - The wingspan limit is the largest ICAO aerodrome code (A–F, Annex 14) whose parked
+      footprint keeps the wingtip clearance to every stand that is not a variant of the same
+      stand (`05A`, `05B` of `05`), with 5 % allowance for mapping error. The footprint is a
+      square as long as the code's wingspan reaching back from the stand point, so stands side
+      by side are judged by their spacing and rows parked nose to nose by the gap between them.
     - Where that spacing misjudges an apron, `assets/ground/stand-sizes.json` bounds the code:
       the rule with the longest stand-name prefix raises it to `at_least` and caps it at
       `at_most`. EDDK follows the VATSIM Germany knowledge base (unofficial; cargo aprons E/F

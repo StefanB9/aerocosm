@@ -180,7 +180,7 @@ mod tests {
                 .airport(airport)
                 .with_context(|| format!("{ident} layout"))?;
             assert!(
-                ground.stands().len() >= 100,
+                ground.stands().len() >= 50,
                 "{ident}: {}",
                 ground.stands().len()
             );
