@@ -43,11 +43,10 @@ pub(crate) struct Path {
     /// The exit node at a mapped destination, from which the taxi-in is
     /// routed once a stand is assigned.
     exit: Option<Id<Node>>,
-    /// At a mapped origin: the holding position, where the pushback ends,
-    /// and the pushback's points (plan M4 PR 3).
+    /// At a mapped origin: the holding position and where the pushback
+    /// ends (plan M4 PR 3).
     hold: Option<Id<Node>>,
     joint: Option<Id<Node>>,
-    push_points: Vec<LatLon>,
     /// From the holding position node on to where the line-up starts.
     queue_points: Vec<LatLon>,
 }
@@ -87,11 +86,6 @@ impl Path {
         self.hold.zip(self.joint)
     }
 
-    /// The pushback's points, from the stand.
-    pub(crate) fn push_points(&self) -> &[LatLon] {
-        &self.push_points
-    }
-
     /// From the holding position node on to where the line-up starts.
     pub(crate) fn queue_points(&self) -> &[LatLon] {
         &self.queue_points
@@ -103,16 +97,6 @@ impl Path {
         self.taxi_out.length().value()
     }
 
-    /// Heading on the destination stand, once known.
-    pub(crate) const fn stand_in_heading(&self) -> Option<Degrees> {
-        self.stand_in
-    }
-
-    /// Sets the heading on the destination stand.
-    pub(crate) const fn set_stand_in(&mut self, heading: Degrees) {
-        self.stand_in = Some(heading);
-    }
-
     /// The exit node at a mapped destination.
     pub(crate) const fn exit(&self) -> Option<Id<Node>> {
         self.exit
@@ -121,6 +105,16 @@ impl Path {
     /// Where the landing roll ends.
     pub(crate) fn exit_point(&self) -> LatLon {
         self.landing.point_at(self.landing.length())
+    }
+
+    /// Ends the landing roll at `exit`, at `point`, instead (a later exit
+    /// chosen at touchdown); returns the new roll length, m.
+    pub(crate) fn set_exit(&mut self, exit: Id<Node>, point: LatLon) -> Option<f64> {
+        let landing = Segment::new(self.landing.point_at(Meters::default()), point).ok()?;
+        self.landing = landing;
+        self.exit = Some(exit);
+        self.taxi_in = Polyline::new(&[point, point]).ok()?;
+        Some(self.landing.length().value().max(1.0))
     }
 
     /// Taxies in along `route` to a stand facing `heading`; returns the new

@@ -1,105 +1,66 @@
-//! Ground control at mapped airports (plan M4 PR 3, D69, D70, D75–D78):
-//! every taxi is planned with time reservations, followed to the second and
-//! re-planned when something ahead takes longer than planned.
+//! Ground control at mapped airports (plan M4 D69, D75–D84): a ground
+//! controller clears each aircraft along its route hop by hop, as far as the
+//! way is free or used in the same direction; aircraft taxi up to their
+//! clearance limit and hold there.
 
 use std::collections::BTreeMap;
 
 mod arrival;
 mod departure;
 mod drive;
-mod stop;
+mod grant;
 
 use super::Operations;
 use crate::{
     Id, LatLon, SimTime,
     geo::Polyline,
     ground::{
-        AirportGround, Edge, EdgeKind, Node, Stand, TAXI_SPEED,
-        reserve::{NODE_BUFFER, PlanRequest, Reservations, TimedRoute, plan_route},
+        AirportGround, GroundRoute, Node, Stand, TAXI_SPEED,
+        clearance::{Clearances, Hop},
     },
-    ops::{
-        Phase, active_runways_now,
-        control::{Control, RunwayKey},
-    },
+    ops::{Phase, active_runways_now, control::RunwayKey},
     scenario::Scenario,
     world::Airport,
 };
 
-/// Taxiing along an active runway costs this many times its duration on
-/// top: only where nothing else leads on.
-const ACTIVE_RUNWAY_SURCHARGE: f64 = 100.0;
-/// Aircraft waiting at nodes closer than this would overlap (an A321 is 45 m
-/// long), m.
-const AIRCRAFT_SPACING: f64 = 45.0;
-/// Taxi routes are at most this many times as long as the straight line.
-const ROUTE_WINDING: f64 = 3.0;
-/// Plans may wait this long on top of the time to taxi there, ms.
-const HORIZON: i64 = 30 * 60_000;
-/// A departure is expected to wait this long at the holding position, ms.
-/// Short, so the holding position passes a departure a minute; real waits
-/// stretch the window while the aircraft is still there.
-const QUEUE_ESTIMATE: i64 = 30_000;
-/// While still waiting, an open window always reaches this far ahead, ms.
-const OPEN_MARGIN: i64 = 20_000;
-/// An arrival is expected to wait this long at a waiting spot, ms.
-const SPOT_ESTIMATE: i64 = 300_000;
-/// An arrival waits at most this long at its runway exit, ms.
-const EXIT_WAIT: i64 = 45_000;
-/// A departure without a taxi plan asks again after this long, ms.
+/// Aircraft closer than this would overlap (an A321 is 45 m long): nodes
+/// this close are held together, and an aircraft holds what lies this far
+/// behind it, m.
+const AIRCRAFT_LENGTH: f64 = 45.0;
+/// An aircraft asks to be cleared on once it is this close to its limit,
+/// so that it rarely has to stop, m.
+const LOOKAHEAD: f64 = 120.0;
+/// A cycle of aircraft waiting for each other this long is a deadlock: its
+/// least urgent member is cleared regardless (D75, D83), ms.
+const DEADLOCK_AFTER: i64 = 60_000;
+/// Waiting this long for a clearance for any reason, an aircraft taxies
+/// regardless as a last resort (D75), ms.
+const STUCK_AFTER: i64 = 1_800_000;
+/// A departure waiting at its gate for a pushback clearance this long goes
+/// regardless (D75), ms.
+const GATE_ESCAPE_AFTER: i64 = 1_800_000;
+/// A departure without a pushback clearance asks again after this long, ms.
 const GATE_RETRY: i64 = 30_000;
-/// Blocked aircraft try again this often, ms.
+/// An arrival at a waiting spot looks for a stand this often, ms.
 const RETRY: i64 = 15_000;
-/// A departure held up this long goes first at its holding position, ms…
-const GOES_FIRST_AFTER: i64 = 120_000;
-/// …ahead of those booked to arrive there this much later, ms.
-const FIRST_LEAD: i64 = 120_000;
-/// After this long without a plan an aircraft taxies regardless (D75), ms.
-const ESCAPE_AFTER: i64 = 600_000;
-/// A departure leaves its stand only if its plan waits at most this long on
-/// the way to the holding position; queues build at the gates, ms.
+/// An arrival waiting at a spot this long shares a stand (D69), ms.
+const SPOT_ESCAPE_AFTER: i64 = 1_800_000;
+/// A departure leaves its stand only if it would wait at most this long at
+/// the holding position; queues build at the gates, ms.
 const MAX_TAXI_WAIT: i64 = 120_000;
 /// Shortest and longest expected take-off interval from one holding
 /// position, ms; between them it is learnt from line-ups.
 const DEPARTURE_INTERVAL: i64 = 60_000;
 const MAX_INTERVAL: i64 = 300_000;
-/// A departure held at its gate this long goes regardless (D75), ms.
-const GATE_ESCAPE_AFTER: i64 = 1_800_000;
-/// An arrival waiting at a spot this long shares a stand (D69, D75), ms.
-const SPOT_ESCAPE_AFTER: i64 = 1_800_000;
+/// Routes cost this many times an edge's length more against the direction
+/// traffic has recently taken it…
+const AGAINST_FLOW: f64 = 3.0;
+/// …and this much more where someone is on it, or cleared onto it, the other
+/// way.
+const AGAINST_TRAFFIC: f64 = 10.0;
 /// Pushback speed, m/s, and engine start, s (as in motion).
 const PUSH_SPEED: f64 = 1.0;
 const ENGINE_START: f64 = 60.0;
-
-/// How long an aircraft held up for `held` ms waits before trying again:
-/// a quarter of that, from `least` up to four times it. Congested airports
-/// then plan less often, not more, ms.
-fn backoff(held: i64, least: i64) -> i64 {
-    (held / 4).clamp(least, 4 * least)
-}
-
-/// The latest arrival a plan accepts, ms: the horizon past the time it
-/// takes to cover a winding route, or none for an escape, which waits for
-/// nobody (D75).
-fn deadline(layout: &AirportGround, plan: &Plan, escape: bool) -> i64 {
-    if escape {
-        return i64::MAX;
-    }
-    let straight = layout.remaining(plan.from.as_usize(), plan.to.as_usize());
-    // SAFETY: airport distances, a few kilometres at taxi speed.
-    #[allow(clippy::cast_possible_truncation)]
-    let travel = (ROUTE_WINDING * straight / TAXI_SPEED * 1000.0) as i64;
-    plan.start + HORIZON + travel
-}
-
-/// Time a route spends waiting before its last node, ms.
-fn waits(route: &TimedRoute) -> i64 {
-    let steps = &route.steps;
-    steps
-        .iter()
-        .take(steps.len().saturating_sub(1))
-        .map(|step| step.leave - step.arrive)
-        .sum()
-}
 
 fn ms(time: SimTime) -> i64 {
     time.as_millis()
@@ -109,10 +70,18 @@ fn time_of(millis: i64) -> SimTime {
     SimTime::from_millis(millis).unwrap_or(SimTime::UNIX_EPOCH)
 }
 
+/// How long taxiing `metres` takes unimpeded, ms.
+fn taxi_millis(metres: f64) -> i64 {
+    // SAFETY: airport distances, a few kilometres at taxi speed.
+    #[allow(clippy::cast_possible_truncation)]
+    let millis = (metres.max(0.0) / TAXI_SPEED * 1000.0) as i64;
+    millis
+}
+
 /// One mapped airport's ground control state.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Airside {
-    table: Reservations,
+    clearances: Clearances,
     /// For each node, the index of the active runway it lies on.
     runway_of: Vec<Option<usize>>,
     spots: Vec<Id<Node>>,
@@ -130,6 +99,11 @@ impl Airside {
     /// The expected interval between departures from `hold`, ms.
     fn interval(&self, hold: Id<Node>) -> i64 {
         self.pace.get(&hold).map_or(DEPARTURE_INTERVAL, |p| p.1)
+    }
+
+    /// The active runway `node` lies on, if any.
+    fn runway_at(&self, node: Option<Id<Node>>) -> Option<usize> {
+        node.and_then(|n| self.runway_of.get(n.as_usize()).copied().flatten())
     }
 }
 
@@ -169,8 +143,11 @@ impl GroundControl {
             let spots = layout.waiting_spots(&on_runway);
             if let Some(slot) = airports.get_mut(airport.as_usize()) {
                 *slot = Some(Airside {
-                    table: Reservations::new(layout.nodes().len(), layout.edges().len())
-                        .with_neighbours(layout.close_nodes(AIRCRAFT_SPACING)),
+                    clearances: Clearances::new(
+                        layout,
+                        &layout.close_nodes(AIRCRAFT_LENGTH),
+                        AIRCRAFT_LENGTH,
+                    ),
                     runway_of,
                     spot_owner: vec![None; spots.len()],
                     spots,
@@ -190,18 +167,10 @@ impl GroundControl {
         self.airports.get_mut(airport.as_usize())?.as_mut()
     }
 
-    /// Forgets old reservations and keeps waiting aircraft's windows running.
-    pub(super) fn refresh(&mut self, now: SimTime) {
-        for airside in self.airports.iter_mut().flatten() {
-            airside.table.refresh_open(ms(now), OPEN_MARGIN);
-            airside.table.prune(ms(now) - NODE_BUFFER);
-        }
-    }
-
     /// Frees everything tail `owner` holds at `airport`.
     pub(super) fn release(&mut self, airport: Id<Airport>, owner: u32) {
         if let Some(airside) = self.airside_mut(airport) {
-            airside.table.release(owner);
+            airside.clearances.release(owner);
             for slot in &mut airside.spot_owner {
                 if *slot == Some(owner) {
                     *slot = None;
@@ -230,58 +199,61 @@ enum Target {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Taxi {
     airport: Id<Airport>,
-    route: TimedRoute,
-    schedule: Vec<(i64, f64)>,
-    /// Distance along the path's polyline where the route starts, and the
-    /// polyline before it.
-    offset: f64,
-    base: Vec<LatLon>,
     target: Target,
-    /// Steps whose node has been left.
-    departed: usize,
-    /// While blocked: since when, and when to try again.
-    blocked: Option<(i64, i64)>,
+    /// The route's clearance points, along the path's polyline.
+    hops: Vec<Hop>,
+    /// Hops cleared so far, and hops passed (and freed) so far.
+    granted: usize,
+    passed: usize,
+    /// The polyline taxied, and where it ends (past the last hop where it
+    /// lines up beyond the holding position), m.
+    points: Vec<LatLon>,
+    end: f64,
     /// When the taxi started and how long it would take unimpeded, ms.
     started: i64,
     unimpeded: i64,
-    /// Waiting at a spot for a stand, trying again at this time.
+    /// Since when it has waited for its next clearance, ms, and for whom.
+    waiting_since: Option<i64>,
+    waiting_for: Option<u32>,
+    /// Since when it has been the one to give way in a deadlock, ms.
+    deadlock_since: Option<i64>,
+    /// Waiting in a queue for a runway, behind a departure at its holding
+    /// position.
+    queued: bool,
+    /// Waiting at a spot for a stand, trying again at this time, ms.
     waiting: Option<i64>,
-    /// When it reached the spot.
+    /// When it reached the spot, ms.
     spot_since: i64,
-    /// Since when it has been held up without passing a node, across
-    /// re-plans (D75).
-    stuck_since: Option<i64>,
-    /// Planned around nobody (D75): it no longer checks the way ahead.
+    /// Cleared regardless after waiting too long (D75): it no longer waits
+    /// for anyone.
     escaped: bool,
-    /// Stopped on an edge since this time, ms, because someone waits at
-    /// the node ahead (D70).
-    paused: Option<i64>,
-    /// Holding short of a runway to cross it, since this time.
+    /// Holding short of a runway to cross it, since this time, ms.
     crossing: Option<(RunwayKey, i64)>,
 }
 
-/// How a taxi starts: its goal, the polyline already taxied and its length,
-/// and any stretch beyond the last node.
+impl Taxi {
+    /// Where it may taxi up to: its last cleared point, or the end, m.
+    fn limit(&self) -> f64 {
+        if self.granted >= self.hops.len() {
+            self.end
+        } else {
+            self.granted
+                .checked_sub(1)
+                .and_then(|i| self.hops.get(i))
+                .map_or(f64::NEG_INFINITY, |hop| hop.along)
+        }
+    }
+}
+
+/// How a taxi starts: the route, its goal, the polyline already taxied and
+/// its length, and any stretch beyond the last node.
 struct Start {
+    route: GroundRoute,
+    from: Id<Node>,
     target: Target,
     base: Vec<LatLon>,
     offset: f64,
     extension: Vec<LatLon>,
-}
-
-/// The parts of a request that do not depend on the planning attempt.
-struct Plan {
-    /// Longest wait at the start, ms, and whether the start is shared.
-    start_wait: i64,
-    shared: bool,
-    airport: Id<Airport>,
-    from: Id<Node>,
-    to: Id<Node>,
-    start: i64,
-    stay: i64,
-    open: bool,
-    /// Held up long: goes first at its goal (D70).
-    first: bool,
 }
 
 impl Operations {
@@ -289,180 +261,88 @@ impl Operations {
         u32::try_from(index).unwrap_or(u32::MAX)
     }
 
-    /// Plans `plan` for tail `index` around everyone's reservations, or
-    /// around nobody's when `escape` (D75).
-    fn plan_taxi(
+    /// The route from `from` to `to` for tail `index`: round traffic coming
+    /// the other way, and with the flow the airport's traffic has settled
+    /// into, as published taxi flows would have it (D84).
+    fn route_for(
         &self,
-        scenario: &Scenario,
+        layout: &AirportGround,
         index: usize,
-        plan: &Plan,
-        escape: bool,
-    ) -> Option<TimedRoute> {
-        let layout = scenario.ground().airport(plan.airport)?;
-        let airside = self.ground.airside(plan.airport)?;
-        let empty;
-        let table = if escape {
-            empty = Reservations::new(layout.nodes().len(), layout.edges().len());
-            &empty
-        } else {
-            &airside.table
-        };
-        let control: &Control = &self.control;
-        let runway_of = &airside.runway_of;
-        let airport = plan.airport;
-        // Leaving the runway it is on (an arrival vacating) is no crossing.
-        let own = runway_of.get(plan.from.as_usize()).copied().flatten();
-        let blocked = |node: Id<Node>, from: i64, until: i64| {
-            !escape
-                && runway_of
-                    .get(node.as_usize())
-                    .copied()
-                    .flatten()
-                    .filter(|runway| Some(*runway) != own)
-                    .is_some_and(|runway| {
-                        !control.may_cross(
-                            RunwayKey { airport, runway },
-                            time_of(from),
-                            time_of(until),
-                        )
-                    })
-        };
-        // Taxi along an active runway only where nothing else leads on
-        // (backtracking), except off the one it is on.
-        let surcharge = |edge: Id<Edge>| {
-            let along_active = !escape
-                && layout.edge(edge).is_some_and(|edge| {
-                    edge.kind() == EdgeKind::Runway
-                        && [edge.from(), edge.to()].iter().any(|node| {
-                            runway_of
-                                .get(node.as_usize())
-                                .copied()
-                                .flatten()
-                                .is_some_and(|runway| Some(runway) != own)
-                        })
-                });
-            if along_active {
-                ACTIVE_RUNWAY_SURCHARGE
-            } else {
-                0.0
-            }
-        };
-        plan_route(
-            layout,
-            table,
-            &PlanRequest {
-                from: plan.from,
-                to: plan.to,
-                start: plan.start,
-                wingspan: self.wingspans[index],
-                speed: TAXI_SPEED,
-                owner: Self::owner(index),
-                stay: plan.stay,
-                open: plan.open,
-                deadline: deadline(layout, plan, escape),
-                start_wait: plan.start_wait,
-                start_shared: plan.shared,
-                blocked,
-                surcharge,
-                // Only those still far off: nearer ones may be on their last
-                // edge already, and aircraft stop only at nodes.
-                goal_first_from: plan.first.then_some(plan.start + FIRST_LEAD),
-            },
-        )
+        from: Id<Node>,
+        to: Id<Node>,
+    ) -> Option<GroundRoute> {
+        let owner = Self::owner(index);
+        let clearances = self.ground.airside(layout.airport()).map(|a| &a.clearances);
+        layout.route_with(from, to, self.wingspans[index], |edge, forward| {
+            clearances.map_or(0.0, |c| {
+                AGAINST_FLOW * c.against_flow(edge, forward)
+                    + if c.opposed(owner, edge, forward).is_some() {
+                        AGAINST_TRAFFIC
+                    } else {
+                        0.0
+                    }
+            })
+        })
     }
 
-    /// Reserves `route` and starts following it; returns its polyline.
+    /// Starts tail `index` on `start` at `airport`, nothing cleared yet;
+    /// returns its polyline.
     fn start_taxi(
         &mut self,
         scenario: &Scenario,
         index: usize,
-        plan: &Plan,
-        route: TimedRoute,
+        airport: Id<Airport>,
         start: Start,
+        now: SimTime,
     ) -> Option<Polyline> {
         let Start {
+            route,
+            from,
             target,
             base,
             offset,
             extension,
         } = start;
-        let layout = scenario.ground().airport(plan.airport)?;
-        let owner = Self::owner(index);
-        let airside = self.ground.airside_mut(plan.airport)?;
-        airside.table.reserve(&route, owner);
-        let mut points = base.clone();
-        let tail_points = route.points(layout);
-        points.extend(tail_points.iter().skip(usize::from(!points.is_empty())));
-        let mut schedule = route.schedule(layout);
-        // On past the last node, unreserved: the holding position's open
-        // window keeps followers behind it.
+        let layout = scenario.ground().airport(airport)?;
+        let airside = self.ground.airside(airport)?;
+        let hops = airside.clearances.hops(layout, from, route.edges(), offset);
+        let mut points = base;
+        points.extend(route.points().iter().skip(usize::from(!points.is_empty())));
         let more: f64 = extension
             .windows(2)
             .map(|w| w[0].distance_to(w[1]).value())
             .sum();
-        if more > 0.0
-            && let Some(&(time, along)) = schedule.last()
-        {
-            points.extend(extension.iter().skip(1));
-            // SAFETY: metres at taxi speed.
-            #[allow(clippy::cast_possible_truncation)]
-            let extra = (more / TAXI_SPEED * 1000.0).ceil() as i64;
-            schedule.push((time + extra, along + more));
-        }
-        let length = schedule.last().map_or(0.0, |s| s.1);
-        // SAFETY: taxi durations are minutes.
-        #[allow(clippy::cast_possible_truncation)]
-        let unimpeded = (length / TAXI_SPEED * 1000.0) as i64;
+        points.extend(extension.iter().skip(1));
+        let end = hops.last().map_or(offset, |hop| hop.along) + more;
         self.taxis[index] = Some(Taxi {
-            airport: plan.airport,
-            schedule,
-            offset,
-            base,
+            airport,
             target,
-            departed: 0,
-            blocked: None,
-            started: plan.start,
-            unimpeded,
+            hops,
+            granted: 0,
+            passed: 0,
+            end,
+            started: ms(now),
+            unimpeded: taxi_millis(end - offset),
+            waiting_since: None,
+            waiting_for: None,
+            deadlock_since: None,
+            queued: false,
             waiting: None,
             spot_since: 0,
-            stuck_since: None,
             escaped: false,
-            paused: None,
             crossing: None,
-            route,
+            points: points.clone(),
         });
         Polyline::new(&points).ok()
     }
 
-    /// Whether tail `index` follows a route planned around nobody (D75).
+    /// Whether tail `index` taxies cleared regardless of others (D75).
     pub(super) fn escaped(&self, index: usize) -> bool {
         self.taxis[index].as_ref().is_some_and(|taxi| taxi.escaped)
-    }
-
-    /// Tail `index` follows a route planned around nobody (D75).
-    fn mark_escaped(&mut self, index: usize) {
-        if let Some(taxi) = self.taxis[index].as_mut() {
-            taxi.escaped = true;
-        }
     }
 
     /// Whether tail `index` is on a controlled taxi in `phase`.
     pub(super) fn controlled(&self, index: usize, phase: Phase) -> bool {
         matches!(phase, Phase::TaxiOut | Phase::TaxiIn) && self.taxis[index].is_some()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_backoff_grows_with_the_hold_up() {
-        // A quarter of the time held so far, between once and four times the
-        // shortest retry.
-        assert_eq!(backoff(0, RETRY), RETRY);
-        assert_eq!(backoff(120_000, RETRY), 30_000);
-        assert_eq!(backoff(3_600_000, RETRY), 4 * RETRY);
-        assert_eq!(backoff(-5, GATE_RETRY), GATE_RETRY);
     }
 }

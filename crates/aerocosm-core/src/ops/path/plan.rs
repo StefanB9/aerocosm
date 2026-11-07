@@ -142,7 +142,6 @@ struct TaxiOut {
     taxi: Polyline,
     lineup: Polyline,
     nodes: Option<(Id<Node>, Id<Node>)>,
-    push_points: Vec<LatLon>,
     queue_points: Vec<LatLon>,
     roll_start: LatLon,
     stand_heading: Option<Degrees>,
@@ -170,7 +169,6 @@ fn taxi_out(
             taxi: plan.taxi,
             lineup: plan.lineup,
             nodes: Some((plan.hold, plan.joint)),
-            push_points: plan.push_points,
             queue_points: plan.queue_points,
             roll_start: plan.entry,
             stand_heading: Some(plan.stand_heading),
@@ -190,7 +188,6 @@ fn taxi_out(
         taxi: Polyline::new(&[start, threshold])?,
         lineup: Polyline::new(&[threshold])?,
         nodes: None,
-        push_points: Vec::new(),
         queue_points: Vec::new(),
         roll_start: threshold,
         stand_heading: parked.map(|(_, heading)| heading),
@@ -316,7 +313,6 @@ pub(crate) fn plan_leg(
         exit,
         hold: out.nodes.map(|(hold, _)| hold),
         joint: out.nodes.map(|(_, joint)| joint),
-        push_points: out.push_points,
         queue_points: out.queue_points,
     };
     measure(&path, &mut inputs);
@@ -573,6 +569,24 @@ mod tests {
         assert!(leg.path.exit_point().distance_to(exit_point).value() < 0.5);
         let rolled = leg.profile.landing_length();
         assert!((900.0..=3_500.0).contains(&rolled), "{rolled}");
+        // Re-planned at touchdown to a later exit, the roll ends there.
+        let later = muc
+            .exits()
+            .iter()
+            .filter(|e| e.node() != exit)
+            .max_by(|a, b| a.distance().value().total_cmp(&b.distance().value()))
+            .context("another MUC exit")?;
+        let later_point = muc.nodes()[later.node().as_usize()].position();
+        let mut moved = leg.clone();
+        let length = moved
+            .path
+            .set_exit(later.node(), later_point)
+            .context("a later exit")?;
+        moved.profile.set_landing_length(length);
+        assert_eq!(moved.path.exit(), Some(later.node()));
+        assert!(moved.path.exit_point().distance_to(later_point).value() < 0.5);
+        assert!((moved.profile.landing_length() - length).abs() < 1e-9);
+        assert!(length > 0.0);
         // The whole leg flies without jumps, pushback included.
         let gate = fly(&leg, 1.0)?;
         let muc_point = data.world.airport(munich).context("MUC")?.location();

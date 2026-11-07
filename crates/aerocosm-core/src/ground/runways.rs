@@ -28,7 +28,7 @@ fn segment_distance(point: [f64; 2], start: [f64; 2], end: [f64; 2]) -> f64 {
 
 impl AirportGround {
     /// `point` in the flat frame of the node positions.
-    fn local(&self, point: LatLon) -> [f64; 2] {
+    pub(super) fn local(&self, point: LatLon) -> [f64; 2] {
         let [lat0, lon0] = self.origin;
         [
             (point.longitude().value() - lon0) * self.east,

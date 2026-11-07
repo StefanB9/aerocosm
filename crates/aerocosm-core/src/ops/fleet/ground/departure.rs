@@ -1,28 +1,26 @@
-//! Departures under ground control: pushback and taxi plans, and departure
-//! management at the holding positions (plan M4 D70, D78).
+//! Departures under ground control: the pushback clearance and departure
+//! management at the holding positions (plan M4 D78, D82).
 
 use anyhow::{Context, Result};
 
 use super::{
     DEPARTURE_INTERVAL, ENGINE_START, GATE_ESCAPE_AFTER, GATE_RETRY, MAX_INTERVAL, MAX_TAXI_WAIT,
-    PUSH_SPEED, Plan, QUEUE_ESTIMATE, RETRY, Start, Target, backoff, ms, waits,
+    PUSH_SPEED, Start, Target, ms, taxi_millis,
 };
 use crate::{
     Id, SimDuration, SimTime,
-    ground::{
-        Node, TAXI_SPEED,
-        reserve::{NODE_BUFFER, TimedRoute},
-    },
+    ground::Node,
     ops::{fleet::Operations, path::Path},
     scenario::Scenario,
     world::Airport,
 };
 
 impl Operations {
-    /// At off-block of a routed departure from a controlled airport: plans
-    /// the pushback and taxi to the holding position, unless the departure
-    /// would queue for long: then it waits at the stand for its turn
-    /// (departure management) and asks again after the returned time.
+    /// At off-block of a routed departure from a controlled airport: clears
+    /// the pushback and starts the taxi to the holding position, unless the
+    /// departure would queue for long (departure management) or its lead-in
+    /// and the taxilane behind it are taken: then it waits at the stand and
+    /// asks again after the returned time.
     pub(in crate::ops::fleet) fn plan_departure(
         &mut self,
         scenario: &Scenario,
@@ -30,44 +28,38 @@ impl Operations {
         origin: Id<Airport>,
         now: SimTime,
     ) -> Result<Option<SimDuration>> {
-        let Some((hold, joint)) = self.paths[index].as_ref().and_then(Path::departure_nodes) else {
+        let Some((hold, _)) = self.paths[index].as_ref().and_then(Path::departure_nodes) else {
             return Ok(None);
         };
-        if !self.ground.controls(origin) {
+        let Some(layout) = scenario.ground().airport(origin) else {
             return Ok(None);
-        }
+        };
+        let stand = self.parked[index]
+            .filter(|(at, _)| *at == origin)
+            .and_then(|(_, stand)| layout.stands().get(stand.as_usize()))
+            .map(crate::ground::Stand::node);
+        let (Some(stand), true) = (stand, self.ground.controls(origin)) else {
+            return Ok(None);
+        };
+        let Some(route) = self.route_for(layout, index, stand, hold) else {
+            return Ok(None);
+        };
         let push = self.profiles[index].pushback_length();
         let push_seconds = if push > 0.0 {
             push / PUSH_SPEED + ENGINE_START
         } else {
             0.0
         };
-        // SAFETY: a pushback takes minutes.
-        #[allow(clippy::cast_possible_truncation)]
-        let start = ms(now) + (push_seconds * 1000.0) as i64;
-        let plan = Plan {
-            start_wait: i64::MAX,
-            shared: false,
-            airport: origin,
-            from: joint,
-            to: hold,
-            start,
-            stay: QUEUE_ESTIMATE,
-            open: true,
-            first: false,
-        };
-        // Departure management first, from the unimpeded taxi along the
-        // planned route: no planning while the runway queue is long.
+        // Departure management: no pushback while the runway queue is long.
         let turn = self
             .ground
             .airside(origin)
             .and_then(|a| a.next_departure.get(&hold).copied())
             .unwrap_or(i64::MIN);
-        let profile = &self.profiles[index];
-        // SAFETY: taxi times are minutes.
+        // SAFETY: a pushback takes minutes.
         #[allow(clippy::cast_possible_truncation)]
         let expected =
-            start + ((profile.taxi_out_length() - push).max(0.0) / TAXI_SPEED * 1000.0) as i64;
+            ms(now) + (push_seconds * 1000.0) as i64 + taxi_millis(route.length().value() - push);
         let queue = turn.saturating_sub(expected);
         if queue > MAX_TAXI_WAIT {
             self.gate_blocked[index] = None;
@@ -75,57 +67,50 @@ impl Operations {
         }
         let since = *self.gate_blocked[index].get_or_insert(ms(now));
         let escape = ms(now) - since >= GATE_ESCAPE_AFTER;
-        let owner = Self::owner(index);
-        let joint_free = self.ground.airside(origin).is_some_and(|a| {
-            !a.table
-                .node_taken(joint, ms(now), start + NODE_BUFFER, owner)
-        });
-        let route = if joint_free || escape {
-            self.plan_taxi(scenario, index, &plan, escape)
-        } else {
-            None
-        };
-        let retry = SimDuration::from_millis(backoff(ms(now) - since, GATE_RETRY));
-        let Some(route) = route else {
-            return Ok(Some(retry));
-        };
-        let arrival = route.arrival();
-        if escape {
-            self.stats.ground_conflict(origin);
-        } else if let Some(wait) = self.too_early(index, &route, turn) {
-            return Ok(Some(wait));
-        }
-        self.gate_blocked[index] = None;
-        if let Some(airside) = self.ground.airside_mut(origin) {
-            airside
-                .table
-                .occupy(joint, ms(now), start + NODE_BUFFER, owner);
-            let interval = airside.interval(hold);
-            airside
-                .next_departure
-                .insert(hold, arrival.max(turn) + interval);
-        }
-        let (base, queue) = self.paths[index]
+        let queue = self.paths[index]
             .as_ref()
-            .map_or_else(Default::default, |p| {
-                (p.push_points().to_vec(), p.queue_points().to_vec())
-            });
+            .map_or_else(Vec::new, |p| p.queue_points().to_vec());
         let polyline = self
             .start_taxi(
                 scenario,
                 index,
-                &plan,
-                route,
+                origin,
                 Start {
+                    route,
+                    from: stand,
                     target: Target::Hold,
-                    base,
-                    offset: push,
+                    base: Vec::new(),
+                    offset: 0.0,
                     extension: queue,
                 },
+                now,
             )
             .context("cannot build the taxi-out")?;
+        // The pushback needs the stand, its lead-in and where it ends, and
+        // on to where it may stop (D82).
+        let push_end = self.taxis[index].as_ref().map_or(0, |taxi| {
+            taxi.hops
+                .iter()
+                .position(|hop| hop.along >= push - 1e-6)
+                .unwrap_or(taxi.hops.len().saturating_sub(1))
+        });
+        if escape && let Some(taxi) = self.taxis[index].as_mut() {
+            taxi.escaped = true;
+        }
+        if !self.clear_through(index, push_end, 0.0, now) {
+            self.ground.release(origin, Self::owner(index));
+            self.taxis[index] = None;
+            return Ok(Some(SimDuration::from_millis(GATE_RETRY)));
+        }
         if escape {
-            self.mark_escaped(index);
+            self.stats.ground_conflict(origin);
+        }
+        self.gate_blocked[index] = None;
+        if let Some(airside) = self.ground.airside_mut(origin) {
+            let interval = airside.interval(hold);
+            airside
+                .next_departure
+                .insert(hold, expected.max(turn) + interval);
         }
         if let Some(path) = self.paths[index].as_mut() {
             let length = path.set_taxi_out(polyline);
@@ -142,8 +127,16 @@ impl Operations {
         hold: Option<Id<Node>>,
         now: SimTime,
     ) {
-        if let (Some(airside), Some(hold)) = (self.ground.airside_mut(airport), hold) {
-            let queued = airside.table.windows(hold).iter().any(|w| w.open);
+        let Some(hold) = hold else {
+            return;
+        };
+        // Someone else already waits for this holding position.
+        let queued = self.taxis.iter().flatten().any(|taxi| {
+            taxi.airport == airport
+                && taxi.target == Target::Hold
+                && taxi.hops.last().and_then(|hop| hop.node) == Some(hold)
+        });
+        if let Some(airside) = self.ground.airside_mut(airport) {
             let (last, mut pace) = airside
                 .pace
                 .get(&hold)
@@ -157,17 +150,5 @@ impl Operations {
             let next = airside.next_departure.entry(hold).or_insert(i64::MIN);
             *next = (*next).max(ms(now) + pace);
         }
-    }
-
-    /// Why a departure with `route` should not leave yet: its turn at the
-    /// runway is too far off, or the route waits too long on the way.
-    fn too_early(&mut self, index: usize, route: &TimedRoute, turn: i64) -> Option<SimDuration> {
-        let unimpeded = route.arrival() - waits(route);
-        let queue = turn.saturating_sub(unimpeded);
-        if queue > MAX_TAXI_WAIT {
-            self.gate_blocked[index] = None;
-            return Some(SimDuration::from_millis((queue - MAX_TAXI_WAIT).max(RETRY)));
-        }
-        (waits(route) > MAX_TAXI_WAIT).then_some(SimDuration::from_millis(GATE_RETRY))
     }
 }

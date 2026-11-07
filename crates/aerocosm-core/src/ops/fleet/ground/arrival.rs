@@ -1,11 +1,12 @@
 //! Arrivals under ground control: stand or waiting spot at touchdown, and
 //! the wait for a stand (plan M4 D69, D76).
 
-use super::{EXIT_WAIT, Plan, RETRY, SPOT_ESCAPE_AFTER, SPOT_ESTIMATE, Start, Target, ms};
+use super::{RETRY, SPOT_ESCAPE_AFTER, Start, Target, ms};
 use crate::{
     Id, SimTime,
-    ground::Node,
-    ops::fleet::Operations,
+    geo::Polyline,
+    ground::{AirportGround, Exit, Node, clearance::Hop},
+    ops::{Phase, fleet::Operations},
     scenario::Scenario,
     world::{Airport, codes::AirlineIcao},
 };
@@ -34,9 +35,6 @@ impl Operations {
         let Some(layout) = scenario.ground().airport(destination) else {
             return false;
         };
-        // SAFETY: a landing roll takes minutes.
-        #[allow(clippy::cast_possible_truncation)]
-        let start = ms(now) + (self.profiles[index].landing_seconds() * 1000.0) as i64;
         let free = self.find_stand(
             scenario,
             index,
@@ -57,38 +55,20 @@ impl Operations {
                 self.take_stand(scenario, index, destination, airline, (near, Some(exit)))
             }
         };
-        let (to, target, stay, open) = match (stand, spot) {
+        let (to, target) = match (stand, spot) {
             (Some(stand), _) => (
                 layout.stands()[stand.as_usize()].node(),
                 Target::Stand(stand),
-                0,
-                false,
             ),
-            (None, Some(spot)) => (spot, Target::Spot(spot), SPOT_ESTIMATE, true),
+            (None, Some(spot)) => (spot, Target::Spot(spot)),
             (None, None) => return false,
         };
-        let plan = Plan {
-            start_wait: EXIT_WAIT,
-            shared: false,
-            airport: destination,
-            from: exit,
-            to,
-            start,
-            stay,
-            open,
-            first: false,
-        };
-        // Never wait long on the runway: escape if nothing fits soon.
-        let (route, escaped) = match self.plan_taxi(scenario, index, &plan, false) {
-            Some(route) => (Some(route), false),
-            None => (self.plan_taxi(scenario, index, &plan, true), true),
-        };
-        let Some(route) = route else {
+        let heading = stand.map(|s| layout.stands()[s.as_usize()].heading());
+        let Some((vacate, polyline)) =
+            self.vacate(scenario, index, destination, exit, (to, target), now)
+        else {
             return false;
         };
-        if escaped {
-            self.stats.ground_conflict(destination);
-        }
         if let Target::Spot(node) = target {
             self.stats.waited_for_stand(destination);
             if let Some(airside) = self.ground.airside_mut(destination)
@@ -97,29 +77,120 @@ impl Operations {
                 airside.spot_owner[slot] = Some(Self::owner(index));
             }
         }
-        let heading = stand.map(|s| layout.stands()[s.as_usize()].heading());
-        let Some(polyline) = self.start_taxi(
-            scenario,
-            index,
-            &plan,
-            route,
-            Start {
-                target,
-                base: Vec::new(),
-                offset: 0.0,
-                extension: Vec::new(),
-            },
-        ) else {
-            return false;
-        };
-        if escaped {
-            self.mark_escaped(index);
-        }
         if let Some(path) = self.paths[index].as_mut() {
+            if vacate != exit {
+                let point = layout.nodes()[vacate.as_usize()].position();
+                if let Some(length) = path.set_exit(vacate, point) {
+                    self.profiles[index].set_landing_length(length);
+                }
+            }
             let length = path.set_taxi_in(polyline, heading.unwrap_or_default());
             self.profiles[index].set_taxi_in_length(length);
         }
         true
+    }
+
+    /// Where a landing that planned to turn off at `planned` vacates the
+    /// runway for `goal`: the first exit from there on whose way off the
+    /// runway is free, cleared at once so that it never stops on the
+    /// runway; else the first exit nobody holds, where it waits holding the
+    /// exit so that the next landing turns off elsewhere; with every exit
+    /// taken, the planned one, regardless. Starts the taxi from it; returns
+    /// the exit and the taxi's polyline.
+    fn vacate(
+        &mut self,
+        scenario: &Scenario,
+        index: usize,
+        airport: Id<Airport>,
+        planned: Id<Node>,
+        goal: (Id<Node>, Target),
+        now: SimTime,
+    ) -> Option<(Id<Node>, Polyline)> {
+        let layout = scenario.ground().airport(airport)?;
+        let owner = Self::owner(index);
+        let (to, target) = goal;
+        let exits = later_exits(layout, planned);
+        let start = |route, from| Start {
+            route,
+            from,
+            target,
+            base: Vec::new(),
+            offset: 0.0,
+            extension: Vec::new(),
+        };
+        for &exit in &exits {
+            let Some(route) = self.route_for(layout, index, exit, to) else {
+                continue;
+            };
+            if let Some(polyline) =
+                self.start_taxi(scenario, index, airport, start(route, exit), now)
+            {
+                // Landings already bound for this exit vacate first.
+                let pending = self.pending_at(airport, exit, owner);
+                if pending.is_none() && self.clear_through(index, 0, 0.0, now) {
+                    return Some((exit, polyline));
+                }
+                // The landing ahead still rolls to this exit: it will have
+                // vacated by the time this one asks, at its own roll's end.
+                let ahead = pending.or_else(|| self.taxis[index].as_ref()?.waiting_for);
+                if self.landing(ahead) {
+                    if let Some(taxi) = self.taxis[index].as_mut() {
+                        taxi.waiting_since = None;
+                        taxi.waiting_for = None;
+                    }
+                    return Some((exit, polyline));
+                }
+            }
+            self.ground.release(airport, owner);
+            self.taxis[index] = None;
+        }
+        let airside = self.ground.airside(airport)?;
+        let free = exits.iter().copied().find(|&exit| {
+            airside
+                .clearances
+                .blocker(owner, &Hop::at(exit), None)
+                .is_none()
+                && self.pending_at(airport, exit, owner).is_none()
+        });
+        let exit = free.unwrap_or(planned);
+        let route = self.route_for(layout, index, exit, to)?;
+        let polyline = self.start_taxi(scenario, index, airport, start(route, exit), now)?;
+        if free.is_none() {
+            // Every exit is taken: the tower would have sent it around,
+            // which is not modelled; it taxies regardless (D75).
+            if let Some(taxi) = self.taxis[index].as_mut() {
+                taxi.escaped = true;
+            }
+            self.stats.ground_conflict(airport);
+        } else if let Some(airside) = self.ground.airside_mut(airport) {
+            airside.clearances.enter(owner, &Hop::at(exit));
+        }
+        Some((exit, polyline))
+    }
+
+    /// Whether tail `tail` is on its landing roll.
+    fn landing(&self, tail: Option<u32>) -> bool {
+        tail.and_then(|t| self.tails.get(t as usize))
+            .and_then(|tail| tail.motion.as_ref())
+            .is_some_and(|motion| motion.phase() == Phase::Landing)
+    }
+
+    /// Another landing at `airport` bound for `exit` and not yet cleared off
+    /// the runway, if any.
+    fn pending_at(&self, airport: Id<Airport>, exit: Id<Node>, owner: u32) -> Option<u32> {
+        self.taxis
+            .iter()
+            .enumerate()
+            .find(|(i, taxi)| {
+                taxi.as_ref().is_some_and(|taxi| {
+                    Self::owner(*i) != owner
+                        && taxi.airport == airport
+                        && taxi.granted == 0
+                        && !taxi.escaped
+                        && taxi.hops.first().and_then(|hop| hop.node) == Some(exit)
+                })
+            })
+            .map(|(i, _)| Self::owner(i))
     }
 
     /// The free waiting spot with the shortest taxi from `from` for tail
@@ -150,7 +221,7 @@ impl Operations {
     }
 
     /// At a waiting spot: takes a stand as soon as one is free and taxies
-    /// there.
+    /// there; after half an hour it shares one (D69).
     pub(super) fn wait_for_stand(
         &mut self,
         scenario: &Scenario,
@@ -164,19 +235,15 @@ impl Operations {
         if taxi.waiting.is_some_and(|retry| ms(now) < retry) {
             return;
         }
-        let (airport, at) = (taxi.airport, taxi.route.steps.len().saturating_sub(1));
+        let (airport, offset) = (taxi.airport, taxi.end);
         let escape = ms(now) - taxi.spot_since >= SPOT_ESCAPE_AFTER;
-        let Some(here) = taxi.route.steps.last().map(|s| s.node) else {
+        let Some(here) = taxi.hops.last().and_then(|hop| hop.node) else {
             return;
         };
-        let Some(near) = scenario
-            .ground()
-            .airport(airport)
-            .map(|l| l.nodes()[here.as_usize()].position())
-        else {
+        let Some(layout) = scenario.ground().airport(airport) else {
             return;
         };
-        // After half an hour it shares a stand rather than wait on (D69).
+        let near = layout.nodes()[here.as_usize()].position();
         let free = self.find_stand(scenario, index, airport, airline, (near, Some(here)), false);
         let shared = free.is_none() && escape;
         let stand = free.or_else(|| {
@@ -184,7 +251,15 @@ impl Operations {
                 .then(|| self.take_stand(scenario, index, airport, airline, (near, Some(here))))
                 .flatten()
         });
-        let Some(stand) = stand else {
+        let route = stand.and_then(|stand| {
+            self.route_for(
+                layout,
+                index,
+                here,
+                layout.stands()[stand.as_usize()].node(),
+            )
+        });
+        let (Some(stand), Some(route)) = (stand, route) else {
             if let Some(taxi) = self.taxis[index].as_mut() {
                 taxi.waiting = Some(ms(now) + RETRY);
             }
@@ -193,47 +268,47 @@ impl Operations {
         if shared {
             self.stats.shared_stand(airport);
         }
-        let Some(layout) = scenario.ground().airport(airport) else {
-            return;
-        };
-        let plan = Plan {
-            start_wait: i64::MAX,
-            shared: true,
-            airport,
-            from: here,
-            to: layout.stands()[stand.as_usize()].node(),
-            start: ms(now),
-            stay: 0,
-            open: false,
-            first: false,
-        };
-        let owner = Self::owner(index);
-        // Keep the stand and try the route again shortly; after half an hour
-        // go regardless (D75).
-        let (route, forced) = match self.plan_taxi(scenario, index, &plan, false) {
-            Some(route) => (Some(route), false),
-            None if escape => (self.plan_taxi(scenario, index, &plan, true), true),
-            None => (None, false),
-        };
-        let Some(route) = route else {
-            if let Some(taxi) = self.taxis[index].as_mut() {
-                taxi.waiting = Some(ms(now) + RETRY);
-            }
-            return;
-        };
-        self.ground.release(airport, owner);
+        let base = self.taxis[index]
+            .as_ref()
+            .map_or_else(Vec::new, |taxi| taxi.points.clone());
+        self.ground.release(airport, Self::owner(index));
         let heading = layout.stands()[stand.as_usize()].heading();
-        if let Some(taxi) = self.taxis[index].as_mut() {
-            taxi.target = Target::Stand(stand);
-            taxi.waiting = None;
-        }
-        if let Some(path) = self.paths[index].as_mut() {
-            path.set_stand_in(heading);
-        }
-        self.continue_from(scenario, index, &plan, route, at);
-        if forced {
-            self.stats.ground_conflict(airport);
-            self.mark_escaped(index);
+        let polyline = self.start_taxi(
+            scenario,
+            index,
+            airport,
+            Start {
+                route,
+                from: here,
+                target: Target::Stand(stand),
+                base,
+                offset,
+                extension: Vec::new(),
+            },
+            now,
+        );
+        if let (Some(path), Some(polyline)) = (self.paths[index].as_mut(), polyline) {
+            let length = path.set_taxi_in(polyline, heading);
+            self.profiles[index].set_taxi_in_length(length);
         }
     }
+}
+
+/// The exit `planned` and those after it on the same runway end, nearest
+/// first.
+fn later_exits(layout: &AirportGround, planned: Id<Node>) -> Vec<Id<Node>> {
+    let Some(first) = layout.exits().iter().find(|e| e.node() == planned) else {
+        return vec![planned];
+    };
+    let mut later: Vec<&Exit> = layout
+        .exits()
+        .iter()
+        .filter(|e| e.runway() == first.runway() && e.distance() >= first.distance())
+        .collect();
+    later.sort_by(|a, b| a.distance().value().total_cmp(&b.distance().value()));
+    let mut nodes: Vec<Id<Node>> = Vec::with_capacity(later.len() + 1);
+    nodes.push(planned);
+    nodes.extend(later.iter().map(|e| e.node()).filter(|&n| n != planned));
+    nodes.dedup();
+    nodes
 }
