@@ -77,8 +77,14 @@ fn describe(flight: &FlightView, simulation: &Simulation) -> String {
     )
 }
 
-/// Runs `simulation` for `hours`, looking every `every` ticks.
+/// The warm start puts aircraft on the ground without ground control; their
+/// legs end within this many ticks.
+const SETTLE: u32 = 15 * 60;
+
+/// Runs `simulation` for `hours` after it settles, looking every `every`
+/// ticks.
 fn observe(simulation: &mut Simulation, hours: u32, every: u32) -> Result<Observed> {
+    simulation.run_ticks(SETTLE)?;
     let mapped = mapped(simulation)?;
     let mut observed = Observed {
         closest: (f64::INFINITY, String::new()),
@@ -141,7 +147,7 @@ const CLOSEST: f64 = 20.0;
 
 #[test]
 fn test_ground_traffic_keeps_apart_and_flows() -> Result<()> {
-    for seed in [3, 7] {
+    for seed in [3, 7, 11] {
         let mut simulation = simulation(seed)?;
         let observed = observe(&mut simulation, 4, 10)?;
         let stats = simulation.statistics().context("statistics")?.network();

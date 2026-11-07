@@ -2,7 +2,8 @@
 //! the way ahead is not free (plan M4 D70, D75, D77).
 
 use super::{
-    ESCAPE_AFTER, Plan, QUEUE_ESTIMATE, RETRY, SPOT_ESTIMATE, Start, Target, backoff, ms, time_of,
+    ESCAPE_AFTER, GOES_FIRST_AFTER, Plan, QUEUE_ESTIMATE, RETRY, SPOT_ESTIMATE, Start, Target,
+    backoff, ms, time_of,
 };
 use crate::{
     Id, SimDuration, SimTime, TICK,
@@ -16,7 +17,7 @@ use crate::{
         motion::{Event, Motion},
     },
     scenario::Scenario,
-    world::codes::AirlineIcao,
+    world::{Airport, codes::AirlineIcao},
 };
 
 impl Operations {
@@ -47,7 +48,7 @@ impl Operations {
             motion.taxi_at(motion.along(), 0.0);
             return None;
         }
-        if !self.advance_steps(index, end, now) {
+        if self.pause(index, now) || !self.advance_steps(index, end, now) {
             motion.taxi_at(motion.along(), 0.0);
             return None;
         }
@@ -139,6 +140,11 @@ impl Operations {
                 owner,
             );
             let runway = runway_at(next.node);
+            let after = self.taxis[index]
+                .as_ref()
+                .and_then(|t| t.route.steps.get(at + 2))
+                .map(|s| s.node);
+            let swap = after.is_some_and(|after| self.would_swap(airport, owner, next.node, after));
             let escaped = self.taxis[index].as_ref().is_some_and(|t| t.escaped);
             let crossing_ok = escaped
                 || entering.is_none_or(|runway| {
@@ -148,7 +154,7 @@ impl Operations {
                         time_of(next.leave + NODE_BUFFER),
                     )
                 });
-            if !(escaped || edge_ok && node_ok && crossing_ok) {
+            if !(escaped || edge_ok && node_ok && crossing_ok && !swap) {
                 if let Some(runway) = entering.filter(|_| !crossing_ok) {
                     self.hold_short(index, RunwayKey { airport, runway }, now);
                 }
@@ -170,6 +176,32 @@ impl Operations {
                 taxi.stuck_since = None;
             }
         }
+    }
+
+    /// Whether entering `next` on the way to `after` would meet head-on an
+    /// aircraft waiting at `after` for `next`: neither could then move.
+    fn would_swap(
+        &self,
+        airport: Id<Airport>,
+        owner: u32,
+        next: Id<Node>,
+        after: Id<Node>,
+    ) -> bool {
+        self.ground.airside(airport).is_some_and(|airside| {
+            airside.table.windows(after).iter().any(|w| {
+                w.open
+                    && w.owner != owner
+                    && self
+                        .taxis
+                        .get(w.owner as usize)
+                        .and_then(Option::as_ref)
+                        .is_some_and(|other| {
+                            other.blocked.is_some()
+                                && other.route.steps.get(other.departed + 1).map(|s| s.node)
+                                    == Some(next)
+                        })
+            })
+        })
     }
 
     /// Tail `index` holds short of runway `key` and asks to cross; take-offs
@@ -232,18 +264,24 @@ impl Operations {
                 0
             },
             open: taxi.route.open,
+            // A departure held up long takes its turn at the holding
+            // position before those still on their way.
+            first: taxi.target == Target::Hold && ms(now) - since >= GOES_FIRST_AFTER,
         };
         let escape = ms(now) - since >= ESCAPE_AFTER;
         let owner = Self::owner(index);
-        // Still queued behind whoever holds the next node: no new plan would
-        // get further, so wait on without searching.
+        // Still queued behind someone waiting at the next node: no new plan
+        // would get further, so wait on without searching.
         let ahead = taxi.route.steps.get(at + 1).map(|s| s.node);
         let queued = !escape
+            && !plan.first
             && ahead.is_some_and(|node| {
                 self.ground.airside(plan.airport).is_some_and(|airside| {
                     airside
                         .table
-                        .node_taken(node, ms(now), ms(now) + NODE_BUFFER, owner)
+                        .windows(node)
+                        .iter()
+                        .any(|w| w.open && w.owner != owner)
                 })
             });
         if let Some(airside) = self.ground.airside_mut(plan.airport) {

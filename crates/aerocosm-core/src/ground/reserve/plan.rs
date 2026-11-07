@@ -46,6 +46,9 @@ pub(crate) struct PlanRequest<B, C> {
     /// Extra cost of an edge, as a multiple of its duration, e.g. along an
     /// active runway: used only where nothing else leads on.
     pub(crate) surcharge: C,
+    /// At the goal, bookings of others that start at or after this time do
+    /// not count: an aircraft held up long goes first (ms).
+    pub(crate) goal_first_from: Option<i64>,
 }
 
 /// One node of a timed route.
@@ -216,7 +219,9 @@ fn departure<B: Fn(Id<Node>, i64, i64) -> bool, C>(
             continue;
         }
         let (from, until) = (arrive - NODE_BUFFER, arrive + stay + NODE_BUFFER);
-        if let Some(free) = table.node_free_after(next, from, until, request.owner) {
+        let first_from = request.goal_first_from.filter(|_| next == request.to);
+        if let Some(free) = table.node_free_after_from(next, from, until, request.owner, first_from)
+        {
             leave = (free + NODE_BUFFER - duration).max(leave + 1);
             continue;
         }
@@ -460,6 +465,7 @@ mod tests {
             start_shared: false,
             blocked: |_, _, _| false,
             surcharge: |_| 0.0,
+            goal_first_from: None,
         }
     }
 
@@ -485,6 +491,28 @@ mod tests {
         assert_eq!(route.points_until(&ground, 1).len(), 2);
         assert!((schedule.last().map_or(0.0, |b| b.1) - 200.0).abs() < 2.0);
         assert_eq!(route.points(&ground).len(), 3);
+        Ok(())
+    }
+
+    #[test]
+    fn test_plan_route_can_take_the_goal_before_later_bookings() -> Result<()> {
+        let ground = grid(3)?;
+        let mut table = Reservations::new(ground.nodes().len(), ground.edges().len());
+        // Someone booked node 2 from 30 s to 90 s, someone else from 100 s.
+        table.occupy(Id::new(2), 30_000, 90_000, 5);
+        table.occupy(Id::new(2), 100_000, 160_000, 6);
+        let mut first = request(0, 2, 0, 1);
+        first.stay = 30_000;
+        let waited = plan_route(&ground, &table, &first).context("after them")?;
+        assert!(waited.arrival() >= 160_000, "{}", waited.arrival());
+        // Held up long enough, it goes first at its goal.
+        first.goal_first_from = Some(0);
+        let ahead = plan_route(&ground, &table, &first).context("first")?;
+        assert!(ahead.arrival() < 50_000, "{}", ahead.arrival());
+        // Not past someone already waiting there.
+        table.hold(Id::new(2), 0, 20_000, 7);
+        let behind = plan_route(&ground, &table, &first).context("behind")?;
+        assert!(behind.arrival() >= 20_000, "{}", behind.arrival());
         Ok(())
     }
 
@@ -556,6 +584,7 @@ mod tests {
         let blocked = PlanRequest {
             blocked: gate,
             surcharge: runway.surcharge,
+            goal_first_from: runway.goal_first_from,
             from: runway.from,
             to: runway.to,
             start: runway.start,

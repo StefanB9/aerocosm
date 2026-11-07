@@ -76,6 +76,7 @@ impl Operations {
             start,
             stay,
             open,
+            first: false,
         };
         // Never wait long on the runway: escape if nothing fits soon.
         let (route, escaped) = match self.plan_taxi(scenario, index, &plan, false) {
@@ -204,6 +205,7 @@ impl Operations {
             start: ms(now),
             stay: 0,
             open: false,
+            first: false,
         };
         let owner = Self::owner(index);
         // Keep the stand and try the route again shortly; after half an hour

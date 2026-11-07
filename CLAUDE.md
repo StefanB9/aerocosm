@@ -57,7 +57,7 @@ aerocosm/                              (workspace root)
     │       │                          ground delays at off-block; fleet/stands.rs (stand
     │       │                          bookkeeping); stats.rs (punctuality); fleet/ground/
     │       │                          (plan M4 PR 3: ground control: departure.rs, arrival.rs,
-    │       │                          drive.rs follow timed plans)
+    │       │                          drive.rs follow timed plans, stop.rs stops on edges)
     │       ├── ground/                Airport ground layouts (plan M4): file format, validated
     │       │                          networks (nodes, edges, stands, holding positions, exits),
     │       │                          route.rs (A*), areas.rs (stand choice), taxi.rs (entries,

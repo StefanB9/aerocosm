@@ -54,6 +54,7 @@ impl Operations {
             start,
             stay: QUEUE_ESTIMATE,
             open: true,
+            first: false,
         };
         // Departure management first, from the unimpeded taxi along the
         // planned route: no planning while the runway queue is long.

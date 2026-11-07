@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 mod arrival;
 mod departure;
 mod drive;
+mod stop;
 
 use super::Operations;
 use crate::{
@@ -48,6 +49,10 @@ const EXIT_WAIT: i64 = 45_000;
 const GATE_RETRY: i64 = 30_000;
 /// Blocked aircraft try again this often, ms.
 const RETRY: i64 = 15_000;
+/// A departure held up this long goes first at its holding position, ms…
+const GOES_FIRST_AFTER: i64 = 120_000;
+/// …ahead of those booked to arrive there this much later, ms.
+const FIRST_LEAD: i64 = 120_000;
 /// After this long without a plan an aircraft taxies regardless (D75), ms.
 const ESCAPE_AFTER: i64 = 600_000;
 /// A departure leaves its stand only if its plan waits at most this long on
@@ -248,6 +253,9 @@ pub(super) struct Taxi {
     stuck_since: Option<i64>,
     /// Planned around nobody (D75): it no longer checks the way ahead.
     escaped: bool,
+    /// Stopped on an edge since this time, ms, because someone waits at
+    /// the node ahead (D70).
+    paused: Option<i64>,
     /// Holding short of a runway to cross it, since this time.
     crossing: Option<(RunwayKey, i64)>,
 }
@@ -272,6 +280,8 @@ struct Plan {
     start: i64,
     stay: i64,
     open: bool,
+    /// Held up long: goes first at its goal (D70).
+    first: bool,
 }
 
 impl Operations {
@@ -354,6 +364,9 @@ impl Operations {
                 start_shared: plan.shared,
                 blocked,
                 surcharge,
+                // Only those still far off: nearer ones may be on their last
+                // edge already, and aircraft stop only at nodes.
+                goal_first_from: plan.first.then_some(plan.start + FIRST_LEAD),
             },
         )
     }
@@ -414,6 +427,7 @@ impl Operations {
             spot_since: 0,
             stuck_since: None,
             escaped: false,
+            paused: None,
             crossing: None,
             route,
         });

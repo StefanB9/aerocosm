@@ -97,6 +97,13 @@ impl Reservations {
             .any(|w| overlaps((w.from, w.until), (from, until)))
     }
 
+    /// Whether someone other than `owner` holds `node` or a node near it
+    /// at `time`: a window under way, or someone waiting however long.
+    pub(crate) fn occupied(&self, node: Id<Node>, time: i64, owner: u32) -> bool {
+        self.around(node, owner)
+            .any(|w| w.from <= time && (w.open || time < w.until))
+    }
+
     /// Whether an aircraft may not enter `node` (or a node near it) for
     /// `[from, until)`: like [`Self::node_taken`], except that someone
     /// waiting there holds it until it leaves, whatever its estimate.
@@ -107,6 +114,7 @@ impl Reservations {
 
     /// The end of the latest window of someone other than `owner` on `node`
     /// or a node near it overlapping `[from, until)`, if any.
+    #[cfg(test)]
     pub(crate) fn node_free_after(
         &self,
         node: Id<Node>,
@@ -114,7 +122,21 @@ impl Reservations {
         until: i64,
         owner: u32,
     ) -> Option<i64> {
+        self.node_free_after_from(node, from, until, owner, None)
+    }
+
+    /// Like [`Self::node_free_after`], ignoring bookings (not waits) that
+    /// start at or after `ignore_from`.
+    pub(crate) fn node_free_after_from(
+        &self,
+        node: Id<Node>,
+        from: i64,
+        until: i64,
+        owner: u32,
+        ignore_from: Option<i64>,
+    ) -> Option<i64> {
         self.around(node, owner)
+            .filter(|w| w.open || ignore_from.is_none_or(|first| w.from < first))
             .filter(|w| overlaps((w.from, w.until), (from, until)))
             .map(|w| w.until)
             .max()
@@ -272,6 +294,27 @@ mod tests {
     }
 
     #[test]
+    fn test_occupied_sees_who_holds_a_node_or_its_neighbours_now() {
+        let mut table = Reservations::new(3, 0).with_neighbours(vec![
+            vec![Id::new(1)],
+            vec![Id::new(0)],
+            Vec::new(),
+        ]);
+        // A pass booked for later does not hold it now…
+        table.occupy(Id::new(0), 20_000, 30_000, 5);
+        assert!(!table.occupied(Id::new(0), 10_000, 1));
+        // …one under way does.
+        assert!(table.occupied(Id::new(0), 25_000, 1));
+        // Someone waiting next door does, however long.
+        table.hold(Id::new(1), 0, 10_000, 7);
+        assert!(table.occupied(Id::new(0), 50_000, 1));
+        assert!(!table.occupied(Id::new(0), 50_000, 7));
+        assert!(!table.occupied(Id::new(2), 50_000, 1));
+        table.release(7);
+        assert!(!table.occupied(Id::new(0), 50_000, 1));
+    }
+
+    #[test]
     fn test_open_windows_hold_until_released() {
         let mut table = Reservations::new(1, 0);
         // Waiting there with an estimated end at 20 s.
@@ -287,6 +330,12 @@ mod tests {
         table.occupy(Id::new(0), 0, 20_000, 7);
         assert!(!table.node_held(Id::new(0), 30_000, 40_000, 1));
         assert!(table.node_held(Id::new(0), 10_000, 40_000, 1));
+        // Someone planning to wait there later holds it from then on, by
+        // their estimate, not before.
+        table.release(7);
+        table.hold(Id::new(0), 100_000, 130_000, 8);
+        assert!(!table.node_held(Id::new(0), 30_000, 90_000, 1));
+        assert!(table.node_held(Id::new(0), 90_000, 110_000, 1));
     }
 
     #[test]
