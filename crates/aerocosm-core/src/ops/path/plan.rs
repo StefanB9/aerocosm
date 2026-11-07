@@ -199,6 +199,20 @@ fn taxi_out(
     })
 }
 
+/// How badly runway end `end` suits a departure on course `direct`
+/// towards `ahead` (lower is better). Parallel runways align equally: the
+/// one on the side of the course wins, by a degree per kilometre `ahead`
+/// lies off its extended centreline (staggered thresholds aside).
+fn departure_score(end: &RunwayEnd, direct: Degrees, ahead: LatLon) -> f64 {
+    let threshold = end.threshold();
+    let off = (threshold.initial_bearing_to(ahead).value() - end.true_heading().value())
+        .to_radians()
+        .sin()
+        .abs()
+        * threshold.distance_to(ahead).value();
+    angle_between(end.true_heading(), direct) + off / 1000.0
+}
+
 /// Plans `aircraft` flying from `origin` to `destination` with the runways
 /// in use at both ends and simple procedures between them.
 pub(crate) fn plan_leg(
@@ -225,12 +239,7 @@ pub(crate) fn plan_leg(
         origin,
         aircraft,
         Use::Departure,
-        |end| {
-            // Parallel runways align equally: the one on the side of the
-            // course wins, by a degree per kilometre.
-            angle_between(end.true_heading(), direct)
-                + end.threshold().distance_to(ahead).value() / 1000.0
-        },
+        |end| departure_score(end, direct, ahead),
         direct,
     )?;
     let (arrival, arrival_course, arrival_runway) = runway_end(
@@ -450,6 +459,9 @@ mod tests {
         };
         // Hamburg is north, Zurich south-west: different parallel runways.
         assert_ne!(runway_of("EDDH")?, runway_of("LSZH")?);
+        // Stuttgart lies just north of west: the north runway too, although
+        // the south runway's threshold lies farther west.
+        assert_eq!(runway_of("EDDS")?, runway_of("EDDH")?);
         Ok(())
     }
 
