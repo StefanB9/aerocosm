@@ -46,7 +46,7 @@ small components are cut off by the query box or are disconnected service areas.
 | D67 | **Network:** ways are split at shared nodes into edges with length and polyline; edges are tagged as taxiway, taxilane or runway. Stands connect to the nearest taxilane or taxiway when not joined. Runway exits are taxiway nodes on a runway's centreline, with exit angle and distance from each threshold. Positions are rounded to ~0.1 m | Graph search and reservations need explicit topology |
 | D68 | **Stands:** size class (wingspan limit) from the OSM tags where present, else from the stand's geometry and apron. Where the spacing of the mapped stands misjudges an apron, a curated `assets/ground/stand-sizes.json` bounds the ICAO code by stand-name prefix (Köln/Bonn). A curated `assets/ground/stand-areas.json` maps airlines to terminals or aprons at the hubs (e.g. Lufthansa at FRA T1, MUC T2). Otherwise the nearest suitable free stand to the expected exit is used. Turnarounds stay on their stand | Plausible stand use without a full allocation dataset |
 | D69 | **Full stands:** an arrival with no suitable free stand taxis to a waiting spot (a remote apron edge or a curated spot) and waits there. The delay is counted in statistics and shown on boards. Supersedes D60 (gates unlimited) An arrival that has waited 30 minutes takes a stand shared with another aircraft (counted as a stand share); one too large for every stand takes the largest. Stands are chosen among those a route reaches from where the aircraft is | Stand capacity becomes a real constraint |
-| D70 | **Ground control:** routes are planned with time reservations on edges and nodes, first come first served. Each aircraft plans at pushback request or at the runway exit, around existing reservations; there is waiting in place on taxiways but no reversing. Along an edge, aircraft keep a following distance. A delayed aircraft releases and re-plans. Nodes closer than 45 m (an aircraft length) are held together, so aircraft waiting at neighbouring nodes do not overlap. Plans trust a waiting aircraft's estimated stay, but no aircraft enters a node until whoever waits there has left. Plans may arrive up to 30 minutes past the time a winding route (3× the straight line) takes. Held-up aircraft retry after a quarter of the time held (15–60 s; 30–120 s at the gate) and skip the search while someone waits at the node ahead. An aircraft on an edge stops while someone else is at the node ahead and goes on, its plan shifted, once they have left. No aircraft enters a node from which one waiting at the next node wants to come towards it (head-on). A departure held up two minutes takes its turn at the holding position before those booked more than two minutes later. Fixed order: time, then tail index | Deadlock-free by construction, deterministic (D63), testable as a pure planner |
+| D70 | **Ground control (PR 3; superseded by D79 in PR 4):** routes are planned with time reservations on edges and nodes, first come first served. Each aircraft plans at pushback request or at the runway exit, around existing reservations; there is waiting in place on taxiways but no reversing. Along an edge, aircraft keep a following distance. A delayed aircraft releases and re-plans. Nodes closer than 45 m (an aircraft length) are held together, so aircraft waiting at neighbouring nodes do not overlap. Plans trust a waiting aircraft's estimated stay, but no aircraft enters a node until whoever waits there has left. Plans may arrive up to 30 minutes past the time a winding route (3× the straight line) takes. Held-up aircraft retry after a quarter of the time held (15–60 s; 30–120 s at the gate) and skip the search while someone waits at the node ahead. An aircraft on an edge stops while someone else is at the node ahead and goes on, its plan shifted, once they have left. No aircraft enters a node from which one waiting at the next node wants to come towards it (head-on). A departure held up two minutes takes its turn at the holding position before those booked more than two minutes later. Fixed order: time, then tail index | Deadlock-free by construction, deterministic (D63), testable as a pure planner |
 | D71 | **Runway use:** landing aircraft vacate at the first exit they can make (by wake category and deceleration, rapid exits up to 45°). Departures line up from an OSM holding position at their runway end and join the M3 queue there. A route crossing an active runway asks the runway controller for a gap between movements | Real geometry replaces the fixed landing roll; crossings are a real constraint at FRA and MUC |
 | D72 | **Pushback:** the core models pushback as reverse along the stand's lead-in to the taxilane, then a turn and a stop; it needs a reservation. The viewer animates it | Visible and realistic apron movement; it blocks the taxilane like real pushbacks |
 | D73 | **Taxi times in schedules:** schedule generation uses each mapped airport's typical routed taxi-out and taxi-in time (median stand → runway in use, without traffic), computed in the core from the network. Unmapped airports keep the M2 draws | Block times stay consistent with what aircraft actually do |
@@ -55,3 +55,115 @@ small components are cut off by the query box or are disconnected service areas.
 | D76 | **Waiting spots (PR 3):** an arrival without a free stand waits at the free spot with the shortest taxi from its exit, a dead-end taxiway or taxilane node (not a stand, not on a runway), derived from the layout and at least 45 m from every other edge so traffic passes, until a stand frees | Works at every mapped airport without curation |
 | D77 | **Runway crossings (PR 3):** a route crossing an active runway reserves the crossing in a gap of its landing timeline; the crossing aircraft holds short until its window; take-offs wait while a crossing is under way, and give way to an aircraft that has held short for a minute while it keeps asking (a request lapses 20 s after its last renewal). Leaving the runway an aircraft is on is no crossing. Taxi plans never run along an active runway unless nothing else leads on (backtracking at small airports): such edges cost 100 times their duration | Crossings are a real constraint (e.g. FRA Terminal 3 traffic across 25L) |
 | D78 | **Line-up (PR 3):** departures queue at the runway holding position; on take-off clearance a line-up phase taxies them onto the runway (counted as runway occupancy) before the roll | Matches real hold-short and line-up procedure |
+| D79 | **Ground controller (PR 4):** ground control works like a real ground controller issuing progressive taxi clearances. An aircraft is cleared along its route only up to its next clearance limit, and only when the way there is free or used in the same direction ("follow"); otherwise it holds at its limit. Replaces the timed node and edge reservations, the timed planner and the PR 3 recovery rules (stopping on edges, head-on checks, going first, re-plan backoff). Route choice (A*), departure management at the gate, stand choice, waiting spots and typical taxi times stay | PR 3's first-come-first-served reservations deadlocked on about 1 % of taxis; clearances mirror what controllers do and keep aircraft apart by construction |
+| D80 | **Clearance points (PR 4, as built):** derived from each layout. A clearance point is a node, or a point every ≤100 m along long edges so aircraft can follow each other. One aircraft holds a point at a time, and every point also conflicts with the points within 45 m (an aircraft length; not grouped transitively, which made clusters of 30–67 junctions). An aircraft may stop only at a point on an edge or a node with at most two edges and no junction within 45 m; a clearance runs on to the next such point. While an aircraft is on an edge, or intends to take it within 300 m beyond its clearance, nobody is cleared onto it the other way. *As planned:* junction areas and stretches; the points model is the same idea at finer grain and needs no grouping | Works at all mapped airports without curation; direction rules out head-on meetings |
+| D81 | **Priority (PR 4):** contested points go to aircraft on or vacating a runway, then crossing aircraft, then departures, then arrivals; pushbacks are cleared at off-block, after the tick's requests. Ties by how long they have waited, then tail index. A refused aircraft's points and the edges it intends to take are *wanted*: nobody less urgent is cleared onto them (or onto those edges the other way) unless the refused aircraft waits on them, so merging aircraft are sequenced in rather than starved | The runway is cleared first, as controllers do; deterministic (D63) |
+| D82 | **Runways and pushback (PR 4):** crossings and line-up stay with the runway controller (D77, D78): an aircraft holds short until it may cross, then is cleared across in one go. A pushback needs a clearance for its lead-in and on to where it may stop, and is refused (asked again after 30 s) otherwise. A landing chooses its exit at touchdown: the planned one or a later one whose way off the runway is free, cleared at once; a vacating aircraft stops 90 m clear of the runway at the first point that is no junction, holding short of the taxiway there if need be. With every exit taken, the tower would send it around; go-arounds are not modelled, so it taxies regardless and counts as a ground conflict | One set of rules for everything that moves on the ground; arrivals never wait on the runway |
+| D83 | **Gridlock (PR 4, as built):** the controller follows who waits for whom; in a cycle the least urgent member gives way and, after 60 s, is cleared regardless (counted as a ground conflict, D75). Re-routing round the cycle was tried and is mostly infeasible on real layouts. Routes avoid edges in use the other way (10× their length) and, as published taxi flows would, edges against the direction traffic has recently taken them (3×, learnt per edge). The 30-minute last resort (D75) remains, except in a runway queue | Mirrors controllers noticing a jam; learnt flows remove most head-on cycles before they form |
+| D84 | **No published taxi flows yet:** standard one-way flows per runway direction are not curated in PR 4; the learnt edge directions of D83 stand in for them. Published flows are a later improvement (curated, or Navigraph in the premium tier) | Needs per-airport sources |
+
+
+## PR 1 — OSM import and ground network asset
+
+- `aerocosm-data`: `osm/` module (Overpass JSON subset, element conversion) and `import
+  --osm <dir>` writing `assets/ground/germany.ground.json`. Includes graph building (D67),
+  stand connection and exit detection, the quality gate and a report per airport.
+- `aerocosm-basemap`-style shared file types: a ground definition with versioned format,
+  aprons as polygons for the viewer.
+- Core: `GroundNetwork` per airport (edges, nodes, stands, holding positions, exits) loaded in
+  `Scenario`; guard test on the shipped asset.
+- `docs/data-sources.md`, ODbL licence file, `queries` command for the downloads.
+- *Changed during PR 1:* the curated airline areas move to PR 2, where stand assignment
+  uses them. OSM apron and terminal tags proved too inconsistent (e.g. "222;223" at FRA), so the
+  areas are defined by stand-name prefixes, which need sourcing per hub.
+- **Tests:** conversion units, proptests for graph building (lengths, split ways stay
+  connected, no duplicate edges), quality gate cases, determinism (byte-identical output).
+
+## PR 2 — Routing, stands and pushback
+
+- Shortest paths on the network (A* by length, respecting one-way tags and size limits).
+- Curated `assets/ground/stand-areas.json` (airlines → stand-name prefixes per hub, with
+  sources) and stand assignment (D68) at landing booking or at warm start; turnarounds stay
+  put. Variants of one stand (`05`, `05A`, `05B`) are mutually exclusive.
+- Motion follows a ground route (polyline walked by distance) for taxi-out and taxi-in;
+  pushback phase (D72); the landing roll ends at the chosen exit (D71).
+- Typical taxi times per airport and their use in schedule generation (D73).
+- No conflicts yet: aircraft may overlap on the ground.
+- **Tests:** route continuity and validity, stand suitability, exits reachable by type,
+  schedule targets still within tolerance, determinism.
+- *Implemented in PR 2:*
+  - The aircraft catalog gains wingspans (format 2).
+  - Stands are taken when a tail's first leg boards (or at the start) and on touchdown,
+    nearest the exit. When nothing suitable is free an arrival shares a stand until PR 3's
+    waiting spots.
+  - Routes cost runways ×4 and other stands' lead-ins ×20.
+  - Routed taxiing averages 5 m/s (about 10 kt). Pushback is 1 m/s along the lead-in plus
+    60 s of engine start.
+  - Rapid exits (≤ 45°) are taken at 15 m/s, others at 8 m/s, with touchdown assumed 300 m
+    past the threshold.
+  - Departures still queue at the runway entry; holding short before line-up comes with
+    ground control in PR 3.
+
+## PR 3 — Ground control
+
+- Reservation table per airport (D70): node and edge time windows; a pure planner
+  (space-time search) taking the request and the reservations and returning a timed route;
+  following distance; waiting in place.
+- Runway crossings and line-up through the M3 runway controller (D71); waiting spots for
+  full stands (D69); re-planning when a pushback, crossing or take-off slips.
+- Statistics: taxi delay and stand waits per airport.
+- **Tests:** property tests over random requests (no two aircraft on a node or edge closer
+  than the spacing, no deadlock, every request completes), FCFS order, crossing gaps never
+  violate runway separation, 7-day run without stuck aircraft; benchmark < 1 ms.
+
+## PR 4 — Ground controller (D79–D84)
+
+- Core: clearance points derived from each layout (D80, `ground/clearance.rs`): holders,
+  neighbours within 45 m (points on edges included), edge directions and intents, stopping
+  points, learnt edge flows.
+- The controller (`ops/fleet/ground/grant.rs`): every tick, aircraft near their limit ask to
+  be cleared on, most urgent first (D81); a clearance runs to the next stopping point, across
+  a runway in one go; wanted points sequence merging aircraft; waiting cycles give way (D83).
+- Runway crossings and line-up through the runway controller (D82); pushback cleared for its
+  lead-in and on to a stopping point; exits chosen at touchdown, the vacate cleared at once.
+- Removed: timed node and edge reservations, the timed planner (`ground/reserve/`), the PR 3
+  recovery rules (`fleet/ground/stop.rs`). Kept: A* route choice (with flow and traffic
+  costs), departure management at the gate, stand choice, waiting spots, typical taxi times.
+- **Tests:** clearance points on grid and parallel-lane fixtures; spacing helpers against a
+  full search at FRA; integration on seeds 3, 7 and 11 (and 1 checked) with no two taxiing
+  aircraft within 20 m, pushbacks included, escapes at most 1 % of taxis, nobody taxiing over
+  an hour; determinism; benchmark measured.
+- **Moved to PR 5:** the taxi state in the flight view ("cleared to holding point 25C",
+  "holding short", "following DLH123") and a clearance-wait statistic, with the viewer that
+  shows them.
+
+## PR 5 — Viewer
+
+- Aprons, taxiway centrelines and stand markers at airport zoom (meshes and gizmo lines); OSM
+  attribution in the footer.
+- Labels for taxiway names and stand numbers at close zoom (existing label placement).
+- Selected aircraft: planned taxi route and how far it is cleared; flight panel shows the stand
+  and taxi state ("Pushback from V155", "Taxiing via N, N7 to 25C", "Waiting for stand").
+- Pushback animation (reverse movement, heading from the core).
+- Core (moved from PR 4): the taxi state in the flight view and time waiting for clearances
+  per airport in the statistics.
+- Browser build checked.
+
+## Definition of done
+
+- At least FRA, MUC, BER, DUS, HAM, CGN and STR pass the quality gate (if data allows).
+- `aerocosm run --duration 7d`: no stuck aircraft, no ground conflicts (PR 4), movement targets and
+  capacities still met, taxi times plausible (FRA taxi-out mostly 10–20 min).
+- The viewer shows aircraft at real stands, pushing back, taxiing along taxiways, holding
+  short and crossing runways; native and web.
+
+## Risks
+
+| Risk | Mitigation |
+|------|------------|
+| OSM gaps (unconnected stands, missing exits) | Connection snapping, the quality gate, a straight-line fallback, the importer report |
+| Overpass mirror flaky or unreachable | Raw files stay outside the repo; a regenerating developer uses any Overpass instance; the query is documented |
+| Space-time planning cost at hubs (FRA ≈ 100 aircraft on the ground at peak) | Plan only per request, prune reservations behind the clock, bound search with a horizon |
+| Reservations too rigid (late aircraft block others) | Re-plan with released windows; conservative buffers. In PR 3 local recovery rules still deadlocked about 1 % of taxis, hence the controller of PR 4 |
+| Gridlock in taxiway loops under clearances | Cycle detection with the least urgent giving way, learnt flows, traffic-aware routes, wanted points (D81, D83); the escape safety net is counted. As built: 0.5–0.9 % of taxis still escape in the morning bank (docs/known-issues.md) |
+| ODbL obligations | Separate asset, licence file, visible attribution |

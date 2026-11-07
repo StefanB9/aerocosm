@@ -169,9 +169,6 @@ fn test_motion_rolls_out_to_the_planned_exit() -> Result<()> {
         slowest >= 15.0 - 1e-9,
         "never slower than the exit speed: {slowest}"
     );
-    // About 10 s braking from 70 to 15 m/s, then the rest at 15 m/s.
-    let seconds = profile.landing_seconds();
-    assert!(seconds > 100.0 && seconds < 200.0, "{seconds}");
     // The default roll ends where braking reaches taxi speed.
     let plain = profile_default_landing();
     assert!(plain > 1_000.0 && plain < 1_500.0, "{plain}");

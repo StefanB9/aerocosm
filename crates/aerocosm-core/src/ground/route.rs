@@ -98,6 +98,18 @@ impl AirportGround {
     /// The cheapest route from `from` to `to` for an aircraft of `wingspan`,
     /// or `None` if there is none.
     pub fn route(&self, from: Id<Node>, to: Id<Node>, wingspan: Meters) -> Option<GroundRoute> {
+        self.route_with(from, to, wingspan, |_, _| 0.0)
+    }
+
+    /// Like [`Self::route`], with each edge costing `extra(edge, forward)`
+    /// times its length more, e.g. against the traffic on it.
+    pub(crate) fn route_with(
+        &self,
+        from: Id<Node>,
+        to: Id<Node>,
+        wingspan: Meters,
+        extra: impl Fn(Id<Edge>, bool) -> f64,
+    ) -> Option<GroundRoute> {
         let count = self.nodes().len();
         let (start, goal) = (from.as_usize(), to.as_usize());
         if start >= count || goal >= count {
@@ -132,7 +144,8 @@ impl AirportGround {
                     continue;
                 }
                 let next = if forward { edge.to() } else { edge.from() }.as_usize();
-                let step = edge.length().value() * Self::penalty(edge, start, goal);
+                let step = edge.length().value()
+                    * (Self::penalty(edge, start, goal) + extra(edge_id, forward));
                 let reached = cost[here] + step;
                 if reached < cost[next] {
                     cost[next] = reached;
@@ -372,6 +385,31 @@ mod tests {
         assert_eq!(from_four, vec![false, false, false, false, true, false]);
         assert!(ground.reachable_from(Id::new(5))[4]);
         assert_eq!(ground.reachable_from(Id::new(99)), vec![false; 6]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_route_with_extra_costs_goes_round_them() -> Result<()> {
+        let (_, ground) = square()?;
+        // Taking 0→1 costs ten times its length: the long way round wins…
+        let shut = ground.edges_at(Id::new(0))[0];
+        let route = ground
+            .route_with(Id::new(0), Id::new(2), span(36.0)?, |edge, _| {
+                if edge == shut { 10.0 } else { 0.0 }
+            })
+            .context("a route")?;
+        assert!(route.edges().iter().all(|&(e, _)| e != shut));
+        // …and without extra costs the plain route is the shortest.
+        let plain = ground
+            .route_with(Id::new(0), Id::new(2), span(36.0)?, |_, _| 0.0)
+            .context("plain")?;
+        assert_eq!(
+            plain.edges(),
+            ground
+                .route(Id::new(0), Id::new(2), span(36.0)?)
+                .context("route")?
+                .edges()
+        );
         Ok(())
     }
 

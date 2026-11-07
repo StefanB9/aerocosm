@@ -41,8 +41,6 @@ pub(crate) struct Departure {
     pub(crate) queue_points: Vec<LatLon>,
     /// Where the pushback ends and taxiing starts (the stand without one).
     pub(crate) joint: Id<Node>,
-    /// The pushback's points, from the stand to `joint`.
-    pub(crate) push_points: Vec<LatLon>,
     /// Where the take-off roll starts, on the centreline.
     pub(crate) entry: LatLon,
     /// Length of the pushback at the start of `taxi`, m.
@@ -120,7 +118,6 @@ pub(crate) fn departure(
     taxi_points.extend(queue_points.iter().skip(1));
     Some(Departure {
         joint: nodes.get(pushed).copied().unwrap_or(stand.node()),
-        push_points: edge_points(ground, start, &route.edges()[..pushed]),
         taxi: Polyline::new(&taxi_points).ok()?,
         lineup: Polyline::new(&lineup_points).ok()?,
         queue_points,

@@ -130,15 +130,6 @@ impl Profile {
         }
     }
 
-    /// Seconds from touchdown to the exit: braking to the exit speed, then
-    /// rolling at it.
-    pub(crate) fn landing_seconds(&self) -> f64 {
-        let (approach, exit) = (self.inputs.approach_speed, self.exit_speed());
-        let braking = (approach - exit).max(0.0) / BRAKING;
-        let braked = (approach * approach - exit * exit).max(0.0) / (2.0 * BRAKING);
-        braking + (self.landing_length() - braked).max(0.0) / exit.max(1.0)
-    }
-
     /// Sets the taxi-out length once ground control has routed it, m.
     pub(crate) const fn set_taxi_out_length(&mut self, length: f64) {
         self.inputs.taxi_out_length = length;
@@ -147,6 +138,11 @@ impl Profile {
     /// Taxi-out length, pushback included, m.
     pub(crate) const fn taxi_out_length(&self) -> f64 {
         self.inputs.taxi_out_length
+    }
+
+    /// Sets the landing roll's length when it ends at another exit, m.
+    pub(crate) const fn set_landing_length(&mut self, length: f64) {
+        self.inputs.landing_length = length;
     }
 
     /// Sets the taxi-in length once the route to the stand is known, m.

@@ -10,9 +10,10 @@ use crate::{
 
 mod airport;
 mod areas;
+pub(crate) mod clearance;
 mod definition;
 mod elements;
-pub(crate) mod reserve;
+
 mod route;
 mod runways;
 mod spacing;

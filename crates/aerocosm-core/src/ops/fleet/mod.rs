@@ -38,8 +38,6 @@ use crate::{
 
 /// Old landing slots are forgotten every this many milliseconds.
 const PRUNE_EVERY: i64 = 600_000;
-/// Ground control's open reservations are refreshed every this many ms.
-const GROUND_REFRESH: i64 = 10_000;
 /// Boarding starts this long before off-block.
 const BOARDING: SimDuration = SimDuration::from_minutes(30);
 /// Where one tail is in its rotation.
@@ -93,6 +91,15 @@ pub(crate) struct Operations {
     taxis: Vec<Option<Taxi>>,
     /// Since when each tail waits at its stand for a taxi plan, ms.
     gate_blocked: Vec<Option<i64>>,
+    /// Clearance requests of the tick, reused (urgency, since, tail).
+    requests: Vec<(u8, i64, usize)>,
+    /// Points refused aircraft wait for, this tick: (airport, tail, point).
+    /// Nobody less urgent is cleared onto them (D81).
+    wanted: Vec<(usize, u32, u32)>,
+    /// Edges refused aircraft wait to take this tick, and which way:
+    /// (airport, tail, edge, forward). Nobody less urgent is cleared onto
+    /// them the other way.
+    wanted_edges: Vec<(usize, u32, u32, bool)>,
     /// Punctuality, delays and movements since the start.
     stats: Statistics,
     /// Take-offs and touchdowns at controlled runways, for tests.
@@ -192,6 +199,9 @@ impl Operations {
             ground: GroundControl::new(scenario),
             taxis: vec![None; tail_count],
             gate_blocked: vec![None; tail_count],
+            requests: Vec::with_capacity(tail_count),
+            wanted: Vec::new(),
+            wanted_edges: Vec::new(),
             stats: {
                 let mut stats = Statistics::new(world.airport_count());
                 stats.set_start(start);
@@ -281,9 +291,7 @@ impl Operations {
         if now.as_millis() % PRUNE_EVERY == 0 {
             self.prune_control(now)?;
         }
-        if now.as_millis() % GROUND_REFRESH == 0 {
-            self.ground.refresh(now);
-        }
+        self.grant_clearances(now);
         for index in 0..self.tails.len() {
             self.step_tail(scenario, index, now)
                 .with_context(|| format!("tail {index} at {now}"))?;
