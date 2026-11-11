@@ -29,7 +29,7 @@ pub fn active_runways_now(
     runway::active_runways(runways, modes, runway::PREVAILING_WIND)
 }
 pub use stats::{AirportStats, Statistics};
-pub use taxi::{TaxiGoal, TaxiState, VIA_NAMES};
+pub use taxi::{TaxiGoal, TaxiRoute, TaxiState, VIA_NAMES};
 pub use view::{Callsign, FlightView, Holding};
 
 /// What an aircraft is doing on a leg, in the order it happens.

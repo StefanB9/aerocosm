@@ -4,9 +4,12 @@ use anyhow::{Context, Result};
 
 use crate::{
     Id, RngSeed, SimDuration, SimTime,
-    ops::{ActiveRunway, BoardEntry, BoardKind, FlightView, Operations, StartMode, Statistics},
+    ops::{
+        ActiveRunway, BoardEntry, BoardKind, FlightView, Operations, StartMode, Statistics,
+        TaxiRoute,
+    },
     scenario::Scenario,
-    schedule::{Schedule, ScheduleConfig, generate},
+    schedule::{Schedule, ScheduleConfig, Tail, generate},
     world::{Airport, World},
 };
 
@@ -106,6 +109,12 @@ impl Simulation {
     /// Every boarding or moving flight.
     pub fn flights(&self) -> impl Iterator<Item = FlightView> + '_ {
         self.operations.iter().flat_map(Operations::flights)
+    }
+
+    /// The taxi route of `tail` while it pushes back or taxies at a mapped
+    /// airport (plan M4 D86).
+    pub fn taxi_route(&self, tail: Id<Tail>) -> Option<TaxiRoute> {
+        self.operations.as_ref()?.taxi_route(tail.as_usize())
     }
 
     /// Up to `count` of `airport`'s departures or arrivals by scheduled time,

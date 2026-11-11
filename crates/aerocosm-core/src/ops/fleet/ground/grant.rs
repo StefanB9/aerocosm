@@ -9,7 +9,7 @@ use super::{
     AIRCRAFT_LENGTH, DEADLOCK_AFTER, LOOKAHEAD, STUCK_AFTER, Target, Taxi, ms, taxi_millis, time_of,
 };
 use crate::{
-    SimTime,
+    SimDuration, SimTime,
     ground::clearance::{Clearances, Hop},
     ops::{Phase, control::RunwayKey, fleet::Operations},
 };
@@ -370,6 +370,10 @@ impl Operations {
         };
         let escape = !taxi.escaped && overdue(taxi, now);
         let airport = taxi.airport;
+        if let Some(since) = taxi.waiting_since {
+            self.stats
+                .waited_for_clearance(airport, SimDuration::from_millis(ms(now) - since));
+        }
         if let Some(airside) = self.ground.airside_mut(airport) {
             taxi.take(&mut airside.clearances, owner, batch);
         }

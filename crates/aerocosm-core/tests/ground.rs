@@ -81,6 +81,30 @@ fn describe(flight: &FlightView, simulation: &Simulation) -> String {
     )
 }
 
+/// The taxi route of a taxiing `flight` (D86) runs through where it is, and
+/// it is cleared at least that far.
+fn check_route(simulation: &Simulation, flight: &FlightView) -> Result<()> {
+    let route = simulation
+        .taxi_route(flight.tail())
+        .with_context(|| format!("no taxi route: {}", describe(flight, simulation)))?;
+    let (along, cleared, end) = (
+        route.along().value(),
+        route.cleared().value(),
+        route.end().value(),
+    );
+    anyhow::ensure!(
+        along <= cleared + 1e-6 && cleared <= end + 1e-6,
+        "{along} {cleared} {end}: {}",
+        describe(flight, simulation)
+    );
+    let here = route
+        .point_at(route.along())
+        .distance_to(flight.position())
+        .value();
+    anyhow::ensure!(here < 1.0, "{here} m off: {}", describe(flight, simulation));
+    Ok(())
+}
+
 /// `state`'s place in the declaration of `TaxiState`.
 fn state_index(state: TaxiState) -> usize {
     match state {
@@ -125,6 +149,12 @@ fn observe(simulation: &mut Simulation, hours: u32, every: u32) -> Result<Observ
                     observed.stateless.1 = describe(&flight, simulation);
                 }
                 Some(state) => observed.states[state_index(state)] = true,
+            }
+            if matches!(
+                flight.phase(),
+                Phase::Pushback | Phase::TaxiOut | Phase::TaxiIn
+            ) {
+                check_route(simulation, &flight)?;
             }
             let tail = flight.tail().as_usize();
             let start = since.get(&tail).copied().unwrap_or(now);

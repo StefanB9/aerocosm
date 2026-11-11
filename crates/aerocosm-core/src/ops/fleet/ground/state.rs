@@ -1,7 +1,9 @@
 //! What ground control is doing with each aircraft, for the flight view
 //! (plan M4 D85).
 
-use crate::ops::{Callsign, Phase, TaxiGoal, TaxiState, fleet::Operations, taxi::via_names};
+use crate::ops::{
+    Callsign, Phase, TaxiGoal, TaxiRoute, TaxiState, fleet::Operations, taxi::via_names,
+};
 
 /// Below this ground speed an aircraft counts as holding, m/s.
 const HOLDING_SPEED: f64 = 0.5;
@@ -57,6 +59,19 @@ impl Operations {
             via: via_names(names(taxi.passed).map(|(name, _)| name)),
             to,
         })
+    }
+
+    /// Tail `index`'s taxi route while it pushes back or taxies (D86).
+    pub(crate) fn taxi_route(&self, index: usize) -> Option<TaxiRoute> {
+        let taxi = self.taxis.get(index)?.as_ref()?;
+        let motion = self.tails.get(index)?.motion.as_ref()?;
+        if !matches!(
+            motion.phase(),
+            Phase::Pushback | Phase::TaxiOut | Phase::TaxiIn
+        ) {
+            return None;
+        }
+        TaxiRoute::new(taxi.points.clone(), motion.along(), taxi.limit(), taxi.end)
     }
 
     /// The callsign tail `index` flies under now.
