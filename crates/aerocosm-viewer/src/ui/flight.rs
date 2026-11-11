@@ -254,6 +254,7 @@ pub(crate) fn flight_lines(scenario: &Scenario, view: &FlightView) -> Option<Fli
 fn spawn_panel(mut commands: Commands) {
     commands.spawn((
         FlightPanel,
+        super::MapCover,
         Node {
             position_type: PositionType::Absolute,
             top: px(72),
