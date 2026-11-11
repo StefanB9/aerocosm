@@ -34,10 +34,10 @@ impl Operations {
         let Some(layout) = scenario.ground().airport(origin) else {
             return Ok(None);
         };
-        let stand = self.parked[index]
+        let parked = self.parked[index]
             .filter(|(at, _)| *at == origin)
-            .and_then(|(_, stand)| layout.stands().get(stand.as_usize()))
-            .map(crate::ground::Stand::node);
+            .and_then(|(_, stand)| layout.stands().get(stand.as_usize()));
+        let stand = parked.map(crate::ground::Stand::node);
         let (Some(stand), true) = (stand, self.ground.controls(origin)) else {
             return Ok(None);
         };
@@ -94,8 +94,9 @@ impl Operations {
                 .position(|hop| hop.along >= push - 1e-6)
                 .unwrap_or(taxi.hops.len().saturating_sub(1))
         });
-        if escape && let Some(taxi) = self.taxis[index].as_mut() {
-            taxi.escaped = true;
+        if let Some(taxi) = self.taxis[index].as_mut() {
+            taxi.stand = parked.map(crate::ground::Stand::name);
+            taxi.escaped = escape;
         }
         if !self.clear_through(index, push_end, 0.0, now) {
             self.ground.release(origin, Self::owner(index));

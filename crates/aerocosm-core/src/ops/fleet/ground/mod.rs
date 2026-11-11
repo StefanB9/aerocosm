@@ -9,16 +9,17 @@ mod arrival;
 mod departure;
 mod drive;
 mod grant;
+mod state;
 
 use super::Operations;
 use crate::{
     Id, LatLon, SimTime,
     geo::Polyline,
     ground::{
-        AirportGround, GroundRoute, Node, Stand, TAXI_SPEED,
+        AirportGround, EdgeKind, GroundName, GroundRoute, Node, Stand, TAXI_SPEED,
         clearance::{Clearances, Hop},
     },
-    ops::{Phase, active_runways_now, control::RunwayKey},
+    ops::{Phase, TaxiGoal, active_runways_now, control::RunwayKey},
     scenario::Scenario,
     world::Airport,
 };
@@ -82,6 +83,8 @@ fn taxi_millis(metres: f64) -> i64 {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Airside {
     clearances: Clearances,
+    /// Per edge, its name, and whether it is part of a runway.
+    names: Vec<(Option<GroundName>, bool)>,
     /// For each node, the index of the active runway it lies on.
     runway_of: Vec<Option<usize>>,
     spots: Vec<Id<Node>>,
@@ -143,6 +146,11 @@ impl GroundControl {
             let spots = layout.waiting_spots(&on_runway);
             if let Some(slot) = airports.get_mut(airport.as_usize()) {
                 *slot = Some(Airside {
+                    names: layout
+                        .edges()
+                        .iter()
+                        .map(|e| (e.name(), e.kind() == EdgeKind::Runway))
+                        .collect(),
                     clearances: Clearances::new(
                         layout,
                         &layout.close_nodes(AIRCRAFT_LENGTH),
@@ -200,6 +208,10 @@ enum Target {
 pub(super) struct Taxi {
     airport: Id<Airport>,
     target: Target,
+    /// Where it ends, as the flight panel names it (D85).
+    goal: TaxiGoal,
+    /// The stand a departure pushes back from.
+    stand: Option<GroundName>,
     /// The route's clearance points, along the path's polyline.
     hops: Vec<Hop>,
     /// Hops cleared so far, and hops passed (and freed) so far.
@@ -314,9 +326,24 @@ impl Operations {
             .sum();
         points.extend(extension.iter().skip(1));
         let end = hops.last().map_or(offset, |hop| hop.along) + more;
+        let goal = match target {
+            Target::Hold => TaxiGoal::HoldingPoint(
+                hops.last()
+                    .and_then(|hop| hop.node)
+                    .and_then(|node| layout.holding_positions().iter().find(|h| h.node() == node))
+                    .map(crate::ground::HoldingPosition::runway),
+            ),
+            Target::Stand(stand) => layout
+                .stands()
+                .get(stand.as_usize())
+                .map_or(TaxiGoal::Spot, |s| TaxiGoal::Stand(s.name())),
+            Target::Spot(_) => TaxiGoal::Spot,
+        };
         self.taxis[index] = Some(Taxi {
             airport,
             target,
+            goal,
+            stand: None,
             hops,
             granted: 0,
             passed: 0,

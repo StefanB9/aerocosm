@@ -23,7 +23,7 @@ use super::{
     path::{Leg, LegGround, Path, plan_leg},
     stats::Statistics,
     tail::{draw_delay, draw_taxi_in, draw_taxi_out, next_leg, off_block},
-    view::{Callsign, FlightView, Holding},
+    view::{FlightView, Holding},
 };
 use crate::{
     Id, RngSeed, SimDuration, SimRng, SimTime, StreamId, TICK, WakeCategory,
@@ -480,10 +480,7 @@ impl Operations {
             let (position, heading) = path.locate(&motion);
             Some(FlightView {
                 tail: Id::<Tail>::from_usize(index).ok()?,
-                callsign: Callsign::new(
-                    *self.callsigns.get(flight.airline().as_usize())?,
-                    flight.number(),
-                ),
+                callsign: self.callsign(index)?,
                 airline: flight.airline(),
                 aircraft: flight.aircraft(),
                 kind: flight.kind(),
@@ -508,6 +505,7 @@ impl Operations {
                 expected_landing: self.flows[index].landing,
                 speed_factor: motion.speed_factor(),
                 ground_conflict: self.escaped(index),
+                taxi: self.taxi_state(index, motion.phase(), motion.speed()),
             })
         })
     }
