@@ -250,7 +250,11 @@ pub(crate) fn flight_lines(scenario: &Scenario, view: &FlightView) -> Option<Fli
                 view.slot_time(),
                 view.expected_landing()
                     .filter(|_| view.phase().is_airborne()),
-                view.speed_factor(),
+                if view.phase().is_airborne() {
+                    view.speed_factor()
+                } else {
+                    1.0
+                },
             ))
             .collect(),
     })
@@ -598,6 +602,17 @@ mod tests {
         let lines = flight_lines(simulation.scenario(), &view).context("lines")?;
         let state = view.taxi().context("a taxi state")?;
         assert_eq!(lines.notes.first(), Some(&format::taxi_state(state)));
+        // Speed control is for the air.
+        let slowed = simulation
+            .flights()
+            .filter(|view| view.taxi().is_some() && view.speed_factor() < 0.995)
+            .find_map(|view| flight_lines(simulation.scenario(), &view))
+            .context("a taxiing flight slowed on its approach")?;
+        assert!(
+            slowed.notes.iter().all(|n| !n.starts_with("Speed control")),
+            "{:?}",
+            slowed.notes
+        );
         Ok(())
     }
 }

@@ -159,6 +159,12 @@ small components are cut off by the query box or are disconnected service areas.
   that every taxiing aircraft at a mapped airport has a taxi state; viewer unit tests for the
   pure functions; screenshots at FRA (aprons, taxiways, stands, labels, a selected taxiing
   aircraft with its cleared route) natively; the browser build checked.
+- **As built:** the ground shows below scale 30 (map units per pixel), taxiway names below 6
+  and stand names below 1.8; taxiway and stand lines are retained gizmos per airport (like the
+  rivers), switched by zoom and view. Map labels now keep clear of the panels over the map.
+  The pushback turn is in the core: the heading eases from nose-to-stand to the taxi
+  direction over the push, so the viewer needs no special blend. Speed control is noted only
+  while airborne.
 
 ## Definition of done
 
