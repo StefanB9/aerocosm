@@ -239,15 +239,20 @@ pub(crate) fn flight_lines(scenario: &Scenario, view: &FlightView) -> Option<Fli
         progress: progress(origin.location(), destination.location(), view.position()),
         departure,
         arrival,
-        notes: notes(
-            origin_zone,
-            destination_zone,
-            view.holding().map(HoldNote::of),
-            view.slot_time(),
-            view.expected_landing()
-                .filter(|_| view.phase().is_airborne()),
-            view.speed_factor(),
-        ),
+        notes: view
+            .taxi()
+            .map(format::taxi_state)
+            .into_iter()
+            .chain(notes(
+                origin_zone,
+                destination_zone,
+                view.holding().map(HoldNote::of),
+                view.slot_time(),
+                view.expected_landing()
+                    .filter(|_| view.phase().is_airborne()),
+                view.speed_factor(),
+            ))
+            .collect(),
     })
 }
 
@@ -574,6 +579,25 @@ mod tests {
             lines.notes.is_empty(),
             "nothing special for an unhindered cruise"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_flight_lines_start_with_the_taxi_state() -> Result<()> {
+        let (scenario, _) = crate::data::load()?;
+        let mut simulation = Simulation::new(
+            SimConfig::new("2026-11-05T07:00:00Z".parse()?, RngSeed::new(0)),
+            scenario,
+        )?;
+        // Past the warm start, aircraft taxi under ground control.
+        simulation.run_ticks(20 * 60)?;
+        let view = simulation
+            .flights()
+            .find(|view| view.taxi().is_some())
+            .context("a taxiing flight")?;
+        let lines = flight_lines(simulation.scenario(), &view).context("lines")?;
+        let state = view.taxi().context("a taxi state")?;
+        assert_eq!(lines.notes.first(), Some(&format::taxi_state(state)));
         Ok(())
     }
 }

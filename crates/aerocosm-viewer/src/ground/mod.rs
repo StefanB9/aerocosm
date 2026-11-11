@@ -3,6 +3,7 @@
 //! switched on only below the zoom threshold and for airports in view.
 
 pub(crate) mod geometry;
+mod route;
 
 use aerocosm_core::ground::{AirportGround, EdgeKind, GroundNetwork};
 use bevy::{
@@ -50,8 +51,15 @@ pub(crate) struct GroundPlugin;
 
 impl Plugin for GroundPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_ground)
-            .add_systems(Update, ground_level_of_detail.after(CameraSet));
+        app.add_systems(Startup, spawn_ground).add_systems(
+            Update,
+            (
+                ground_level_of_detail.after(CameraSet),
+                route::draw_taxi_route
+                    .after(CameraSet)
+                    .after(crate::driver::SimSet),
+            ),
+        );
     }
 }
 
