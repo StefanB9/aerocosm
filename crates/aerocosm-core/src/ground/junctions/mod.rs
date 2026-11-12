@@ -44,13 +44,35 @@ pub(crate) struct Passage {
 }
 
 /// A chain a route runs along: from `from` to `to` metres along the
-/// aircraft's path, and whether the chain's own way.
+/// aircraft's path, entering at `at` metres along the chain, and whether
+/// the chain's own way.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Run {
     pub(crate) chain: u32,
     pub(crate) from: f64,
     pub(crate) to: f64,
+    pub(crate) at: f64,
     pub(crate) forward: bool,
+}
+
+impl Run {
+    /// Where on the chain an aircraft `along` metres along its path is.
+    pub(crate) fn position(&self, along: f64) -> f64 {
+        if self.forward {
+            self.at + (along - self.from)
+        } else {
+            self.at - (along - self.from)
+        }
+    }
+
+    /// How far along the path the chain's `position` is.
+    pub(crate) fn along(&self, position: f64) -> f64 {
+        if self.forward {
+            self.from + (position - self.at)
+        } else {
+            self.from + (self.at - position)
+        }
+    }
 }
 
 /// An airport's junctions, chains and holds.
@@ -59,9 +81,10 @@ pub(crate) struct Junctions {
     junctions: Vec<Junction>,
     /// Per node, its junction.
     junction_of: Vec<Option<u32>>,
-    /// Per edge, its chain and whether it runs the chain's way; lead-ins and
+    /// Per edge, its chain, whether it runs the chain's way and where its
+    /// first node in the chain's way lies along the chain, m; lead-ins and
     /// edges inside a junction have none.
-    chain_of: Vec<Option<(u32, bool)>>,
+    chain_of: Vec<Option<(u32, bool, f64)>>,
     /// Per chain, its length, m.
     chains: Vec<f64>,
     /// Per edge and end (`from`, `to`): the hold of an approach that gives
@@ -239,8 +262,10 @@ impl Junctions {
             }
             let id = u32::try_from(lengths.len()).unwrap_or(u32::MAX);
             lengths.push(chain.length);
+            let mut walked = 0.0;
             for &(edge, forward) in &chain.edges {
-                chain_of[edge.as_usize()] = Some((id, forward));
+                chain_of[edge.as_usize()] = Some((id, forward, walked));
+                walked += layout.edge(edge).map_or(0.0, |e| e.length().value());
             }
             // A hold is kept on the edge that reaches its junction.
             if let (Some(&(first, forward)), Some(h)) = (chain.edges.first(), hold_at[i][0]) {
@@ -310,7 +335,7 @@ impl Junctions {
                 continue;
             };
             let length = edge.length().value();
-            if let Some((chain, way)) = self.chain_of.get(id.as_usize()).copied().flatten() {
+            if let Some((chain, way, start)) = self.chain_of.get(id.as_usize()).copied().flatten() {
                 let same = way == forward;
                 match runs.last_mut() {
                     Some(last) if last.chain == chain && (last.to - along).abs() < 1e-6 => {
@@ -320,6 +345,7 @@ impl Junctions {
                         chain,
                         from: along,
                         to: along + length,
+                        at: if same { start } else { start + length },
                         forward: same,
                     }),
                 }

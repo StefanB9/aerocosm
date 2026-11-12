@@ -99,6 +99,14 @@ fn test_the_through_taxiway_has_right_of_way() -> Result<()> {
     assert_eq!(along_n[0].hold, None);
     assert_eq!(runs.len(), 2);
     assert!(!runs[0].forward && runs[1].forward);
+    // Each run starts where the aircraft enters its chain, in the chain's
+    // own distance: arm 1 is drawn from the junction out, so it is entered
+    // at its far end; arm 2 at its start.
+    assert!((runs[0].at - 300.0).abs() < 1.0, "{runs:?}");
+    assert!(runs[1].at.abs() < 1e-6);
+    assert!((runs[0].position(150.0) - 150.0).abs() < 1.0);
+    assert!((runs[1].position(450.0) - 150.0).abs() < 1.0);
+    assert!((runs[1].along(150.0) - 450.0).abs() < 1.0);
     // From A, north, onto N: holds 45 m short.
     let (from_a, _) = junctions.passages(
         &ground,
