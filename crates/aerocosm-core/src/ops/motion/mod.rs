@@ -39,6 +39,11 @@ const DESCENT_EXIT_FACTOR: f64 = 1.4;
 pub(crate) const FINAL_LENGTH: f64 = 18_520.0;
 /// tan 3°.
 const GLIDE_SLOPE: f64 = 0.052_407_779;
+/// The tower checks the runway this far before the threshold (2 NM), m
+/// (plan M4 D90).
+pub(crate) const SHORT_FINAL: f64 = 3_704.0;
+/// A missed approach climbs to this height above the field (3,000 ft), m.
+pub(crate) const MISSED_APPROACH_HEIGHT: f64 = 914.4;
 
 /// A clearance a moving aircraft asks for before it may continue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +54,8 @@ pub(crate) enum Request {
     Approach,
     /// Leave the holding pattern.
     LeaveHold,
+    /// Land: asked on short final; refused, the aircraft goes around.
+    Land,
 }
 
 /// Something worth counting happened during a step.
@@ -58,6 +65,8 @@ pub(crate) enum Event {
     Takeoff,
     /// Touchdown: an arrival movement.
     Landing,
+    /// A missed approach began.
+    GoAround,
     /// On blocks at the arrival gate.
     Arrived,
 }
@@ -270,7 +279,8 @@ impl Motion {
             Phase::Climb => self.climb(p, dt),
             Phase::Cruise => self.cruise(p, dt),
             Phase::Descent => self.descent(p, dt, clearance),
-            Phase::Approach => self.approach(p, dt),
+            Phase::Approach => self.approach(p, dt, clearance),
+            Phase::GoAround => self.go_around(p, dt),
             Phase::Landing => {
                 let length = p.landing_length();
                 self.speed = (self.speed - BRAKING * dt).max(p.exit_speed());

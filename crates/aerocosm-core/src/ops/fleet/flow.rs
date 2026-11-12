@@ -9,7 +9,7 @@ use crate::{
     ops::{
         Phase,
         control::{RunwayKey, level_altitude, plan_arrival},
-        motion::{Event, FINAL_LENGTH, LINEUP_SPEED, Motion, Profile, Request},
+        motion::{Event, FINAL_LENGTH, LINEUP_SPEED, Motion, Profile, Request, SHORT_FINAL},
     },
 };
 
@@ -231,7 +231,7 @@ impl Operations {
         if remaining <= HORIZON && enroute && !self.flows[index].booked {
             self.book(index, leg, motion, now)?;
         }
-        let asking = matches!(phase, Phase::Queue | Phase::Holding)
+        let asking = matches!(phase, Phase::Queue | Phase::Holding | Phase::Approach)
             || (phase == Phase::Descent && remaining <= ASKING_DISTANCE);
         if !asking {
             return Ok(motion.advance_free(&self.profiles[index], dt));
@@ -264,6 +264,11 @@ impl Operations {
                 }
                 clear
             }),
+            // Clear to land if nothing occupies the runway at touchdown
+            // (plan M4 D90).
+            Request::Land => flow.arrival.is_none_or(|key| {
+                control.runway_clear(key, now, after_seconds(now, SHORT_FINAL / speed))
+            }),
             Request::LeaveHold => {
                 let leave = if at_fix {
                     flow.arrival
@@ -289,6 +294,30 @@ impl Operations {
             self.record(key, now, wake, None);
         }
         Ok(event)
+    }
+
+    /// After a go-around (plan M4 D90): counted, and a landing slot booked
+    /// anew for when it is back on final.
+    pub(super) fn went_around(&mut self, index: usize, leg: usize, now: SimTime) -> Result<()> {
+        let flow = self.resolve(index, leg)?;
+        let destination = self.flight(index, leg)?.destination();
+        self.stats.went_around(destination);
+        let Some(key) = flow.arrival else {
+            return Ok(());
+        };
+        if let Some(slot) = flow.landing {
+            self.control.cancel_arrival(key, slot);
+        }
+        let profile = self.profiles[index];
+        let back = profile.go_around_seconds() + FINAL_LENGTH / profile.approach_speed();
+        let slot = self.control.book_arrival(
+            key,
+            after_seconds(now, back),
+            self.wakes[index],
+            profile.approach_speed(),
+        );
+        self.flows[index].landing = Some(slot);
+        Ok(())
     }
 
     /// Bookkeeping after a touchdown at a controlled runway.

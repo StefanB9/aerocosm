@@ -32,6 +32,7 @@ impl Operations {
     /// ties by how long they have waited, then tail index.
     pub(in crate::ops::fleet) fn control_ground(&mut self, now: SimTime) {
         self.survey_ground();
+        self.report_blocked_runways(now);
         self.find_deadlocks(now);
         let mut requests = std::mem::take(&mut self.requests);
         requests.clear();
@@ -49,6 +50,42 @@ impl Operations {
             self.advance(index, now);
         }
         self.requests = requests;
+    }
+
+    /// Tells the tower which runways a landing stands on, unable to vacate:
+    /// the next arrival goes around (plan M4 D90).
+    fn report_blocked_runways(&mut self, now: SimTime) {
+        let until = time_of(ms(now) + crate::TICK.as_millis());
+        for index in 0..self.taxis.len() {
+            let Some(key) = self.blocking_runway(index) else {
+                continue;
+            };
+            self.control.blocked(key, until);
+        }
+    }
+
+    /// The runway tail `index` stands on after landing, unable to vacate.
+    fn blocking_runway(&self, index: usize) -> Option<RunwayKey> {
+        let taxi = self.taxis[index].as_ref()?;
+        let motion = self.tails[index].motion.as_ref()?;
+        if taxi.target == Target::Hold || motion.speed() > STANDING {
+            return None;
+        }
+        let airside = self.ground.airside(taxi.airport)?;
+        let first = taxi.passages.first()?;
+        let along = motion.along();
+        let junction = airside.junctions.junctions().get(first.junction as usize)?;
+        if !junction.runway || first.entry > taxi.offset + 1e-6 || along > first.exit + ZONE {
+            return None;
+        }
+        let runway = junction
+            .nodes
+            .iter()
+            .find_map(|&n| airside.runway_at(Some(n)))?;
+        Some(RunwayKey {
+            airport: taxi.airport,
+            runway,
+        })
     }
 
     /// How far along its taxi tail `index` is, if it is on one.

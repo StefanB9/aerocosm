@@ -13,7 +13,7 @@ use crate::{
     geo::{Polyline, Route, Segment},
     ground::{GroundNetwork, Node, Stand},
     ops::{
-        motion::{FINAL_LENGTH, Profile, ProfileInputs},
+        motion::{FINAL_LENGTH, Profile, ProfileInputs, SHORT_FINAL},
         procedure::{arrival_points, climb_out_distance, departure_turn_point},
         runway::{PREVAILING_WIND, RunwayChoice, mode_runway, runway_in_use},
     },
@@ -41,6 +41,11 @@ const RUNWAY_MARGIN: f64 = 0.75;
 const SIDE_PROBE: f64 = 5_000.0;
 /// Turn radius of procedures: 210 kt at 25° of bank.
 const TURN_RADIUS: f64 = 2_550.0;
+/// A missed approach flies on this far past the threshold before turning,
+/// m…
+const UPWIND: f64 = 5_000.0;
+/// …and back downwind this far beside the final, m.
+const PATTERN_OFFSET: f64 = 5_000.0;
 
 /// Take-off or landing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,9 +92,27 @@ fn runway_end(
     })
 }
 
+/// The missed approach (plan M4 D90) from short final before the threshold
+/// `arrival` on `course`: over the runway, an upwind leg, a downwind leg
+/// to the left and back to the final approach fix `fix`.
+fn go_around_points(fix: LatLon, arrival: LatLon, course: Degrees) -> Vec<LatLon> {
+    let left = Degrees::from_raw((course.value() - 90.0).rem_euclid(360.0));
+    let offset = Meters::from_raw(PATTERN_OFFSET);
+    let upwind = arrival.destination(course, Meters::from_raw(UPWIND));
+    vec![
+        arrival.destination(reverse(course), Meters::from_raw(SHORT_FINAL)),
+        arrival,
+        upwind,
+        upwind.destination(left, offset),
+        fix.destination(left, offset),
+        fix,
+    ]
+}
+
 /// The lengths of `path`'s parts into `inputs`.
 fn measure(path: &Path, inputs: &mut ProfileInputs) {
     inputs.enroute_length = path.enroute.length().value();
+    inputs.go_around_length = path.go_around.length().value();
     inputs.taxi_out_length = path.taxi_out.length().value();
     inputs.taxi_in_length = path.taxi_in.length().value();
     if path.exit.is_some() {
@@ -303,6 +326,7 @@ pub(crate) fn plan_leg(
         takeoff: Segment::new(roll_start, liftoff)?,
         enroute,
         approach: Segment::new(fix, arrival)?,
+        go_around: Polyline::new(&go_around_points(fix, arrival, arrival_course))?,
         landing: Segment::new(arrival, roll_end)?,
         taxi_in: Polyline::new(&[roll_end, to.location()])?,
         departure_runway: departure_runway.map(|(index, _)| index),
@@ -456,6 +480,34 @@ mod tests {
         ])?;
         assert!((leg.path.retaxi(false, back) - 300.0).abs() < 1.0);
         assert_eq!(leg.path.stand_in, Some(heading));
+        Ok(())
+    }
+
+    #[test]
+    fn test_a_missed_approach_flies_a_pattern_back_to_the_fix() -> Result<()> {
+        let data = data()?;
+        let (frankfurt, munich) = (airport(&data, "EDDF")?, airport(&data, "EDDM")?);
+        let leg = plan_leg(
+            &data.world,
+            &data.traffic,
+            unmapped(),
+            a320(&data)?,
+            frankfurt,
+            munich,
+        )?;
+        let fix = leg.path.approach.point_at(Meters::default());
+        let threshold = leg.path.approach.point_at(leg.path.approach.length());
+        let around = &leg.path.go_around;
+        // From short final over the runway, round and back to the fix.
+        let start = around.point_at(Meters::default());
+        assert!((start.distance_to(threshold).value() - SHORT_FINAL).abs() < 5.0);
+        assert!(around.point_at(around.length()).distance_to(fix).value() < 1.0);
+        let length = around.length().value();
+        assert!(
+            length > 2.0 * FINAL_LENGTH && length < 4.0 * FINAL_LENGTH,
+            "{length}"
+        );
+        assert!((leg.profile.go_around_length() - length).abs() < 1e-6);
         Ok(())
     }
 

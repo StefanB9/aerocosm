@@ -44,6 +44,9 @@ struct RunwayState {
     /// Predicted touchdown of the last aircraft cleared to approach.
     last_landing: Option<(SimTime, WakeCategory)>,
     occupied_until: Option<SimTime>,
+    /// A landing standing on it, unable to vacate, until this time (plan M4
+    /// D90).
+    blocked_until: Option<SimTime>,
     /// Since when an aircraft has waited to cross (plan M4 D77), and when
     /// it last asked.
     crossing_waits: Option<(SimTime, SimTime)>,
@@ -256,6 +259,25 @@ impl Control {
         self.runway(key).last_landing = Some((touchdown, wake));
     }
 
+    /// Whether, asked `now`, the runway is clear for a touchdown at
+    /// `touchdown` (plan M4 D90): no landing standing on it unable to
+    /// vacate, and no landing roll, take-off or crossing occupying it then.
+    pub(crate) fn runway_clear(&self, key: RunwayKey, now: SimTime, touchdown: SimTime) -> bool {
+        self.runways
+            .get(key.airport.as_usize())
+            .and_then(|runways| runways.get(key.runway))
+            .is_none_or(|runway| {
+                runway.blocked_until.is_none_or(|until| until <= now)
+                    && runway.occupied_until.is_none_or(|until| until <= touchdown)
+            })
+    }
+
+    /// Records a landing standing on the runway, unable to vacate, until
+    /// `until`: ground control renews it while it stands there.
+    pub(crate) fn blocked(&mut self, key: RunwayKey, until: SimTime) {
+        self.runway(key).blocked_until = Some(until);
+    }
+
     /// Records a touchdown: the runway is occupied by the landing roll.
     pub(crate) fn landed(&mut self, key: RunwayKey, now: SimTime) {
         self.runway(key).occupied_until = Some(after(now, RUNWAY_OCCUPANCY));
@@ -317,6 +339,25 @@ mod tests {
 
     fn control() -> Control {
         Control::new([Id::new(3)])
+    }
+
+    #[test]
+    fn test_a_landing_needs_the_runway_clear_at_touchdown() -> Result<()> {
+        let mut control = control();
+        assert!(control.runway_clear(key(), at(0)?, at(60)?));
+        // A landing standing on the runway, unable to vacate: reported by
+        // ground control each second while it stands there.
+        control.blocked(key(), at(1)?);
+        assert!(!control.runway_clear(key(), at(0)?, at(60)?));
+        assert!(control.runway_clear(key(), at(2)?, at(60)?));
+        // The roll of the landing before is over by touchdown.
+        control.landed(key(), at(0)?);
+        assert!(control.runway_clear(key(), at(10)?, at(60)?));
+        // A take-off rolling at touchdown.
+        control.took_off(key(), WakeCategory::Medium, at(100)?, SimDuration::ZERO);
+        assert!(!control.runway_clear(key(), at(90)?, at(120)?));
+        assert!(control.runway_clear(key(), at(150)?, at(200)?));
+        Ok(())
     }
 
     #[test]

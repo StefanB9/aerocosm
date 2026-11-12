@@ -57,6 +57,9 @@ pub enum Phase {
     Descent,
     /// On the final approach path to the arrival runway.
     Approach,
+    /// Missed approach: climbing out and flying back to the final fix
+    /// after the runway was not clear (plan M4 D90).
+    GoAround,
     /// Braking along the arrival runway.
     Landing,
     /// Taxiing from the runway to the gate.
@@ -66,11 +69,16 @@ pub enum Phase {
 }
 
 impl Phase {
-    /// Climb, cruise, descent or approach: off the ground.
+    /// Climb, cruise, descent, approach or going around: off the ground.
     pub const fn is_airborne(self) -> bool {
         matches!(
             self,
-            Self::Climb | Self::Cruise | Self::Holding | Self::Descent | Self::Approach
+            Self::Climb
+                | Self::Cruise
+                | Self::Holding
+                | Self::Descent
+                | Self::Approach
+                | Self::GoAround
         )
     }
 }
