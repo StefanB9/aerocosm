@@ -294,6 +294,15 @@ impl Junctions {
         &self.chains
     }
 
+    /// The chain `edge` belongs to and whether it runs the chain's way.
+    pub(crate) fn chain(&self, edge: Id<Edge>) -> Option<(u32, bool)> {
+        self.chain_of
+            .get(edge.as_usize())
+            .copied()
+            .flatten()
+            .map(|(chain, forward, _)| (chain, forward))
+    }
+
     /// The junction `node` belongs to, if any.
     pub(crate) fn junction_of(&self, node: Id<Node>) -> Option<u32> {
         self.junction_of.get(node.as_usize()).copied().flatten()

@@ -100,6 +100,9 @@ pub(crate) fn taxi_state(state: TaxiState) -> String {
         TaxiState::WaitingFor { flight, to } => {
             format!("Waiting for {flight}, then to {}", taxi_goal(to))
         }
+        TaxiState::Following { flight, to } => {
+            format!("Following {flight} to {}", taxi_goal(to))
+        }
         TaxiState::AtHoldingPoint {
             runway: Some(runway),
         } => format!("At holding point {runway}"),
@@ -192,6 +195,13 @@ mod tests {
         assert_eq!(
             taxi_state(TaxiState::AtHoldingPoint { runway: None }),
             "At the holding point"
+        );
+        assert_eq!(
+            taxi_state(TaxiState::Following {
+                flight: Callsign::new("DLH".parse()?, FlightNumber::new(4)),
+                to: hold,
+            }),
+            "Following DLH4 to holding point 25C"
         );
         assert_eq!(
             taxi_state(TaxiState::WaitingForStand),

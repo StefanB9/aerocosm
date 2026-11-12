@@ -291,7 +291,7 @@ impl Operations {
         if now.as_millis() % PRUNE_EVERY == 0 {
             self.prune_control(now)?;
         }
-        self.grant_clearances(now);
+        self.control_ground(now);
         for index in 0..self.tails.len() {
             self.step_tail(scenario, index, now)
                 .with_context(|| format!("tail {index} at {now}"))?;

@@ -1,8 +1,10 @@
-//! Taxiing under clearances (plan M4 D79): each tick an aircraft moves on
-//! towards its clearance limit, frees what lies an aircraft length behind
-//! it, and finishes at its stand, waiting spot or holding position.
+//! Taxiing as pilots do (plan M4 D93): each tick an aircraft moves on
+//! towards the nearest of its next hold, the edge of a junction someone
+//! else is in, a following distance behind the aircraft ahead, the end of
+//! the taxiways it has locked, and its route's end; then it finishes at its
+//! stand, waiting spot or holding position.
 
-use super::{AIRCRAFT_LENGTH, Target, ms};
+use super::{AIRCRAFT_LENGTH, FOLLOW, Target, ZONE, ms};
 use crate::{
     SimDuration, SimTime, TICK,
     ground::TAXI_SPEED,
@@ -13,6 +15,28 @@ use crate::{
     scenario::Scenario,
     world::codes::AirlineIcao,
 };
+
+/// What stops an aircraft where.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Stop {
+    /// How far along its path it may taxi, m.
+    at: f64,
+    /// The aircraft in the way, if one is.
+    by: Option<u32>,
+    /// Whether that aircraft is one it follows.
+    following: bool,
+}
+
+impl Stop {
+    /// The nearer of `self` and a stop `at`, because of `by`.
+    fn nearer(self, at: f64, by: Option<u32>, following: bool) -> Self {
+        if at < self.at {
+            Self { at, by, following }
+        } else {
+            self
+        }
+    }
+}
 
 impl Operations {
     /// Moves a tail on a controlled taxi for one tick; `Some(Arrived)` when
@@ -31,15 +55,25 @@ impl Operations {
             motion.taxi_at(motion.along(), 0.0);
             return None;
         }
-        self.go_around(index);
-        let taxi = self.taxis[index].as_ref()?;
         let along = motion.along();
+        self.go_around(index, along);
+        let stop = self.stop(index, along);
         let dt = TICK.as_secs_f64();
-        let next = (along + TAXI_SPEED * dt).min(taxi.limit().max(along));
+        let next = (along + TAXI_SPEED * dt).min(stop.at.max(along));
         motion.taxi_at(next, (next - along) / dt);
-        self.pass_hops(index, next);
-        let taxi = self.taxis[index].as_ref()?;
-        if taxi.granted < taxi.hops.len() || next < taxi.end - 1e-6 {
+        let taxi = self.taxis[index].as_mut()?;
+        taxi.limit = stop.at.max(along);
+        taxi.leader = stop.by.filter(|_| stop.following);
+        if next - along < 1e-3 && stop.by.is_some() {
+            taxi.waiting_since.get_or_insert(ms(now));
+            taxi.waiting_for = stop.by;
+        } else if next - along >= 1e-3 && taxi.next_hold().is_none_or(|(_, h)| h > next) {
+            taxi.waiting_for = None;
+            if taxi.crossing.is_none() {
+                taxi.waiting_since = None;
+            }
+        }
+        if next < taxi.end - 1e-6 {
             return None;
         }
         let end = ms(now) + TICK.as_millis();
@@ -73,51 +107,146 @@ impl Operations {
         }
     }
 
-    /// A landing rolled out at its exit holds it until cleared off the
-    /// runway. At an exit someone else holds it would have been sent around
-    /// by the tower; go-arounds are not modelled, so it taxies on
-    /// regardless (D75).
-    fn go_around(&mut self, index: usize) {
+    /// Where tail `index`, `along` its path, has to stop, and for whom.
+    fn stop(&self, index: usize, along: f64) -> Stop {
         let owner = Self::owner(index);
-        let Some(taxi) = self.taxis[index].as_mut() else {
+        let Some(taxi) = self.taxis[index].as_ref() else {
+            return Stop {
+                at: along,
+                by: None,
+                following: false,
+            };
+        };
+        let mut stop = Stop {
+            at: taxi.end,
+            by: None,
+            following: false,
+        };
+        if taxi.escaped {
+            return stop;
+        }
+        let Some(airside) = self.ground.airside(taxi.airport) else {
+            return stop;
+        };
+        if let Some((_, hold)) = taxi.next_hold() {
+            stop = stop.nearer(hold, None, false);
+        }
+        // Short of the junction before the taxiways it has not locked.
+        if let Some(run) = taxi.runs.get(taxi.locked) {
+            let short = taxi
+                .passages
+                .iter()
+                .rev()
+                .find(|p| p.entry <= run.from + 1e-6)
+                .map_or(run.from, |p| p.entry - ZONE);
+            stop = stop.nearer(short, taxi.waiting_for, false);
+        }
+        // Short of a junction someone else is in or has been cleared into.
+        for passage in taxi
+            .passages
+            .iter()
+            .filter(|p| p.entry - ZONE > along && p.entry - ZONE < stop.at)
+        {
+            let j = passage.junction as usize;
+            let other = airside
+                .occupied
+                .get(j)
+                .and_then(|list| list.iter().copied().find(|&o| o != owner))
+                .or_else(|| {
+                    airside
+                        .claims
+                        .get(j)
+                        .copied()
+                        .flatten()
+                        .filter(|&o| o != owner)
+                });
+            if other.is_some() {
+                stop = stop.nearer(passage.entry - ZONE, other, false);
+                break;
+            }
+        }
+        // Behind the aircraft ahead.
+        if let Some((at, tail)) = self.nearest_ahead(index, along + 1e-3, stop.at + FOLLOW) {
+            stop = stop.nearer(at - FOLLOW, Some(tail), true);
+        }
+        stop
+    }
+
+    /// A landing that rolled out at an exit another aircraft is still at
+    /// would have been sent around by the tower; go-arounds come later
+    /// (plan M4 D90), so it taxies on regardless (D75).
+    fn go_around(&mut self, index: usize, along: f64) {
+        let Some(taxi) = self.taxis[index].as_ref() else {
             return;
         };
-        let Some(airside) = self.ground.airside_mut(taxi.airport) else {
-            return;
-        };
-        let Some(exit) = taxi.hops.first() else {
-            return;
-        };
-        if taxi.granted > 0 || taxi.escaped || airside.runway_at(exit.node).is_none() {
+        if taxi.escaped || taxi.target == Target::Hold || along > taxi.offset + 1.0 {
             return;
         }
-        if airside.clearances.blocker(owner, exit, None).is_some() {
+        let Some(airside) = self.ground.airside(taxi.airport) else {
+            return;
+        };
+        let owner = Self::owner(index);
+        let on_runway = taxi.passages.first().is_some_and(|p| {
+            p.entry <= taxi.offset + 1e-6
+                && airside
+                    .junctions
+                    .junctions()
+                    .get(p.junction as usize)
+                    .is_some_and(|j| j.runway)
+        });
+        let blocked = on_runway
+            && (self
+                .nearest_ahead(index, along, along + AIRCRAFT_LENGTH)
+                .is_some()
+                || taxi.passages.first().is_some_and(|p| {
+                    airside
+                        .occupied
+                        .get(p.junction as usize)
+                        .is_some_and(|list| {
+                            list.iter().any(|&o| {
+                                o != owner
+                                    && self
+                                        .taxis
+                                        .get(o as usize)
+                                        .and_then(Option::as_ref)
+                                        .is_some_and(|t| t.end_node.is_some() && t.offset <= 1e-6)
+                                    && self.along_of_tail(o).is_some_and(|a| a < AIRCRAFT_LENGTH)
+                            })
+                        })
+                }));
+        if blocked && let Some(taxi) = self.taxis[index].as_mut() {
             taxi.escaped = true;
-            self.stats.ground_conflict(taxi.airport);
-        } else {
-            airside.clearances.enter(owner, exit);
+            let airport = taxi.airport;
+            self.stats.ground_conflict(airport);
         }
     }
 
-    /// Frees the hops tail `index` has left an aircraft length behind at
-    /// `along`, except where it ends: past a holding position it lines up,
-    /// and nobody follows it there.
-    fn pass_hops(&mut self, index: usize, along: f64) {
-        let owner = Self::owner(index);
-        let Some(taxi) = self.taxis[index].as_mut() else {
-            return;
+    /// How far along its taxi tail `tail` is.
+    fn along_of_tail(&self, tail: u32) -> Option<f64> {
+        self.tails
+            .get(tail as usize)?
+            .motion
+            .as_ref()
+            .map(Motion::along)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_the_nearest_stop_wins() {
+        let stop = Stop {
+            at: 500.0,
+            by: None,
+            following: false,
         };
-        let Some(airside) = self.ground.airside_mut(taxi.airport) else {
-            return;
-        };
-        while taxi.passed < taxi.granted.min(taxi.hops.len().saturating_sub(1))
-            && taxi
-                .hops
-                .get(taxi.passed)
-                .is_some_and(|hop| hop.along + AIRCRAFT_LENGTH < along)
-        {
-            airside.clearances.leave(owner, &taxi.hops[taxi.passed]);
-            taxi.passed += 1;
-        }
+        let held = stop.nearer(300.0, Some(4), false);
+        assert_eq!(held.by, Some(4));
+        assert!((held.at - 300.0).abs() < 1e-9);
+        let behind = held.nearer(240.0, Some(7), true);
+        assert!(behind.following && behind.by == Some(7));
+        assert_eq!(behind.nearer(400.0, Some(9), false), behind);
     }
 }
