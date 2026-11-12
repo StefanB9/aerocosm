@@ -19,7 +19,9 @@ use super::{
     local::{Plane, Xy, inside},
     names::ground_name,
     overpass::{OsmData, OsmWay},
-    runways::{LocalRunway, RawExit, RawHolding, exits, holding_positions},
+    runways::{
+        LocalRunway, RawExit, RawHolding, exits, hold_lines, holding_positions, intermediate_holds,
+    },
     sizes::StandSizes,
     stands::{Area, RawStand, area_of, attach_stands, wingspan_limits},
 };
@@ -136,6 +138,8 @@ pub(crate) fn build_layout(
         })
         .map(|node| node.id)
         .collect();
+    let mut junctions = junctions;
+    junctions.extend(hold_lines(data));
     let mut graph = Graph::build(data, &plane, keep, &junctions);
     let stands = attach_stands(&mut graph, data, &plane);
     let runways: Vec<LocalRunway> = world
@@ -145,6 +149,7 @@ pub(crate) fn build_layout(
         .collect();
     let connected = connected_to_runways(&graph, &runways);
     let holdings = holding_positions(&graph, data, &runways);
+    let intermediate = intermediate_holds(&graph, data);
     let exits = exits(&graph, &runways);
 
     let aprons = areas(data, &plane, "apron", "");
@@ -166,6 +171,7 @@ pub(crate) fn build_layout(
         &Parts {
             stands: &stands,
             holdings: &holdings,
+            intermediate: &intermediate,
             exits: &exits,
             aprons: &aprons,
             terminals: &terminals,
@@ -183,6 +189,8 @@ pub(crate) fn build_layout(
 struct Parts<'a> {
     stands: &'a [RawStand],
     holdings: &'a [RawHolding],
+    /// Graph nodes with an intermediate holding position.
+    intermediate: &'a [usize],
     exits: &'a [RawExit],
     aprons: &'a [Area],
     terminals: &'a [Area],
@@ -288,6 +296,11 @@ fn assemble(
         stands,
         holding_positions,
         exits,
+        intermediate_holds: parts
+            .intermediate
+            .iter()
+            .filter_map(|&node| index[node])
+            .collect(),
         aprons,
     })
 }

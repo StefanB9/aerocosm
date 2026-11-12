@@ -32,6 +32,8 @@ pub struct AirportStats {
     stand_waits: u32,
     /// Taxis that went ahead without a conflict-free plan (D75).
     ground_conflicts: u32,
+    /// Taxis sent another way out of a deadlock (D93).
+    reroutes: u32,
     /// Arrivals that shared a stand after waiting for one too long (D69).
     stand_shares: u32,
 }
@@ -139,6 +141,11 @@ impl AirportStats {
         self.ground_conflicts
     }
 
+    /// Taxis sent another way out of a deadlock (D93).
+    pub const fn reroutes(&self) -> u32 {
+        self.reroutes
+    }
+
     /// Arrivals that shared a stand after waiting for one too long (D69).
     pub const fn stand_shares(&self) -> u32 {
         self.stand_shares
@@ -165,6 +172,7 @@ impl AirportStats {
         self.clearance_wait += other.clearance_wait;
         self.stand_waits += other.stand_waits;
         self.ground_conflicts += other.ground_conflicts;
+        self.reroutes += other.reroutes;
         self.stand_shares += other.stand_shares;
     }
 }
@@ -264,6 +272,13 @@ impl Statistics {
         }
     }
 
+    /// Records a taxi sent another way out of a deadlock.
+    pub(crate) fn rerouted(&mut self, airport: Id<Airport>) {
+        if let Some(stats) = self.airports.get_mut(airport.as_usize()) {
+            stats.reroutes += 1;
+        }
+    }
+
     pub(crate) fn moved(&mut self, airport: Id<Airport>, time: SimTime) {
         let Some(start) = self.start else {
             return;
@@ -316,7 +331,9 @@ mod tests {
         stats.ground_conflict(Id::new(9));
         stats.shared_stand(airport);
         stats.shared_stand(airport);
+        stats.rerouted(airport);
         let at = stats.airport(airport);
+        assert_eq!(at.reroutes(), 1);
         assert_eq!(at.taxis(), 2);
         assert_eq!(at.average_taxi_delay(), SimDuration::from_secs(120));
         assert_eq!(

@@ -3,38 +3,39 @@
 Open problems found in the simulation, kept until they are fixed. Each entry says what
 happens, how often, why, and the intended fix.
 
-## Ground control (plan M4 PR 4)
+## Ground control (plan M4 PR 4, PR 6)
 
-### Escapes at about 1 % of taxis, mostly at Frankfurt
+### Escapes at about 2 % of taxis, about half at Frankfurt
 
 **What:** an aircraft that gives way in a waiting cycle for a minute, or waits half an hour
-outside a runway queue, is cleared regardless (D75, D83); so is a landing that finds every
-exit taken (a go-around in reality, not modelled). Each case counts as a ground conflict and
-the flight view marks it (`FlightView::ground_conflict`).
+outside a runway queue, is sent another way if there is one (D94) and otherwise cleared
+regardless (D75, D83); so is a landing that finds every exit taken (a go-around in reality,
+not modelled). Each escape counts as a ground conflict and the flight view marks it
+(`FlightView::ground_conflict`).
 
-**How often:** a 7-day run (seed 0) has 371 escapes in 32,240 taxis (1.15 %; PR 3: 419 in
-32,442), 291 of them at Frankfurt, 62 at Munich, 2 at Düsseldorf. A 24 h run has 61 (PR 3:
-56). The morning bank in the ground test (seeds 1, 3, 7, 11) has 0.5–0.9 %.
+**How often:** 24 h runs, seeds 0–7: 72–114 escapes a day in about 4,650 taxis (about 2 %),
+37–56 of them at Frankfurt and 21–45 at Munich; 5–37 reroutes. The morning bank in the
+ground test (seeds 3, 7, 11) stays under the test's limit of one in fifty.
 
-**Why:** at Frankfurt queues from the aprons, the runway exits and the holding positions
-meet on few taxiways; aircraft waiting there for each other form cycles that giving way
-breaks only by an escape.
+**Why:** most cycles form at a junction both aircraft must cross, on approaches too short to
+hold clear of it (taxiway stubs of 25–35 m between two intersections), where through
+traffic would pass a holder closer than 22.5 m. There is no other way round, so rerouting
+rarely helps.
 
-**Intended fix:** published or curated one-way taxi flows at Frankfurt (D84), and holding
-arrivals at the exit taxiways rather than on the main taxiways.
+**Intended fix:** hold positions placed in such stubs before the previous junction (a
+first attempt that tied the two junctions together made Frankfurt worse), published or
+curated one-way taxi flows (D84), and go-arounds for blocked exits (D90). Zero escapes is
+the acceptance goal (D92).
 
 ### Taxi delays at Frankfurt
 
-**What:** with clearances, Frankfurt's average taxi delay is 15 min over 7 days (23 min in a
-24 h run; PR 3: under 2 min), its movements 4 % under target in the 24 h run, and its
-average flight delay 118 min over 7 days. Elsewhere taxi delays are 2–4 min.
+**What:** Frankfurt's average taxi delay is 2.7–4.2 min over 24 h (PR 4: 23 min; target
+about 2 min), its movements 0–4 % under target. Elsewhere taxi delays are about 2 min.
 
-**Why:** clearances hold aircraft until the way to the next stopping point is free; on
-Frankfurt's dense aprons stopping points are far apart (junctions within 45 m almost
-everywhere), so clearances are long and block others for minutes.
+**Why:** clearances wait for gaps in the through traffic on the main taxiways, and waiting
+cycles at the apron exits hold aircraft for a minute before one gives way.
 
-**Intended fix:** finer stopping points on aprons (holding short of a junction rather than
-clear of it), flows (D84).
+**Intended fix:** flows (D84), departure management per runway (D91).
 
 ### No go-arounds
 

@@ -65,6 +65,12 @@ small components are cut off by the query box or are disconnected service areas.
 | D86 | **Taxi route query (PR 5):** `Simulation::taxi_route(tail)` returns the selected aircraft's taxi polyline, how far along it is, how far it is cleared and where the route ends; computed on demand for one aircraft, not per tick | The viewer draws the route and the cleared part without the core keeping anything for it |
 | D87 | **Ground drawing (PR 5):** below an airport zoom threshold, apron polygons as meshes tessellated once at start-up; taxiway and taxilane centrelines, stand lead-ins and stand markers as gizmo lines redrawn each frame, only for mapped airports in view. A selected taxiing aircraft shows its route ahead, the cleared part brighter and its clearance limit marked. Taxiway names (one label per named stretch) and stand names at closer zoom go through the existing label placement, after airports | Gizmos keep the code small; culling by airport keeps the per-frame cost to the airports on screen |
 | D88 | **Clearance waits (PR 5):** the statistics add the time taxiing aircraft wait for a clearance, per airport (total and average per taxi), shown in the airport panel's flow status next to the taxi delay and in the headless run summary | Shows where ground control holds traffic, e.g. the Frankfurt regression |
+| D89 | **Holding positions (PR 6; replaces follow clearances, which made FRA worse in every variant: up to 396 escapes and ~27 min taxi delay in 24 h):** clearance limits are where real aircraft stop: runway holding points, the *intermediate holding positions* OSM maps before intersections (`aeroway=holding_position`, `intermediate`; FRA 178, MUC 278, BER 177, LEJ 120), and stand entries. Where an intersection has none mapped, one is synthesised just short of it, wingtip-clear of the crossing taxiway. The importer keeps them (baseline tier; the asset is regenerated) | Real taxiways have painted holds before intersections; stopping only well clear of junctions made clearances hundreds of metres long. An experiment with "hold short of the next junction" cut FRA's taxi delay from 22.8 to 3.3 min |
+| D93 | **Separation as in real operations (PR 6; replaces the points model of D80 as built):** a *junction* is one physical intersection (junction nodes within 30 m of each other, as OSM draws fillets). At each junction the approaches with a holding position yield (a mapped intermediate or runway hold, else one synthesised 45 m out on the side whose taxiway name changes or that turns more sharply); the through taxiway has right of way. Through traffic keeps taxiing and stops only short of a junction someone else occupies or has been cleared into; yielding traffic waits at its hold until the junction is free and no through traffic is close, then is cleared into it. On any path aircraft follow the one ahead at a safe distance (60 m) and stop when it stops. Each aircraft's intended route ahead locks the direction of the taxiways it will use, so nobody meets head-on. Runways are entered only from their holding positions, through the runway controller (D82). Waiting cycles are still detected (D83); the escape stays a counted safety net. **As built:** holds are cleared in queue order, and into a junction only if the aircraft can stop clear of the junctions right after it; a hold keeps 30 m from the taxiways at its junction where its taxiway allows; aircraft at hold lines or short of junctions are passed down to 22.5 m, never closer, also with priority; through traffic standing for a holder lets it in; a stand-off between standing aircraft goes by priority; a pushback is approved only when nobody is cleared down its taxiways and due there while it pushes, and others keep clear of where it will stand. Escapes: about 2 % of taxis (D94) | Real airports: connectors hold short of the main taxiways (where OSM maps most intermediate holds), traffic on the main taxiway keeps moving, pilots provide in-trail spacing. Strict hold-to-hold areas chained FRA's junctions into blocks of up to 49 |
+| D94 | **Rerouting and the escape rate (PR 6):** the one to give way in a waiting cycle, or an aircraft stuck for half an hour, is sent another way from the next node ahead: round the taxiways the other stands on and the junctions it is in or cleared into, not along the way it was going, never turning round or into a taxiway someone comes down, at most 1 km longer, three times per taxi; only without one does it escape (D75). Most cycles form on short approaches to a junction both must cross, where there is no other way, so about 15 reroutes a day leave the escapes at about 2 % of taxis (24 h, seeds 0–7: 72–114 a day, about half at Frankfurt). PR 6 ships at that rate; the ground test allows one escape in fifty taxis; zero stays the acceptance goal (D92) | Real ground controllers send traffic another way round a blocked taxiway. Prevention rules had stopped giving gains beyond run-to-run noise (±20 %) |
+| D90 | **Go-arounds (PR 7):** on short final the tower checks the landing can vacate: the runway is clear and an exit is free or will be by touchdown. If not, the aircraft goes around: it climbs out on the runway heading to the missed-approach altitude, flies back to the final fix and is re-sequenced for the next free landing slot. Counted per airport as a statistic, not a ground conflict, and shown in the flight panel | Replaces counting a landing with every exit taken as a conflict (PR 4); what towers do |
+| D91 | **Departure management per runway (PR 7):** the expected take-off timeline and learnt interval are kept per departure runway, shared by all its holding positions; a pushback waits at the gate while the runway's queue would exceed two minutes | Berlin queued up to an hour because each holding position kept its own estimate |
+| D92 | **Acceptance (after PR 7):** the 7-day run (seed 0) has zero ground conflicts (escapes stay as a counted safety net; go-arounds are not conflicts), FRA's average taxi delay is back near PR 3's (~2 min), movement targets and capacities hold, and the benchmark is re-measured | The M4 definition of done |
 
 
 ## PR 1 — OSM import and ground network asset
@@ -166,6 +172,37 @@ small components are cut off by the query box or are disconnected service areas.
   direction over the push, so the viewer needs no special blend. Speed control is noted only
   while airborne.
 
+## PR 6 — Holding positions and real-world separation (D89, D93)
+
+- Data: the OSM importer keeps intermediate holding positions (on taxiway edges, snapped to a
+  node or split into one); the asset is regenerated and its guard test checks them; synthesised
+  holds where an intersection has none, derived in the core from the layout.
+- Core: junctions from the layout (clustered nodes, approaches, which yield and where they
+  hold). Each tick an aircraft's stop limit is the nearest of: its next yield hold not yet
+  cleared, the edge of a junction someone else occupies, 60 m behind the aircraft ahead on its
+  path, a taxiway locked the other way, its route's end. Yielding aircraft are cleared into a
+  free junction with a gap in the through traffic (priority D81). Replaces the clearance points of PR 4 (`ground/clearance.rs`) and the
+  WIP follow clearances; keeps routing, flows, departure management, exits, spots and the
+  taxi state (with "following DLH123" and "holding short of N7").
+- **As built:** `ground/junctions` (junctions, chains, passages, holds kept clear of the
+  junction's taxiways), `ops/fleet/ground/control.rs` (survey, clearances, deadlocks,
+  pushback and vacate approval), `drive.rs` (stops, see and avoid), `tight.rs` (junctions
+  too close to stop between), `reroute.rs` (D94). Measured over 24 h, seeds 0–7: escapes
+  72–114 a day (about 2 %), 5–37 reroutes, network taxi delay 2.2–2.6 min, Frankfurt
+  2.7–4.2 min (PR 4: 22.8 min) with movements 0–4 % under target.
+- **Tests:** import of intermediate holds (fixture, and counts on the shipped data); section
+  derivation on fixtures and at FRA/MUC; controller rules on a grid (one aircraft per
+  intersection, in-trail spacing, no head-on, crossing waits at its hold); the ground
+  integration test (spacing, escapes, longest taxi, determinism); the 24 h run measured
+  against PR 4 (FRA taxi delay, escapes).
+
+## PR 7 — Go-arounds and departure management (D90, D91), then acceptance (D92)
+
+- Core, runway: the short-final check, missed approach, re-sequencing, statistic; flight
+  panel note. Departure management per runway.
+- Acceptance: the 7-day run (zero escapes), FRA taxi delay ~2 min, benchmark re-measured,
+  `docs/known-issues.md` updated.
+
 ## Definition of done
 
 - At least FRA, MUC, BER, DUS, HAM, CGN and STR pass the quality gate (if data allows).
@@ -182,5 +219,5 @@ small components are cut off by the query box or are disconnected service areas.
 | Overpass mirror flaky or unreachable | Raw files stay outside the repo; a regenerating developer uses any Overpass instance; the query is documented |
 | Space-time planning cost at hubs (FRA ≈ 100 aircraft on the ground at peak) | Plan only per request, prune reservations behind the clock, bound search with a horizon |
 | Reservations too rigid (late aircraft block others) | Re-plan with released windows; conservative buffers. In PR 3 local recovery rules still deadlocked about 1 % of taxis, hence the controller of PR 4 |
-| Gridlock in taxiway loops under clearances | Cycle detection with the least urgent giving way, learnt flows, traffic-aware routes, wanted points (D81, D83); the escape safety net is counted. As built: 0.5–0.9 % of taxis still escape in the morning bank (docs/known-issues.md) |
+| Gridlock in taxiway loops under clearances | Cycle detection with the least urgent giving way, learnt flows, traffic-aware routes, wanted points (D81, D83); the escape safety net is counted. As built in PR 4: 0.5–0.9 % of taxis still escaped in the morning bank; with real-world separation (PR 6) about 2 % over a day, rerouting where it can (D94; docs/known-issues.md) |
 | ODbL obligations | Separate asset, licence file, visible attribution |

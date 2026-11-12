@@ -210,6 +210,7 @@ mod tests {
                 distance: Meters::new(1_500.0)?,
                 angle: Degrees::new(45.0)?,
             }],
+            intermediate_holds: Vec::new(),
             aprons: Vec::new(),
         })
     }

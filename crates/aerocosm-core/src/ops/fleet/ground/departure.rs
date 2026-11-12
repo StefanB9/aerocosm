@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 
 use super::{
     DEPARTURE_INTERVAL, ENGINE_START, GATE_ESCAPE_AFTER, GATE_RETRY, MAX_INTERVAL, MAX_TAXI_WAIT,
-    PUSH_SPEED, Start, Target, ms, taxi_millis,
+    PUSH_CLEAR, PUSH_SPEED, Start, Target, ms, taxi_millis,
 };
 use crate::{
     Id, SimDuration, SimTime,
@@ -86,19 +86,14 @@ impl Operations {
                 now,
             )
             .context("cannot build the taxi-out")?;
-        // The pushback needs the stand, its lead-in and where it ends, and
-        // on to where it may stop (D82).
-        let push_end = self.taxis[index].as_ref().map_or(0, |taxi| {
-            taxi.hops
-                .iter()
-                .position(|hop| hop.along >= push - 1e-6)
-                .unwrap_or(taxi.hops.len().saturating_sub(1))
-        });
+        // The pushback is approved with the taxilane clear where it ends and
+        // nobody coming the other way (D82, D93).
         if let Some(taxi) = self.taxis[index].as_mut() {
             taxi.stand = parked.map(crate::ground::Stand::name);
+            taxi.push = push;
             taxi.escaped = escape;
         }
-        if !self.clear_through(index, push_end, 0.0, now) {
+        if !self.clear_way(index, push, push + PUSH_CLEAR) {
             self.ground.release(origin, Self::owner(index));
             self.taxis[index] = None;
             return Ok(Some(SimDuration::from_millis(GATE_RETRY)));
@@ -133,9 +128,7 @@ impl Operations {
         };
         // Someone else already waits for this holding position.
         let queued = self.taxis.iter().flatten().any(|taxi| {
-            taxi.airport == airport
-                && taxi.target == Target::Hold
-                && taxi.hops.last().and_then(|hop| hop.node) == Some(hold)
+            taxi.airport == airport && taxi.target == Target::Hold && taxi.end_node == Some(hold)
         });
         if let Some(airside) = self.ground.airside_mut(airport) {
             let (last, mut pace) = airside

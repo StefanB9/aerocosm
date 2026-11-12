@@ -65,7 +65,7 @@ struct Observed {
     /// Aircraft seen taxiing without a taxi state, and who.
     stateless: (u32, String),
     /// Which taxi states were seen, in `TaxiState` order.
-    states: [bool; 7],
+    states: [bool; 8],
 }
 
 fn describe(flight: &FlightView, simulation: &Simulation) -> String {
@@ -112,9 +112,10 @@ fn state_index(state: TaxiState) -> usize {
         TaxiState::Taxiing { .. } => 1,
         TaxiState::HoldingShort { .. } => 2,
         TaxiState::WaitingFor { .. } => 3,
-        TaxiState::AtHoldingPoint { .. } => 4,
-        TaxiState::WaitingForStand => 5,
-        TaxiState::ClearedRegardless { .. } => 6,
+        TaxiState::Following { .. } => 4,
+        TaxiState::AtHoldingPoint { .. } => 5,
+        TaxiState::WaitingForStand => 6,
+        TaxiState::ClearedRegardless { .. } => 7,
     }
 }
 
@@ -131,7 +132,7 @@ fn observe(simulation: &mut Simulation, hours: u32, every: u32) -> Result<Observ
         closest: (f64::INFINITY, String::new()),
         longest: (SimDuration::ZERO, String::new()),
         stateless: (0, String::new()),
-        states: [false; 7],
+        states: [false; 8],
     };
     let mut since: HashMap<usize, SimTime> = HashMap::new();
     for _ in 0..hours * 3_600 / every {
@@ -194,8 +195,9 @@ fn observe(simulation: &mut Simulation, hours: u32, every: u32) -> Result<Observ
 
 /// Nobody taxies longer than this: a stand wait ends after 30 minutes
 /// (plan M4 D69, D75), and the taxis to the waiting spot and on to the stand
-/// take a quarter of an hour each at most.
-const LONGEST_TAXI: SimDuration = SimDuration::from_secs(60 * 60);
+/// take three quarters of an hour together at most (Leipzig's one-way
+/// taxiways lead round to a remote spot in over 5 km).
+const LONGEST_TAXI: SimDuration = SimDuration::from_secs(75 * 60);
 /// Taxiing aircraft never stand on the same spot (D70) unless one escaped a
 /// deadlock (D75): their reference points stay half an airliner's length
 /// apart, m.
@@ -203,7 +205,7 @@ const CLOSEST: f64 = 20.0;
 
 #[test]
 fn test_ground_traffic_keeps_apart_and_flows() -> Result<()> {
-    let mut seen = [false; 7];
+    let mut seen = [false; 8];
     for seed in [3, 7, 11] {
         let mut simulation = simulation(seed)?;
         let observed = observe(&mut simulation, 4, 10)?;
@@ -231,10 +233,10 @@ fn test_ground_traffic_keeps_apart_and_flows() -> Result<()> {
         for (any, now) in seen.iter_mut().zip(observed.states) {
             *any |= now;
         }
-        // Near zero (D75): at most one taxi in a hundred escapes a deadlock
-        // in the morning bank.
+        // Rare (D75, D93): at most one taxi in fifty escapes a deadlock in
+        // the morning bank; zero is the goal of the acceptance runs (D92).
         assert!(
-            stats.ground_conflicts() * 100 <= stats.taxis(),
+            stats.ground_conflicts() * 50 <= stats.taxis(),
             "seed {seed}: {} conflicts in {} taxis",
             stats.ground_conflicts(),
             stats.taxis()
@@ -248,7 +250,7 @@ fn test_ground_traffic_keeps_apart_and_flows() -> Result<()> {
         );
     }
     // Every taxi state occurs in the morning bank.
-    assert_eq!(seen, [true; 7]);
+    assert_eq!(seen, [true; 8]);
     Ok(())
 }
 

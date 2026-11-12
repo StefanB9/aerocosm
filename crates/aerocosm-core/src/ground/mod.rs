@@ -10,13 +10,12 @@ use crate::{
 
 mod airport;
 mod areas;
-pub(crate) mod clearance;
 mod definition;
 mod elements;
 
+pub(crate) mod junctions;
 mod route;
 mod runways;
-mod spacing;
 mod taxi;
 
 pub use airport::AirportGround;
@@ -190,6 +189,16 @@ mod tests {
             assert_ne!(ground.exits().len(), 0, "{ident}");
         }
         assert!(network.airports().len() >= 20);
+        // The hubs' intermediate holding positions are mapped (D89).
+        for (ident, at_least) in [("EDDF", 150), ("EDDM", 200), ("EDDB", 150)] {
+            let airport = world.airport_by_ident(ident.parse()?).context("airport")?;
+            let ground = network.airport(airport).context("layout")?;
+            assert!(
+                ground.intermediate_holds().len() >= at_least,
+                "{ident}: {}",
+                ground.intermediate_holds().len()
+            );
+        }
         Ok(())
     }
 }

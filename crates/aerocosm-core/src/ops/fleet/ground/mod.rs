@@ -1,33 +1,56 @@
-//! Ground control at mapped airports (plan M4 D69, D75–D84): a ground
-//! controller clears each aircraft along its route hop by hop, as far as the
-//! way is free or used in the same direction; aircraft taxi up to their
-//! clearance limit and hold there.
+//! Ground control at mapped airports (plan M4 D69, D75–D84, D89, D93), as
+//! in real operations: at each junction the approaches with a holding
+//! position give way and are cleared in when the junction is free and no
+//! through traffic is close; the through taxiway has right of way. Pilots
+//! keep their distance behind the aircraft ahead, and each aircraft's route
+//! ahead locks the direction of its taxiways against head-on meetings.
 
 use std::collections::BTreeMap;
 
 mod arrival;
+mod control;
 mod departure;
 mod drive;
-mod grant;
+mod reroute;
 mod state;
+mod tight;
 
 use super::Operations;
 use crate::{
     Id, LatLon, SimTime,
     geo::Polyline,
     ground::{
-        AirportGround, EdgeKind, GroundName, GroundRoute, Node, Stand, TAXI_SPEED,
-        clearance::{Clearances, Hop},
+        AirportGround, Edge, EdgeKind, GroundName, GroundRoute, Node, Stand, TAXI_SPEED,
+        junctions::{Junctions, Passage, Run},
     },
     ops::{Phase, TaxiGoal, active_runways_now, control::RunwayKey},
     scenario::Scenario,
     world::Airport,
 };
 
-/// Aircraft closer than this would overlap (an A321 is 45 m long): nodes
-/// this close are held together, and an aircraft holds what lies this far
-/// behind it, m.
+/// An aircraft's length behind its reference point (an A321 is 45 m long),
+/// m.
 const AIRCRAFT_LENGTH: f64 = 45.0;
+/// Pilots keep this far behind the aircraft ahead, m.
+const FOLLOW: f64 = 60.0;
+/// A junction's zone reaches this far beyond its nodes along a path: an
+/// aircraft whose body is within it is in the junction, m.
+const ZONE: f64 = 30.0;
+/// Before a junction someone else is in, an aircraft holds this far short
+/// of its nodes, wingtip-clear of whoever passes through, m.
+const HOLD_SHORT: f64 = 45.0;
+/// An aircraft this close to a junction zone's edge, m, has not entered
+/// the zone (it stopped there).
+const EDGE: f64 = 0.5;
+/// Through traffic this close to a junction keeps a yielding aircraft
+/// waiting at its hold, m.
+const GAP: f64 = 150.0;
+/// An aircraft locks the direction of its taxiways this far ahead where no
+/// hold comes first, m.
+const LOCK_AHEAD: f64 = 600.0;
+/// A pushback needs the taxilane clear this far either side of where it
+/// ends, m.
+const PUSH_CLEAR: f64 = 120.0;
 /// An aircraft asks to be cleared on once it is this close to its limit,
 /// so that it rarely has to stop, m.
 const LOOKAHEAD: f64 = 120.0;
@@ -79,14 +102,38 @@ fn taxi_millis(metres: f64) -> i64 {
     millis
 }
 
+/// Who stands where on one chain, this tick: tail, position along the
+/// chain, and whether it moves the chain's way.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Occupant {
+    tail: u32,
+    position: f64,
+}
+
 /// One mapped airport's ground control state.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Airside {
-    clearances: Clearances,
-    /// Per edge, its name, and whether it is part of a runway.
+    junctions: Junctions,
+    /// Per edge, its name and whether it is part of a runway, and its
+    /// length, m.
     names: Vec<(Option<GroundName>, bool)>,
+    lengths: Vec<f64>,
     /// For each node, the index of the active runway it lies on.
     runway_of: Vec<Option<usize>>,
+    /// Per junction, the aircraft cleared into it from a hold.
+    claims: Vec<Option<u32>>,
+    /// Per chain, who has locked it and which way.
+    locks: Vec<Vec<(u32, bool)>>,
+    /// Per chain, the direction recent traffic took it, from -1 (against
+    /// its way) to 1 (D84).
+    flow: Vec<f32>,
+    /// This tick: who is taxiing here, who is in each junction, and who is
+    /// on each chain where.
+    taxiing: Vec<u32>,
+    /// Where each of them is, as pilots see it.
+    seen: Vec<drive::Seen>,
+    occupied: Vec<Vec<u32>>,
+    on_chain: Vec<Vec<Occupant>>,
     spots: Vec<Id<Node>>,
     /// The tail waiting at each spot.
     spot_owner: Vec<Option<u32>>,
@@ -107,6 +154,58 @@ impl Airside {
     /// The active runway `node` lies on, if any.
     fn runway_at(&self, node: Option<Id<Node>>) -> Option<usize> {
         node.and_then(|n| self.runway_of.get(n.as_usize()).copied().flatten())
+    }
+
+    /// Someone other than `owner` who has locked `chain` the other way than
+    /// `forward`.
+    fn opposed(&self, owner: u32, chain: u32, forward: bool) -> Option<u32> {
+        self.locks
+            .get(chain as usize)?
+            .iter()
+            .find(|&&(other, way)| other != owner && way != forward)
+            .map(|&(other, _)| other)
+    }
+
+    /// Locks `chain` for `owner` going `forward`, learning its flow.
+    /// Someone other than `owner` in junction `junction` or cleared into it.
+    fn taken(&self, junction: u32, owner: u32) -> Option<u32> {
+        let j = junction as usize;
+        self.occupied
+            .get(j)
+            .and_then(|list| list.iter().copied().find(|&o| o != owner))
+            .or_else(|| {
+                self.claims
+                    .get(j)
+                    .copied()
+                    .flatten()
+                    .filter(|&o| o != owner)
+            })
+    }
+
+    fn lock(&mut self, owner: u32, chain: u32, forward: bool) {
+        if let Some(locks) = self.locks.get_mut(chain as usize)
+            && !locks.iter().any(|&(other, _)| other == owner)
+        {
+            locks.push((owner, forward));
+            if let Some(flow) = self.flow.get_mut(chain as usize) {
+                let way = if forward { 1.0 } else { -1.0 };
+                *flow = 0.9 * *flow + 0.1 * way;
+            }
+        }
+    }
+
+    /// Frees `owner`'s lock on `chain`.
+    fn unlock(&mut self, owner: u32, chain: u32) {
+        if let Some(locks) = self.locks.get_mut(chain as usize) {
+            locks.retain(|&(other, _)| other != owner);
+        }
+    }
+
+    /// How much traffic has recently taken `chain` against `forward`, 0–1.
+    fn against_flow(&self, chain: u32, forward: bool) -> f64 {
+        let flow = f64::from(self.flow.get(chain as usize).copied().unwrap_or(0.0));
+        let way = if forward { flow } else { -flow };
+        (-way).max(0.0)
     }
 }
 
@@ -144,6 +243,7 @@ impl GroundControl {
             }
             let on_runway: Vec<bool> = runway_of.iter().map(Option::is_some).collect();
             let spots = layout.waiting_spots(&on_runway);
+            let junctions = Junctions::new(layout);
             if let Some(slot) = airports.get_mut(airport.as_usize()) {
                 *slot = Some(Airside {
                     names: layout
@@ -151,11 +251,15 @@ impl GroundControl {
                         .iter()
                         .map(|e| (e.name(), e.kind() == EdgeKind::Runway))
                         .collect(),
-                    clearances: Clearances::new(
-                        layout,
-                        &layout.close_nodes(AIRCRAFT_LENGTH),
-                        AIRCRAFT_LENGTH,
-                    ),
+                    lengths: layout.edges().iter().map(|e| e.length().value()).collect(),
+                    claims: vec![None; junctions.junctions().len()],
+                    taxiing: Vec::new(),
+                    seen: Vec::new(),
+                    occupied: vec![Vec::new(); junctions.junctions().len()],
+                    locks: vec![Vec::new(); junctions.chains().len()],
+                    flow: vec![0.0; junctions.chains().len()],
+                    on_chain: vec![Vec::new(); junctions.chains().len()],
+                    junctions,
                     runway_of,
                     spot_owner: vec![None; spots.len()],
                     spots,
@@ -178,7 +282,14 @@ impl GroundControl {
     /// Frees everything tail `owner` holds at `airport`.
     pub(super) fn release(&mut self, airport: Id<Airport>, owner: u32) {
         if let Some(airside) = self.airside_mut(airport) {
-            airside.clearances.release(owner);
+            for claim in &mut airside.claims {
+                if *claim == Some(owner) {
+                    *claim = None;
+                }
+            }
+            for locks in &mut airside.locks {
+                locks.retain(|&(other, _)| other != owner);
+            }
             for slot in &mut airside.spot_owner {
                 if *slot == Some(owner) {
                     *slot = None;
@@ -210,13 +321,25 @@ pub(super) struct Taxi {
     target: Target,
     /// Where it ends, as the flight panel names it (D85).
     goal: TaxiGoal,
-    /// The stand a departure pushes back from.
+    /// The stand a departure pushes back from, and how far the push goes,
+    /// m.
     stand: Option<GroundName>,
-    /// The route's clearance points, along the path's polyline.
-    hops: Vec<Hop>,
-    /// Hops cleared so far, and hops passed (and freed) so far.
-    granted: usize,
-    passed: usize,
+    push: f64,
+    /// The route's edges, the first taxied from `offset` metres along the
+    /// path, and its last node.
+    edges: Vec<(Id<Edge>, bool)>,
+    offset: f64,
+    end_node: Option<Id<Node>>,
+    /// The junctions it passes and the chains it runs along.
+    passages: Vec<Passage>,
+    runs: Vec<Run>,
+    /// The next passage it has to be cleared into (all before it are),
+    /// and how many runs it has locked.
+    next: usize,
+    locked: usize,
+    /// Where it may taxi up to now, m, and the aircraft it follows there.
+    limit: f64,
+    leader: Option<u32>,
     /// The polyline taxied, and where it ends (past the last hop where it
     /// lines up beyond the holding position), m.
     points: Vec<LatLon>,
@@ -241,19 +364,23 @@ pub(super) struct Taxi {
     escaped: bool,
     /// Holding short of a runway to cross it, since this time, ms.
     crossing: Option<(RunwayKey, i64)>,
+    /// How often it has been sent another way out of a deadlock (D93).
+    reroutes: u8,
 }
 
 impl Taxi {
-    /// Where it may taxi up to: its last cleared point, or the end, m.
+    /// Where it may taxi up to, m.
     fn limit(&self) -> f64 {
-        if self.granted >= self.hops.len() {
-            self.end
-        } else {
-            self.granted
-                .checked_sub(1)
-                .and_then(|i| self.hops.get(i))
-                .map_or(f64::NEG_INFINITY, |hop| hop.along)
-        }
+        self.limit
+    }
+
+    /// The next passage it has to be cleared into, if any.
+    fn next_hold(&self) -> Option<(usize, f64)> {
+        self.passages
+            .iter()
+            .enumerate()
+            .skip(self.next)
+            .find_map(|(i, p)| p.hold.map(|h| (i, h)))
     }
 }
 
@@ -283,16 +410,33 @@ impl Operations {
         from: Id<Node>,
         to: Id<Node>,
     ) -> Option<GroundRoute> {
+        self.route_avoiding(layout, index, (from, to), |_, _| false)
+    }
+
+    /// Like `route_for`, never along the edges `avoid(edge, forward)`.
+    fn route_avoiding(
+        &self,
+        layout: &AirportGround,
+        index: usize,
+        (from, to): (Id<Node>, Id<Node>),
+        avoid: impl Fn(Id<Edge>, bool) -> bool,
+    ) -> Option<GroundRoute> {
         let owner = Self::owner(index);
-        let clearances = self.ground.airside(layout.airport()).map(|a| &a.clearances);
+        let airside = self.ground.airside(layout.airport());
         layout.route_with(from, to, self.wingspans[index], |edge, forward| {
-            clearances.map_or(0.0, |c| {
-                AGAINST_FLOW * c.against_flow(edge, forward)
-                    + if c.opposed(owner, edge, forward).is_some() {
-                        AGAINST_TRAFFIC
-                    } else {
-                        0.0
-                    }
+            if avoid(edge, forward) {
+                return f64::INFINITY;
+            }
+            airside.map_or(0.0, |a| {
+                a.junctions.chain(edge).map_or(0.0, |(chain, way)| {
+                    let forward = way == forward;
+                    AGAINST_FLOW * a.against_flow(chain, forward)
+                        + if a.opposed(owner, chain, forward).is_some() {
+                            AGAINST_TRAFFIC
+                        } else {
+                            0.0
+                        }
+                })
             })
         })
     }
@@ -317,7 +461,15 @@ impl Operations {
         } = start;
         let layout = scenario.ground().airport(airport)?;
         let airside = self.ground.airside(airport)?;
-        let hops = airside.clearances.hops(layout, from, route.edges(), offset);
+        let (passages, runs) = airside
+            .junctions
+            .passages(layout, from, route.edges(), offset);
+        let route_end = offset + route.length().value();
+        let end_node = route.edges().last().and_then(|&(e, forward)| {
+            layout
+                .edge(e)
+                .map(|e| if forward { e.to() } else { e.from() })
+        });
         let mut points = base;
         points.extend(route.points().iter().skip(usize::from(!points.is_empty())));
         let more: f64 = extension
@@ -325,11 +477,10 @@ impl Operations {
             .map(|w| w[0].distance_to(w[1]).value())
             .sum();
         points.extend(extension.iter().skip(1));
-        let end = hops.last().map_or(offset, |hop| hop.along) + more;
+        let end = route_end + more;
         let goal = match target {
             Target::Hold => TaxiGoal::HoldingPoint(
-                hops.last()
-                    .and_then(|hop| hop.node)
+                end_node
                     .and_then(|node| layout.holding_positions().iter().find(|h| h.node() == node))
                     .map(crate::ground::HoldingPosition::runway),
             ),
@@ -344,9 +495,16 @@ impl Operations {
             target,
             goal,
             stand: None,
-            hops,
-            granted: 0,
-            passed: 0,
+            push: 0.0,
+            edges: route.edges().to_vec(),
+            offset,
+            end_node,
+            passages,
+            runs,
+            next: 0,
+            locked: 0,
+            limit: offset,
+            leader: None,
             end,
             started: ms(now),
             unimpeded: taxi_millis(end - offset),
@@ -358,6 +516,7 @@ impl Operations {
             spot_since: 0,
             escaped: false,
             crossing: None,
+            reroutes: 0,
             points: points.clone(),
         });
         Polyline::new(&points).ok()
