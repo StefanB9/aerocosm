@@ -159,20 +159,8 @@ impl AirportGround {
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-        let intermediate_holds = definition
-            .intermediate_holds
-            .into_iter()
-            .map(|node| check.node(node, "an intermediate hold references a missing node"))
-            .collect::<Result<Vec<_>>>()?;
-        let aprons = definition
-            .aprons
-            .into_iter()
-            .map(|ring| {
-                ring.into_iter()
-                    .map(|point| check.point(point))
-                    .collect::<Result<Vec<_>>>()
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let intermediate_holds = Self::build_holds(&check, definition.intermediate_holds)?;
+        let aprons = Self::build_aprons(&check, definition.aprons)?;
         let variants = Self::find_variants(&nodes, &stands)?;
         Ok(Self {
             airport,
@@ -189,6 +177,20 @@ impl AirportGround {
             exits,
             aprons,
         })
+    }
+
+    fn build_aprons(check: &Checker<'_>, rings: Vec<Vec<Point>>) -> Result<Vec<Vec<LatLon>>> {
+        rings
+            .into_iter()
+            .map(|ring| ring.into_iter().map(|point| check.point(point)).collect())
+            .collect()
+    }
+
+    fn build_holds(check: &Checker<'_>, nodes: Vec<u32>) -> Result<Vec<Id<Node>>> {
+        nodes
+            .into_iter()
+            .map(|node| check.node(node, "an intermediate hold references a missing node"))
+            .collect()
     }
 
     fn build_stands(check: &Checker<'_>, definitions: Vec<StandDefinition>) -> Result<Vec<Stand>> {
