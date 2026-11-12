@@ -105,6 +105,7 @@ impl Operations {
                     moving: motion.speed() > STANDING,
                     at_hold: motion.speed() <= STANDING
                         && super::drive::at_a_line(&taxi.passages, taxi.next, along),
+                    waits_for: taxi.waiting_for,
                 });
             }
             // Past its last chain (at the holding point) it stands at that

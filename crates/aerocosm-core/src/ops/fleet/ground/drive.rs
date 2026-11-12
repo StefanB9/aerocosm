@@ -276,7 +276,7 @@ impl Operations {
         airside
             .seen
             .iter()
-            .find(|other| other.tail != owner && in_the_way(here, next, other, owner < other.tail))
+            .find(|other| other.tail != owner && in_the_way(here, next, other, owner))
             .map(|other| other.tail)
     }
 
@@ -313,6 +313,8 @@ pub(super) struct Seen {
     pub(super) moving: bool,
     /// Waiting at a hold line, which is drawn wingtip-clear of the way.
     pub(super) at_hold: bool,
+    /// The aircraft it stands for, if any.
+    pub(super) waits_for: Option<u32>,
 }
 
 /// Whether an aircraft `along` its path through `passages`, cleared up to
@@ -329,8 +331,11 @@ pub(super) fn at_a_line(passages: &[Passage], next: usize, along: f64) -> bool {
 /// Whether an aircraft at `here`, about to move to `next`, has to stop for
 /// `other` (see and avoid): the move brings it closer, within
 /// `SEE_AND_AVOID` of one in front on its way or `TOO_CLOSE` of any. When both
-/// close in on each other, the one with priority (`first`) goes on.
-fn in_the_way(here: LatLon, next: LatLon, other: &Seen, first: bool) -> bool {
+/// close in on each other, or the other stands for tail `me`, the one with
+/// priority (the lower tail) goes on; past a standing one down to
+/// `PAST_HOLD`.
+fn in_the_way(here: LatLon, next: LatLon, other: &Seen, me: u32) -> bool {
+    let first = me < other.tail;
     let (before, after) = (
         here.distance_to(other.at).value(),
         next.distance_to(other.at).value(),
@@ -354,7 +359,8 @@ fn in_the_way(here: LatLon, next: LatLon, other: &Seen, first: bool) -> bool {
     let towards = other.at.initial_bearing_to(here).value();
     let off = (towards - other.heading.value() + 540.0).rem_euclid(360.0) - 180.0;
     let closing = other.moving && off.abs() < 90.0;
-    !(closing && first)
+    let stand_off = !other.moving && other.waits_for == Some(me) && after >= PAST_HOLD;
+    !((closing || stand_off) && first)
 }
 
 #[cfg(test)]
@@ -374,33 +380,34 @@ mod tests {
                 heading: Degrees::from_raw(0.0),
                 moving: false,
                 at_hold: false,
+                waits_for: None,
             })
         };
         // Standing 40 m ahead: stop; 80 m ahead: go on.
-        assert!(in_the_way(here, next, &standing(40.0)?, true));
-        assert!(!in_the_way(here, next, &standing(80.0)?, true));
+        assert!(in_the_way(here, next, &standing(40.0)?, 0));
+        assert!(!in_the_way(here, next, &standing(80.0)?, 0));
         // Behind: moving away from it is fine.
-        assert!(!in_the_way(here, next, &standing(-30.0)?, false));
+        assert!(!in_the_way(here, next, &standing(-30.0)?, 2));
         // Holding short 45 m off to the side of the way: pass it.
         let east = |m: f64| LatLon::new(50.03 + 20.0 / 111_195.0, 8.56 + m / 71_470.0);
         let aside = Seen {
             at: east(42.0)?,
             ..standing(0.0)?
         };
-        assert!(!in_the_way(here, next, &aside, false));
+        assert!(!in_the_way(here, next, &aside, 2));
         // Holding short at a side branch ahead, 45 m along and 26 m off the
         // way: pass it.
         let side = Seen {
             at: LatLon::new(50.03 + 45.0 / 111_195.0, 8.56 + 26.0 / 71_470.0)?,
             ..standing(0.0)?
         };
-        assert!(!in_the_way(here, next, &side, false));
+        assert!(!in_the_way(here, next, &side, 2));
         // Anyone closer than 25 m that it closes in on: stop.
         let close = Seen {
             at: east(15.0)?,
             ..standing(0.0)?
         };
-        assert!(in_the_way(here, next, &close, false));
+        assert!(in_the_way(here, next, &close, 2));
         // Unless it waits at a hold line, drawn wingtip-clear: those are
         // passed down to half an airliner's length…
         let at_hold = Seen {
@@ -408,21 +415,32 @@ mod tests {
             at_hold: true,
             ..close
         };
-        assert!(!in_the_way(here, next, &at_hold, false));
+        assert!(!in_the_way(here, next, &at_hold, 2));
         // …but never driven into.
         let on_the_way = Seen {
             at_hold: true,
             ..standing(20.0)?
         };
-        assert!(in_the_way(here, next, &on_the_way, false));
+        assert!(in_the_way(here, next, &on_the_way, 2));
+        // Standing in front and waiting for this one in turn: the one with
+        // priority goes on, but not closer than half an airliner's length.
+        let stand_off = |m: f64, me: u32| -> Result<Seen> {
+            Ok(Seen {
+                waits_for: Some(me),
+                ..standing(m)?
+            })
+        };
+        assert!(!in_the_way(here, next, &stand_off(40.0, 0)?, 0));
+        assert!(in_the_way(here, next, &stand_off(40.0, 2)?, 2));
+        assert!(in_the_way(here, next, &stand_off(20.0, 0)?, 0));
         // Head-on, both moving: the one with priority goes on.
         let coming = Seen {
             heading: Degrees::from_raw(180.0),
             moving: true,
             ..standing(40.0)?
         };
-        assert!(!in_the_way(here, next, &coming, true));
-        assert!(in_the_way(here, next, &coming, false));
+        assert!(!in_the_way(here, next, &coming, 0));
+        assert!(in_the_way(here, next, &coming, 2));
         Ok(())
     }
 
