@@ -48,9 +48,6 @@ pub(crate) struct Clearances {
     near: Vec<Vec<u32>>,
     /// Per point, the aircraft holding it.
     holder: Vec<Option<u32>>,
-    /// Per point, the aircraft following its holder there, which takes
-    /// the point over when the holder leaves (plan M4 D89).
-    follower: Vec<Option<u32>>,
     /// Per edge, the aircraft on it and their direction.
     users: Vec<Vec<(u32, bool)>>,
     /// Per edge, the aircraft cleared to take it soon and their direction.
@@ -92,7 +89,10 @@ impl Clearances {
         let mut stop = vec![true; next as usize];
         for (point, slot) in stop.iter_mut().enumerate().take(nodes as usize) {
             let point = u32::try_from(point).unwrap_or(u32::MAX);
-            *slot = !junction(point);
+            *slot = !junction(point)
+                && !lists
+                    .get(point as usize)
+                    .is_some_and(|near| near.iter().any(|&n| junction(n)));
         }
         lists.resize(next as usize, Vec::new());
         // Points on edges against everything near them: parallel lanes and
@@ -118,7 +118,6 @@ impl Clearances {
             nodes,
             near: lists,
             holder: vec![None; next as usize],
-            follower: vec![None; next as usize],
             users: vec![Vec::new(); layout.edges().len()],
             intents: vec![Vec::new(); layout.edges().len()],
             flow: vec![0.0; layout.edges().len()],
@@ -256,15 +255,10 @@ impl Clearances {
     /// Clears `owner` to `hop`: it holds the point, unless someone else
     /// does (an aircraft cleared regardless), and is on its edge.
     pub(crate) fn enter(&mut self, owner: u32, hop: &Hop) {
-        let point = hop.point as usize;
-        match self.holder.get(point).copied() {
-            Some(None) => self.holder[point] = Some(owner),
-            Some(Some(holder)) if holder != owner => {
-                if let Some(slot) = self.follower.get_mut(point) {
-                    slot.get_or_insert(owner);
-                }
-            }
-            _ => {}
+        if let Some(slot) = self.holder.get_mut(hop.point as usize)
+            && slot.is_none()
+        {
+            *slot = Some(owner);
         }
         if let Some((edge, forward)) = hop.via
             && let Some(users) = self.users.get_mut(edge.as_usize())
@@ -292,7 +286,11 @@ impl Clearances {
     /// `owner` has passed `hop`: it frees the point and, at the end of the
     /// edge, leaves the edge.
     pub(crate) fn leave(&mut self, owner: u32, hop: &Hop) {
-        self.hand_on(hop.point as usize, owner);
+        if let Some(slot) = self.holder.get_mut(hop.point as usize)
+            && *slot == Some(owner)
+        {
+            *slot = None;
+        }
         if hop.node.is_some()
             && let Some((edge, _)) = hop.via
             && let Some(users) = self.users.get_mut(edge.as_usize())
@@ -301,42 +299,12 @@ impl Clearances {
         }
     }
 
-    /// Whether `owner` may be cleared to `point` behind `leader`: the point
-    /// is free, or `leader` holds it and nobody else follows there.
-    pub(crate) fn can_follow(&self, owner: u32, leader: u32, point: u32) -> bool {
-        let point = point as usize;
-        match self.holder.get(point).copied().flatten() {
-            None => true,
-            Some(holder) if holder == owner => true,
-            Some(holder) if holder == leader => self
-                .follower
-                .get(point)
-                .copied()
-                .flatten()
-                .is_none_or(|f| f == owner),
-            Some(_) => false,
-        }
-    }
-
-    /// `owner` leaves `point`: its follower there takes it over, or it is
-    /// free; a follower that leaves first gives up its place.
-    fn hand_on(&mut self, point: usize, owner: u32) {
-        let (Some(holder), Some(follower)) =
-            (self.holder.get_mut(point), self.follower.get_mut(point))
-        else {
-            return;
-        };
-        if *holder == Some(owner) {
-            *holder = follower.take();
-        } else if *follower == Some(owner) {
-            *follower = None;
-        }
-    }
-
     /// Frees everything `owner` holds.
     pub(crate) fn release(&mut self, owner: u32) {
-        for point in 0..self.holder.len() {
-            self.hand_on(point, owner);
+        for slot in &mut self.holder {
+            if *slot == Some(owner) {
+                *slot = None;
+            }
         }
         for users in self.users.iter_mut().chain(&mut self.intents) {
             users.retain(|&(user, _)| user != owner);
@@ -531,42 +499,6 @@ mod tests {
         // each other along it.
         clearances.enter(7, &south[0]);
         assert_eq!(clearances.blocker(8, &south[1], None), None);
-        Ok(())
-    }
-
-    #[test]
-    fn test_a_follower_inherits_the_points_its_leader_leaves() -> Result<()> {
-        let layout = grid(3, 0.00225)?;
-        let mut clearances = Clearances::new(&layout, &layout.close_nodes(45.0), 45.0);
-        let route = clearances.hops(&layout, Id::new(0), &[edge(&layout, 0, 1)?], 0.0);
-        clearances.enter(7, &route[1]);
-        // 8 follows 7 onto the same point: 7 still holds it.
-        clearances.enter(8, &route[1]);
-        assert_eq!(clearances.blocker(9, &route[1], None), Some(7));
-        // 7 moves on: 8 holds it at once, nobody slips in between.
-        clearances.leave(7, &route[1]);
-        assert_eq!(clearances.blocker(9, &route[1], None), Some(8));
-        assert_eq!(clearances.blocker(8, &route[1], None), None);
-        clearances.leave(8, &route[1]);
-        assert_eq!(clearances.blocker(9, &route[1], None), None);
-        // A taxi that ends hands its points on too.
-        clearances.enter(7, &route[2]);
-        clearances.enter(8, &route[2]);
-        clearances.release(7);
-        assert_eq!(clearances.blocker(9, &route[2], None), Some(8));
-        // One follower per point.
-        clearances.enter(7, &route[0]);
-        assert!(clearances.can_follow(8, 7, route[0].point));
-        clearances.enter(8, &route[0]);
-        assert!(!clearances.can_follow(9, 7, route[0].point));
-        assert!(clearances.can_follow(8, 7, route[0].point));
-        assert!(!clearances.can_follow(9, 12, route[0].point));
-        // A follower that leaves before inheriting gives up its place.
-        clearances.enter(10, &route[3]);
-        clearances.enter(11, &route[3]);
-        clearances.leave(11, &route[3]);
-        clearances.leave(10, &route[3]);
-        assert_eq!(clearances.blocker(9, &route[3], None), None);
         Ok(())
     }
 

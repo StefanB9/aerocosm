@@ -6,8 +6,7 @@
 //! nobody comes the other way on the route ahead.
 
 use super::{
-    AIRCRAFT_LENGTH, DEADLOCK_AFTER, LOOKAHEAD, Leader, STUCK_AFTER, Target, Taxi, ms, taxi_millis,
-    time_of,
+    AIRCRAFT_LENGTH, DEADLOCK_AFTER, LOOKAHEAD, STUCK_AFTER, Target, Taxi, ms, taxi_millis, time_of,
 };
 use crate::{
     SimDuration, SimTime,
@@ -44,8 +43,6 @@ struct Batch {
     ahead: usize,
     /// The runway it crosses, and until when.
     crossing: Option<(RunwayKey, SimTime)>,
-    /// The aircraft it follows, if the way is held by one going its way.
-    leader: Option<Leader>,
 }
 
 impl Operations {
@@ -256,31 +253,8 @@ impl Operations {
             ahead += 1;
         }
         let escape = taxi.escaped || overdue(taxi, now);
-        let held =
-            (first..=last).find_map(|i| clearances.blocker(owner, &hops[i], None).map(|b| (i, b)));
-        // Only a taxiing aircraft can keep its distance: not one pushing
-        // back or still on its landing roll.
-        let taxiing = self.tails[index]
-            .motion
-            .as_ref()
-            .is_some_and(|m| matches!(m.phase(), Phase::TaxiOut | Phase::TaxiIn));
-        let leader = held.filter(|_| taxiing && false).and_then(|(i, b)| {
-            (first..=last)
-                // Only up to the leader's tail, the way it went.
-                .all(|k| {
-                    self.reached_by(b, hops[k].point)
-                        && clearances
-                            .blocker(owner, &hops[k], None)
-                            .is_none_or(|x| x == b)
-                        && clearances.can_follow(owner, b, hops[k].point)
-                        && self.same_way(index, k, b).is_some()
-                })
-                .then(|| self.same_way(index, i, b))
-                .flatten()
-        });
-        let blocker = held
-            .filter(|_| leader.is_none())
-            .map(|(_, b)| b)
+        let blocker = (first..=last)
+            .find_map(|i| clearances.blocker(owner, &hops[i], None))
             .or_else(|| {
                 (first..=ahead).find_map(|i| {
                     hops[i]
@@ -324,7 +298,6 @@ impl Operations {
             first,
             last,
             ahead,
-            leader,
             crossing: key.map(|key| (key, until)),
         })
     }
@@ -361,75 +334,6 @@ impl Operations {
         points
             .map(|&(_, wanter, _)| wanter)
             .or_else(|| edges().map(|&(_, wanter, _, _)| wanter))
-    }
-
-    /// Tail `leader`, holding the way at hop `at` of tail `index`'s route,
-    /// as its leader: if its own route passes that point and goes on the
-    /// same way.
-    fn same_way(&self, index: usize, at: usize, leader: u32) -> Option<Leader> {
-        if self.follows(leader, Self::owner(index)) {
-            return None;
-        }
-        let mine = self.taxis[index].as_ref()?;
-        let theirs = self.taxis.get(leader as usize)?.as_ref()?;
-        let hop = mine.hops.get(at)?;
-        let next = mine.hops.get(at + 1).and_then(|h| h.via);
-        let j = theirs.hops.iter().position(|h| h.point == hop.point)?;
-        let goes_on = theirs.hops.get(j + 1).and_then(|h| h.via);
-        // In line ahead only: at a merge the leader has to be past it, else
-        // both wait for each other there.
-        let past = self.tails[leader as usize]
-            .motion
-            .as_ref()
-            .is_some_and(|m| m.along() >= theirs.hops[j].along);
-        (past && (next.is_none() || goes_on == next)).then_some(Leader {
-            tail: leader,
-            mine: hop.along,
-            theirs: theirs.hops[j].along,
-        })
-    }
-
-    /// Whether tail `leader` has reached `point` on its way: a follower
-    /// may be cleared that far, not into the way ahead of the leader.
-    fn reached_by(&self, leader: u32, point: u32) -> bool {
-        let Some(along) = self
-            .tails
-            .get(leader as usize)
-            .and_then(|tail| tail.motion.as_ref())
-            .map(crate::ops::motion::Motion::along)
-        else {
-            return false;
-        };
-        self.taxis
-            .get(leader as usize)
-            .and_then(Option::as_ref)
-            .is_some_and(|taxi| {
-                taxi.hops[..taxi.granted.min(taxi.hops.len())]
-                    .iter()
-                    .any(|hop| hop.point == point && hop.along <= along)
-            })
-    }
-
-    /// Whether tail `tail` follows tail `owner`, directly or behind others
-    /// that do: then `owner` must not follow it.
-    fn follows(&self, tail: u32, owner: u32) -> bool {
-        /// Lines of followers longer than this are not followed.
-        const LONGEST: usize = 32;
-        let mut line = vec![tail];
-        let mut seen = 0;
-        while let Some(current) = line.pop() {
-            seen += 1;
-            if current == owner {
-                return true;
-            }
-            if seen > LONGEST {
-                return false;
-            }
-            if let Some(taxi) = self.taxis.get(current as usize).and_then(Option::as_ref) {
-                line.extend(taxi.leaders.iter().map(|l| l.tail));
-            }
-        }
-        false
     }
 
     /// Whether tail `wanter` waits on tail `owner`, directly or through
@@ -521,10 +425,6 @@ impl Taxi {
             }
         }
         self.granted = batch.last + 1;
-        if let Some(leader) = batch.leader {
-            self.leaders.retain(|l| l.tail != leader.tail);
-            self.leaders.push(leader);
-        }
         self.waiting_since = None;
         self.waiting_for = None;
         self.deadlock_since = None;

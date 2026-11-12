@@ -65,7 +65,7 @@ struct Observed {
     /// Aircraft seen taxiing without a taxi state, and who.
     stateless: (u32, String),
     /// Which taxi states were seen, in `TaxiState` order.
-    states: [bool; 8],
+    states: [bool; 7],
 }
 
 fn describe(flight: &FlightView, simulation: &Simulation) -> String {
@@ -112,10 +112,9 @@ fn state_index(state: TaxiState) -> usize {
         TaxiState::Taxiing { .. } => 1,
         TaxiState::HoldingShort { .. } => 2,
         TaxiState::WaitingFor { .. } => 3,
-        TaxiState::Following { .. } => 4,
-        TaxiState::AtHoldingPoint { .. } => 5,
-        TaxiState::WaitingForStand => 6,
-        TaxiState::ClearedRegardless { .. } => 7,
+        TaxiState::AtHoldingPoint { .. } => 4,
+        TaxiState::WaitingForStand => 5,
+        TaxiState::ClearedRegardless { .. } => 6,
     }
 }
 
@@ -132,7 +131,7 @@ fn observe(simulation: &mut Simulation, hours: u32, every: u32) -> Result<Observ
         closest: (f64::INFINITY, String::new()),
         longest: (SimDuration::ZERO, String::new()),
         stateless: (0, String::new()),
-        states: [false; 8],
+        states: [false; 7],
     };
     let mut since: HashMap<usize, SimTime> = HashMap::new();
     for _ in 0..hours * 3_600 / every {
@@ -204,7 +203,7 @@ const CLOSEST: f64 = 20.0;
 
 #[test]
 fn test_ground_traffic_keeps_apart_and_flows() -> Result<()> {
-    let mut seen = [false; 8];
+    let mut seen = [false; 7];
     for seed in [3, 7, 11] {
         let mut simulation = simulation(seed)?;
         let observed = observe(&mut simulation, 4, 10)?;
@@ -249,7 +248,7 @@ fn test_ground_traffic_keeps_apart_and_flows() -> Result<()> {
         );
     }
     // Every taxi state occurs in the morning bank.
-    assert_eq!(seen, [true; 8]);
+    assert_eq!(seen, [true; 7]);
     Ok(())
 }
 
