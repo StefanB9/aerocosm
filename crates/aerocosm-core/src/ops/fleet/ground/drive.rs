@@ -58,11 +58,14 @@ impl Operations {
         }
         let along = motion.along();
         self.go_around(index, along);
-        // Held up far too long, or the one to give way in a deadlock: it
-        // taxies regardless (D75).
-        if let Some(taxi) = self.taxis[index].as_mut()
-            && !taxi.escaped
-            && overdue(taxi, now)
+        // Held up far too long, or the one to give way in a deadlock: it is
+        // sent another way (D93), or if there is none taxies regardless
+        // (D75).
+        if self.taxis[index]
+            .as_ref()
+            .is_some_and(|taxi| !taxi.escaped && overdue(taxi, now))
+            && !self.reroute(scenario, index, motion, now)
+            && let Some(taxi) = self.taxis[index].as_mut()
         {
             taxi.escaped = true;
             let airport = taxi.airport;

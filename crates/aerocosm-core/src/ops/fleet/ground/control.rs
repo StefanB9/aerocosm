@@ -310,7 +310,9 @@ impl Operations {
         };
         let passage = taxi.passages[i];
         let j = passage.junction as usize;
-        let escape = taxi.escaped || overdue(taxi, now);
+        // Overdue, it is sent another way or taxies regardless when it next
+        // moves (`drive_taxi`).
+        let escape = taxi.escaped;
         let other = |slot: Option<u32>| slot.filter(|&o| o != owner);
         let inside = airside
             .occupied
@@ -386,7 +388,6 @@ impl Operations {
             self.stats
                 .waited_for_clearance(airport, SimDuration::from_millis(ms(now) - since));
         }
-        let regardless = !taxi.escaped && overdue(taxi, now);
         if let Some(airside) = self.ground.airside_mut(airport) {
             if let Some(slot) = airside.claims.get_mut(j) {
                 slot.get_or_insert(owner);
@@ -410,10 +411,6 @@ impl Operations {
         taxi.waiting_for = None;
         taxi.deadlock_since = None;
         taxi.crossing = None;
-        if regardless {
-            taxi.escaped = true;
-            self.stats.ground_conflict(airport);
-        }
     }
 
     /// Another aircraft on the through taxiway (or already cleared in) that

@@ -136,6 +136,18 @@ impl Path {
         self.taxi_in.length().value()
     }
 
+    /// Taxies on along `route` instead (another way out of a deadlock, the
+    /// part taxied kept), out or in; returns its length, m.
+    pub(crate) fn retaxi(&mut self, out: bool, route: Polyline) -> f64 {
+        let taxi = if out {
+            &mut self.taxi_out
+        } else {
+            &mut self.taxi_in
+        };
+        *taxi = route;
+        taxi.length().value()
+    }
+
     /// Position and true course of an aircraft in `motion` on this path.
     pub(crate) fn locate(&self, motion: &Motion) -> (LatLon, Degrees) {
         let along = Meters::from_raw(motion.along());

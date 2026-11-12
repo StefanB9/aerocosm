@@ -11,6 +11,7 @@ mod arrival;
 mod control;
 mod departure;
 mod drive;
+mod reroute;
 mod state;
 mod tight;
 
@@ -348,6 +349,8 @@ pub(super) struct Taxi {
     escaped: bool,
     /// Holding short of a runway to cross it, since this time, ms.
     crossing: Option<(RunwayKey, i64)>,
+    /// How often it has been sent another way out of a deadlock (D93).
+    reroutes: u8,
 }
 
 impl Taxi {
@@ -392,9 +395,23 @@ impl Operations {
         from: Id<Node>,
         to: Id<Node>,
     ) -> Option<GroundRoute> {
+        self.route_avoiding(layout, index, (from, to), |_, _| false)
+    }
+
+    /// Like `route_for`, never along the edges `avoid(edge, forward)`.
+    fn route_avoiding(
+        &self,
+        layout: &AirportGround,
+        index: usize,
+        (from, to): (Id<Node>, Id<Node>),
+        avoid: impl Fn(Id<Edge>, bool) -> bool,
+    ) -> Option<GroundRoute> {
         let owner = Self::owner(index);
         let airside = self.ground.airside(layout.airport());
         layout.route_with(from, to, self.wingspans[index], |edge, forward| {
+            if avoid(edge, forward) {
+                return f64::INFINITY;
+            }
             airside.map_or(0.0, |a| {
                 a.junctions.chain(edge).map_or(0.0, |(chain, way)| {
                     let forward = way == forward;
@@ -484,6 +501,7 @@ impl Operations {
             spot_since: 0,
             escaped: false,
             crossing: None,
+            reroutes: 0,
             points: points.clone(),
         });
         Polyline::new(&points).ok()
