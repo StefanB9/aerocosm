@@ -65,6 +65,10 @@ small components are cut off by the query box or are disconnected service areas.
 | D86 | **Taxi route query (PR 5):** `Simulation::taxi_route(tail)` returns the selected aircraft's taxi polyline, how far along it is, how far it is cleared and where the route ends; computed on demand for one aircraft, not per tick | The viewer draws the route and the cleared part without the core keeping anything for it |
 | D87 | **Ground drawing (PR 5):** below an airport zoom threshold, apron polygons as meshes tessellated once at start-up; taxiway and taxilane centrelines, stand lead-ins and stand markers as gizmo lines redrawn each frame, only for mapped airports in view. A selected taxiing aircraft shows its route ahead, the cleared part brighter and its clearance limit marked. Taxiway names (one label per named stretch) and stand names at closer zoom go through the existing label placement, after airports | Gizmos keep the code small; culling by airport keeps the per-frame cost to the airports on screen |
 | D88 | **Clearance waits (PR 5):** the statistics add the time taxiing aircraft wait for a clearance, per airport (total and average per taxi), shown in the airport panel's flow status next to the taxi delay and in the headless run summary | Shows where ground control holds traffic, e.g. the Frankfurt regression |
+| D89 | **Follow clearances (PR 6):** an aircraft whose way is held by a leader going the same way along the same route is cleared to follow it, as controllers say "follow the A320": it may take the points the leader leaves as soon as they are free and taxies up to a following distance (60 m) behind the leader, stopping when it stops. Its clearance limit is the leader's, so convoys move at taxi speed instead of stop-and-go. Crossing or merging traffic and head-on rules are unchanged | A 24 h run shows FRA's waits (25,000 min, 95 % arrivals taxiing in) are convoys on taxiway P behind moving leaders, chains of median 9 aircraft; following removes the stop-and-go |
+| D90 | **Go-arounds (PR 6):** on short final the tower checks the landing can vacate: the runway is clear and an exit is free or will be by touchdown. If not, the aircraft goes around: it climbs out on the runway heading to the missed-approach altitude, flies back to the final fix and is re-sequenced for the next free landing slot. Counted per airport as a statistic, not a ground conflict, and shown in the flight panel | Replaces counting a landing with every exit taken as a conflict (PR 4); what towers do |
+| D91 | **Departure management per runway (PR 6):** the expected take-off timeline and learnt interval are kept per departure runway, shared by all its holding positions; a pushback waits at the gate while the runway's queue would exceed two minutes | Berlin queued up to an hour because each holding position kept its own estimate |
+| D92 | **Acceptance (PR 6):** the 7-day run (seed 0) has zero ground conflicts (escapes stay as a counted safety net; go-arounds are not conflicts), FRA's average taxi delay is back near PR 3's (~2 min), movement targets and capacities hold, and the benchmark is re-measured | The M4 definition of done |
 
 
 ## PR 1 — OSM import and ground network asset
@@ -165,6 +169,20 @@ small components are cut off by the query box or are disconnected service areas.
   The pushback turn is in the core: the heading eases from nose-to-stand to the taxi
   direction over the push, so the viewer needs no special blend. Speed control is noted only
   while airborne.
+
+## PR 6 — Close-out (D89–D92)
+
+- Core, ground: follow clearances (D89) in `grant.rs` (who leads whom) and `drive.rs`
+  (following distance behind the leader); the taxi state says "following DLH123".
+- Core, runway: go-arounds (D90): the short-final check in the runway controller, a
+  missed-approach path and phase, re-sequencing, the statistic; flight panel note.
+- Core, departures: departure management per runway (D91).
+- Verification: the 7-day and 24 h runs, the benchmark, `docs/known-issues.md` updated
+  (FRA, go-arounds and Berlin entries closed or re-measured).
+- **Tests:** following on a grid fixture (a follower keeps its distance and never overtakes;
+  crossing traffic still waits); a go-around when the exit is blocked, re-sequenced and landing
+  later; per-runway departure management with two holding positions; the ground integration
+  test tightened (no escapes in the morning bank on seeds 1, 3, 7, 11); determinism.
 
 ## Definition of done
 
