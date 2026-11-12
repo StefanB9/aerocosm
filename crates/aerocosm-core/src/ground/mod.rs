@@ -10,14 +10,12 @@ use crate::{
 
 mod airport;
 mod areas;
-pub(crate) mod clearance;
 mod definition;
 mod elements;
 
 pub(crate) mod junctions;
 mod route;
 mod runways;
-mod spacing;
 mod taxi;
 
 pub use airport::AirportGround;

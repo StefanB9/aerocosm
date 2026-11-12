@@ -83,9 +83,9 @@ impl Run {
 /// An airport's junctions, chains and holds.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Junctions {
-    junctions: Vec<Junction>,
+    all: Vec<Junction>,
     /// Per node, its junction.
-    junction_of: Vec<Option<u32>>,
+    of_node: Vec<Option<u32>>,
     /// Per edge, its chain, whether it runs the chain's way and where its
     /// first node in the chain's way lies along the chain, m; lead-ins and
     /// edges inside a junction have none.
@@ -107,6 +107,66 @@ struct Chain {
     holds: Vec<f64>,
     /// Bearing leaving the start and leaving the end, degrees.
     bearings: [f64; 2],
+}
+
+/// Where each approach to a junction holds, m before it, per chain and end;
+/// chains `inner` to a junction have none.
+fn hold_positions(
+    layout: &AirportGround,
+    chains: &[Chain],
+    inner: &[bool],
+    junctions: &[Junction],
+    junction_of: &[Option<u32>],
+) -> Vec<[Option<f64>; 2]> {
+    // Approaches per junction: (chain, end 0 = start / 1 = end).
+    let mut approaches: Vec<Vec<(usize, usize)>> = vec![Vec::new(); junctions.len()];
+    for (i, chain) in chains.iter().enumerate() {
+        if inner[i] {
+            continue;
+        }
+        for (end, node) in [(0, chain.start), (1, chain.end)] {
+            if let Some(j) = node.and_then(|n| junction_of[n.as_usize()]) {
+                approaches[j as usize].push((i, end));
+            }
+        }
+    }
+    // Where each approach holds, m before its junction.
+    let mut hold_at: Vec<[Option<f64>; 2]> = vec![[None, None]; chains.len()];
+    for (j, list) in approaches.iter().enumerate() {
+        let runway = junctions[j].runway;
+        let through = if runway {
+            Vec::new()
+        } else {
+            through_pair(layout, chains, list)
+        };
+        for &(i, end) in list {
+            let chain = &chains[i];
+            let near = |d: f64| if end == 0 { d } else { chain.length - d };
+            let real = chain
+                .holds
+                .iter()
+                .map(|&d| near(d))
+                .filter(|&d| d <= chain.length / 2.0)
+                .fold(f64::INFINITY, f64::min);
+            hold_at[i][end] = if real.is_finite() {
+                Some(real)
+            } else if runway {
+                Some(RUNWAY_HOLD.min(chain.length))
+            } else if through.contains(&(i, end)) {
+                None
+            } else {
+                Some(YIELD_HOLD.min(chain.length / 2.0))
+            }
+            .map(|hold| {
+                if runway {
+                    hold
+                } else {
+                    clear_of(layout, chain, end, &junctions[j].nodes, hold)
+                }
+            });
+        }
+    }
+    hold_at
 }
 
 /// The point `distance` metres along `chain` from its end `end` (0 = start),
@@ -296,54 +356,7 @@ impl Junctions {
                 junction.nodes.push(id);
             }
         }
-        // Approaches per junction: (chain, end 0 = start / 1 = end).
-        let mut approaches: Vec<Vec<(usize, usize)>> = vec![Vec::new(); junctions.len()];
-        for (i, chain) in chains.iter().enumerate() {
-            if inner[i] {
-                continue;
-            }
-            for (end, node) in [(0, chain.start), (1, chain.end)] {
-                if let Some(j) = node.and_then(|n| junction_of[n.as_usize()]) {
-                    approaches[j as usize].push((i, end));
-                }
-            }
-        }
-        // Where each approach holds, m before its junction.
-        let mut hold_at: Vec<[Option<f64>; 2]> = vec![[None, None]; chains.len()];
-        for (j, list) in approaches.iter().enumerate() {
-            let runway = junctions[j].runway;
-            let through = if runway {
-                Vec::new()
-            } else {
-                through_pair(layout, &chains, list)
-            };
-            for &(i, end) in list {
-                let chain = &chains[i];
-                let near = |d: f64| if end == 0 { d } else { chain.length - d };
-                let real = chain
-                    .holds
-                    .iter()
-                    .map(|&d| near(d))
-                    .filter(|&d| d <= chain.length / 2.0)
-                    .fold(f64::INFINITY, f64::min);
-                hold_at[i][end] = if real.is_finite() {
-                    Some(real)
-                } else if runway {
-                    Some(RUNWAY_HOLD.min(chain.length))
-                } else if through.contains(&(i, end)) {
-                    None
-                } else {
-                    Some(YIELD_HOLD.min(chain.length / 2.0))
-                }
-                .map(|hold| {
-                    if runway {
-                        hold
-                    } else {
-                        clear_of(layout, chain, end, &junctions[j].nodes, hold)
-                    }
-                });
-            }
-        }
+        let hold_at = hold_positions(layout, &chains, &inner, &junctions, &junction_of);
         let mut chain_of = vec![None; layout.edges().len()];
         let mut holds = vec![[None, None]; layout.edges().len()];
         let mut lengths = Vec::new();
@@ -367,8 +380,8 @@ impl Junctions {
             }
         }
         Self {
-            junctions,
-            junction_of,
+            all: junctions,
+            of_node: junction_of,
             chain_of,
             chains: lengths,
             holds,
@@ -377,7 +390,7 @@ impl Junctions {
 
     /// The junctions.
     pub(crate) fn junctions(&self) -> &[Junction] {
-        &self.junctions
+        &self.all
     }
 
     /// Each chain's length, m.
@@ -396,7 +409,7 @@ impl Junctions {
 
     /// The junction `node` belongs to, if any.
     pub(crate) fn junction_of(&self, node: Id<Node>) -> Option<u32> {
-        self.junction_of.get(node.as_usize()).copied().flatten()
+        self.of_node.get(node.as_usize()).copied().flatten()
     }
 
     /// The junctions a route from `start` along `edges` passes, its first
@@ -462,6 +475,12 @@ impl Junctions {
     }
 }
 
+/// An approach to a junction: a chain and its end (0 = start, 1 = end).
+type Approach = (usize, usize);
+/// How well two approaches go through: by kind (taxiways first), then off
+/// straight, degrees.
+type Rank = (u8, f64);
+
 /// Of the approaches `list` to one junction, the through pair: the two with
 /// the same taxiway name, else the straightest within `STRAIGHT`; none if
 /// neither.
@@ -487,7 +506,7 @@ fn through_pair(
         })
     };
     let leaving = |&(i, end): &(usize, usize)| chains[i].bearings[end];
-    let mut best: Option<((u8, f64), [(usize, usize); 2])> = None;
+    let mut best: Option<(Rank, [Approach; 2])> = None;
     for (k, a) in list.iter().enumerate() {
         for b in &list[k + 1..] {
             let turn = (leaving(a) - leaving(b) + 540.0).rem_euclid(360.0) - 180.0;

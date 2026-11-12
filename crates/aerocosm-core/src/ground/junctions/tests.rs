@@ -287,7 +287,7 @@ fn test_shipped_hubs_have_compact_junctions() -> Result<()> {
             .fold(0.0, f64::max);
         assert!(widest <= 250.0, "{ident}: a junction {widest:.0} m across");
         assert!(junctions.junctions().len() > 50, "{ident}");
-        assert!(!junctions.chains().is_empty());
+        assert_ne!(junctions.chains().len(), 0);
     }
     Ok(())
 }
