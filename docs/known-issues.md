@@ -37,6 +37,19 @@ cycles at the apron exits hold aircraft for a minute before one gives way.
 
 **Intended fix:** flows (D84), departure management per runway (D91).
 
+### Landings roll on to late exits
+
+**What:** landings often seem to take the last exit. A 24 h run (seed 0) has 2,290 landings:
+72 % vacate at their planned exit, 10 % roll on to a later one because the planned exit's
+way off is not approved, and 17 % find no exit clear and wait on the runway. The planned
+exit is the runway's last for 10 %.
+
+**Why:** the approval of the way off the runway (`clear_way`) asks for the whole route to be
+free of opposing locks and the first 200 m clear; the planned roll (touchdown at 300 m,
+braking at 1.8 m/s² to 15 or 8 m/s) is not yet checked against real exit use.
+
+**Intended fix:** plan M4 PR 7 (exits, with go-arounds D90).
+
 ### No go-arounds
 
 **What:** a landing that cannot vacate because every exit is taken taxies regardless and
@@ -72,3 +85,13 @@ movements a day), so most route searches fail after exploring the whole network.
 
 **Decision (M4 PR 3):** D74 amended; revisit when the world grows beyond Germany. Not yet
 re-measured with the PR 4 controller.
+
+## Viewer
+
+### Aircraft hard to see on the ground
+
+**What:** zoomed in to an airport's ground, aircraft are hard to tell apart from the aprons
+and taxiways in the current colour scheme.
+
+**Intended fix:** a small viewer change after plan M4 PR 7: contrast of aircraft against
+aprons and taxiways at ground zoom.

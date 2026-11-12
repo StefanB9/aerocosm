@@ -200,6 +200,11 @@ small components are cut off by the query box or are disconnected service areas.
 
 - Core, runway: the short-final check, missed approach, re-sequencing, statistic; flight
   panel note. Departure management per runway.
+- Exits: check the exit distances in the ground data and the planned roll against real exit
+  use (FRA, MUC); relax the approval of the way off the runway so that a landing takes its
+  planned exit unless that is truly blocked. A 24 h run (seed 0, PR 6) has 72 % of landings
+  on their planned exit, 10 % rolling on to a later one and 17 % with none clear, waiting
+  on the runway; with go-arounds those go around instead.
 - Acceptance: the 7-day run (zero escapes), FRA taxi delay ~2 min, benchmark re-measured,
   `docs/known-issues.md` updated.
 
