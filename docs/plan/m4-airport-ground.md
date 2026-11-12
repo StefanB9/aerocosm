@@ -207,6 +207,23 @@ small components are cut off by the query box or are disconnected service areas.
   on the runway; with go-arounds those go around instead.
 - Acceptance: the 7-day run (zero escapes), FRA taxi delay ~2 min, benchmark re-measured,
   `docs/known-issues.md` updated.
+- **As built:**
+  - Exits: a landing needs only its way off the runway clear to vacate (nobody coming the
+    other way within 3 km, the way to the aprons); planned exits 72 → 82 %, none clear
+    17 → 4 % (24 h, seed 0).
+  - Go-arounds (D90 as refined): `Request::Land` at 2 NM, `Phase::GoAround` along a pattern
+    planned with the leg (upwind 5 km, downwind 5 km left, back to the final fix), holding
+    there for the next approach with a new slot; ground control reports landings standing on
+    the runway. 0–6 a day in 24 h runs.
+  - Departure management per runway (D91): each departure's turn is one learnt interval
+    after the last line-up plus one per departure cleared before it; the interval is learnt
+    while a queue waits and relaxes towards the nominal one otherwise. FRA departure delay
+    37–47 → 14–17 min, BER 7–10 → 4–6 min (24 h, seeds 0–7).
+  - **Acceptance (D92), 7-day run, seed 0:** movement targets hold (one small airport off
+    target), no capacity exceeded; network departure delay 9.0 min, arrival 8.7 min; taxi
+    delay 2.5 min, FRA 3.2 min (target ~2); 16 go-arounds; **733 escapes in 32,372 taxis
+    (2.3 %)**, so zero escapes is not met (docs/known-issues.md); benchmark 3.8 ms per tick
+    for 15k aircraft (dev: 3.5 ms; D74 target 1 ms, amended).
 
 ## Definition of done
 
