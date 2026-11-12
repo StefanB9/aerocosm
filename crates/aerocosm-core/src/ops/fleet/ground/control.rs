@@ -416,15 +416,19 @@ impl Operations {
                 .motion
                 .as_ref()
                 .is_some_and(|m| m.speed() > STANDING);
+            let yields = taxi.waiting_for == Some(Self::owner(index));
             taxi.passages.iter().enumerate().find_map(|(i, p)| {
                 let through = p.hold.is_none() || i < taxi.next;
-                let distance = p.entry - along;
+                let traffic = Through {
+                    to_entry: p.entry - along,
+                    moving,
+                    yields,
+                };
                 (p.junction == junction
                     && through
                     && along < p.exit + ZONE
-                    && distance <= GAP
-                    && (moving || distance <= FOLLOW + ZONE))
-                    .then_some(other)
+                    && traffic.has_right_of_way())
+                .then_some(other)
             })
         })
     }
@@ -601,4 +605,67 @@ pub(super) fn overdue(taxi: &Taxi, now: SimTime) -> bool {
             && taxi
                 .waiting_since
                 .is_some_and(|since| ms(now) - since >= STUCK_AFTER))
+}
+
+/// An aircraft on the through taxiway as the controller sees it from a
+/// junction.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Through {
+    /// Metres to go to the junction (negative once in it).
+    to_entry: f64,
+    moving: bool,
+    /// Standing for the aircraft that waits to enter.
+    yields: bool,
+}
+
+impl Through {
+    /// Whether the aircraft waiting to enter has to give way to it: it comes
+    /// on, or stands close by, unless it stands for that very aircraft (the
+    /// two would wait for each other for ever).
+    fn has_right_of_way(self) -> bool {
+        self.to_entry <= GAP && (self.moving || (self.to_entry <= FOLLOW + ZONE && !self.yields))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_through_traffic_has_right_of_way_until_it_gives_way() {
+        // Moving towards the junction 100 m short: it has right of way.
+        let coming = Through {
+            to_entry: 100.0,
+            moving: true,
+            yields: false,
+        };
+        assert!(coming.has_right_of_way());
+        // Too far off to matter, or standing well back: it does not.
+        assert!(
+            !Through {
+                to_entry: GAP + 1.0,
+                ..coming
+            }
+            .has_right_of_way()
+        );
+        let back = Through {
+            to_entry: 100.0,
+            moving: false,
+            yields: false,
+        };
+        assert!(!back.has_right_of_way());
+        // Standing close: it has, unless it stands for the one waiting.
+        let close = Through {
+            to_entry: 50.0,
+            ..back
+        };
+        assert!(close.has_right_of_way());
+        assert!(
+            !Through {
+                yields: true,
+                ..close
+            }
+            .has_right_of_way()
+        );
+    }
 }
