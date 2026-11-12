@@ -103,9 +103,8 @@ impl Operations {
                     at,
                     heading,
                     moving: motion.speed() > STANDING,
-                    at_hold: taxi
-                        .next_hold()
-                        .is_some_and(|(_, hold)| (along - hold).abs() <= 1.0),
+                    at_hold: motion.speed() <= STANDING
+                        && super::drive::at_a_line(&taxi.passages, taxi.next, along),
                 });
             }
             // Past its last chain (at the holding point) it stands at that

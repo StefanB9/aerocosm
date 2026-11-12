@@ -7,7 +7,7 @@
 use super::{AIRCRAFT_LENGTH, EDGE, FOLLOW, HOLD_SHORT, Target, control::overdue, ms};
 use crate::{
     LatLon, SimDuration, SimTime, TICK,
-    ground::TAXI_SPEED,
+    ground::{TAXI_SPEED, junctions::Passage},
     ops::{
         fleet::Operations,
         motion::{Event, Motion},
@@ -315,6 +315,17 @@ pub(super) struct Seen {
     pub(super) at_hold: bool,
 }
 
+/// Whether an aircraft `along` its path through `passages`, cleared up to
+/// passage `next`, stands at a line drawn wingtip-clear of crossing traffic:
+/// the hold before a passage it still needs clearance for, or short of a
+/// junction.
+pub(super) fn at_a_line(passages: &[Passage], next: usize, along: f64) -> bool {
+    passages.iter().enumerate().any(|(i, p)| {
+        let at = |line: f64| (along - line).abs() <= 1.0;
+        at(p.entry - HOLD_SHORT) || (i >= next && p.hold.is_some_and(at))
+    })
+}
+
 /// Whether an aircraft at `here`, about to move to `next`, has to stop for
 /// `other` (see and avoid): the move brings it closer, within
 /// `SEE_AND_AVOID` of one in front on its way or `TOO_CLOSE` of any. When both
@@ -413,6 +424,30 @@ mod tests {
         assert!(!in_the_way(here, next, &coming, true));
         assert!(in_the_way(here, next, &coming, false));
         Ok(())
+    }
+
+    #[test]
+    fn test_aircraft_stand_at_hold_lines_and_short_of_junctions() {
+        let passages = [
+            Passage {
+                junction: 0,
+                entry: 300.0,
+                exit: 330.0,
+                hold: None,
+            },
+            Passage {
+                junction: 1,
+                entry: 800.0,
+                exit: 850.0,
+                hold: Some(760.0),
+            },
+        ];
+        // Short of the first junction, at the hold of the second.
+        assert!(at_a_line(&passages, 0, 300.0 - HOLD_SHORT));
+        assert!(at_a_line(&passages, 1, 760.5));
+        // Anywhere else, or at a hold already cleared.
+        assert!(!at_a_line(&passages, 0, 500.0));
+        assert!(!at_a_line(&passages, 2, 760.0));
     }
 
     #[test]
