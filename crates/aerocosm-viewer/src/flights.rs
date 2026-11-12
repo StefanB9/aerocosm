@@ -67,7 +67,7 @@ impl PhaseBand {
     /// The band's colour on the map (D49).
     pub(crate) const fn color(self) -> Color {
         match self {
-            Self::Ground => Color::srgb(0.62, 0.66, 0.74),
+            Self::Ground => Color::srgb(0.97, 0.96, 0.92),
             Self::Climb => Color::srgb(0.45, 0.85, 0.55),
             Self::Cruise => Color::srgb(0.55, 0.80, 1.00),
             Self::Descent => Color::srgb(0.98, 0.47, 0.56),
@@ -203,6 +203,34 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
+
+    /// Relative luminance of `color` over the dark map, alpha blended
+    /// with the apron.
+    fn over_apron(color: Color) -> f32 {
+        let over = color.to_linear();
+        let under = crate::theme::APRON.to_linear();
+        let a = over.alpha;
+        let mix = |c: f32, u: f32| c * a + u * (1.0 - a);
+        0.2126 * mix(over.red, under.red)
+            + 0.7152 * mix(over.green, under.green)
+            + 0.0722 * mix(over.blue, under.blue)
+    }
+
+    #[test]
+    fn test_aircraft_on_the_ground_stand_out() {
+        use crate::theme::{AIRCRAFT_HALO, APRON, RUNWAY_PAVED, STAND, TAXIWAY};
+        let aircraft = over_apron(PhaseBand::Ground.color());
+        // Brighter than runways, stand markings and taxiway lines…
+        for (name, color) in [
+            ("runway", RUNWAY_PAVED),
+            ("stand", STAND),
+            ("taxiway", TAXIWAY),
+        ] {
+            assert!(aircraft > over_apron(color) * 1.2, "{name}");
+        }
+        // …and set off from them by a halo darker than the aprons.
+        assert!(over_apron(AIRCRAFT_HALO) < over_apron(APRON));
+    }
 
     #[test]
     fn test_phase_bands() {
