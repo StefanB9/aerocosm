@@ -324,6 +324,8 @@ impl Operations {
             .unwrap_or(passage.exit + LOCK_AHEAD);
         let blocker = inside
             .or_else(|| other(airside.claims.get(j).copied().flatten()))
+            // Cleared in the order they queue: the first in line first.
+            .or_else(|| self.ahead_on_path(index, along + EDGE, passage.entry))
             .or_else(|| self.through_near(index, passage.junction))
             .or_else(|| self.ahead_on_path(index, passage.exit, passage.exit + ZONE + FOLLOW))
             .or_else(|| {
