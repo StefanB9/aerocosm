@@ -16,6 +16,7 @@ mod elements;
 
 mod route;
 mod runways;
+pub(crate) mod sections;
 mod spacing;
 mod taxi;
 
