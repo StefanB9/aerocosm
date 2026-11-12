@@ -34,6 +34,8 @@ pub struct AirportStats {
     ground_conflicts: u32,
     /// Taxis sent another way out of a deadlock (D93).
     reroutes: u32,
+    /// Approaches that went around for an occupied runway (D90).
+    go_arounds: u32,
     /// Arrivals that shared a stand after waiting for one too long (D69).
     stand_shares: u32,
 }
@@ -146,6 +148,11 @@ impl AirportStats {
         self.reroutes
     }
 
+    /// Approaches that went around for an occupied runway (D90).
+    pub const fn go_arounds(&self) -> u32 {
+        self.go_arounds
+    }
+
     /// Arrivals that shared a stand after waiting for one too long (D69).
     pub const fn stand_shares(&self) -> u32 {
         self.stand_shares
@@ -173,6 +180,7 @@ impl AirportStats {
         self.stand_waits += other.stand_waits;
         self.ground_conflicts += other.ground_conflicts;
         self.reroutes += other.reroutes;
+        self.go_arounds += other.go_arounds;
         self.stand_shares += other.stand_shares;
     }
 }
@@ -279,6 +287,13 @@ impl Statistics {
         }
     }
 
+    /// Records an approach that went around.
+    pub(crate) fn went_around(&mut self, airport: Id<Airport>) {
+        if let Some(stats) = self.airports.get_mut(airport.as_usize()) {
+            stats.go_arounds += 1;
+        }
+    }
+
     pub(crate) fn moved(&mut self, airport: Id<Airport>, time: SimTime) {
         let Some(start) = self.start else {
             return;
@@ -332,8 +347,12 @@ mod tests {
         stats.shared_stand(airport);
         stats.shared_stand(airport);
         stats.rerouted(airport);
+        stats.went_around(airport);
+        stats.went_around(airport);
         let at = stats.airport(airport);
         assert_eq!(at.reroutes(), 1);
+        assert_eq!(at.go_arounds(), 2);
+        assert_eq!(stats.network().go_arounds(), 2);
         assert_eq!(at.taxis(), 2);
         assert_eq!(at.average_taxi_delay(), SimDuration::from_secs(120));
         assert_eq!(

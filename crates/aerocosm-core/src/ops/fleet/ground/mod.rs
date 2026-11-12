@@ -25,7 +25,7 @@ use crate::{
     },
     ops::{Phase, TaxiGoal, active_runways_now, control::RunwayKey},
     scenario::Scenario,
-    world::Airport,
+    world::{Airport, RunwayDesignator},
 };
 
 /// An aircraft's length behind its reference point (an A321 is 45 m long),
@@ -137,20 +137,17 @@ pub(super) struct Airside {
     spots: Vec<Id<Node>>,
     /// The tail waiting at each spot.
     spot_owner: Vec<Option<u32>>,
-    /// Per holding position: the earliest expected take-off of the next
-    /// departure there, ms (departure management).
-    next_departure: BTreeMap<Id<Node>, i64>,
-    /// Per holding position: the last line-up and the observed interval
+    /// The departure runway each holding position feeds.
+    hold_runway: BTreeMap<Id<Node>, RunwayDesignator>,
+    /// Per departure runway: the departures cleared to it and not yet
+    /// lined up, counted each tick and as pushbacks are approved.
+    departing: BTreeMap<RunwayDesignator, usize>,
+    /// Per departure runway: the last line-up and the observed interval
     /// between line-ups while a queue waited, ms.
-    pace: BTreeMap<Id<Node>, (i64, i64)>,
+    pace: BTreeMap<RunwayDesignator, (i64, i64)>,
 }
 
 impl Airside {
-    /// The expected interval between departures from `hold`, ms.
-    fn interval(&self, hold: Id<Node>) -> i64 {
-        self.pace.get(&hold).map_or(DEPARTURE_INTERVAL, |p| p.1)
-    }
-
     /// The active runway `node` lies on, if any.
     fn runway_at(&self, node: Option<Id<Node>>) -> Option<usize> {
         node.and_then(|n| self.runway_of.get(n.as_usize()).copied().flatten())
@@ -263,7 +260,8 @@ impl GroundControl {
                     runway_of,
                     spot_owner: vec![None; spots.len()],
                     spots,
-                    next_departure: BTreeMap::new(),
+                    hold_runway: departure::hold_runways(layout),
+                    departing: BTreeMap::new(),
                     pace: BTreeMap::new(),
                 });
             }

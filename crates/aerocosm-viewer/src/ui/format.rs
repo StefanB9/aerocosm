@@ -63,6 +63,7 @@ pub(crate) const fn phase_name(phase: Phase) -> &'static str {
         Phase::Holding => "Holding",
         Phase::Descent => "Descending",
         Phase::Approach => "On approach",
+        Phase::GoAround => "Going around",
         Phase::Landing => "Landing",
         Phase::TaxiIn => "Taxiing in",
         Phase::Arrived => "Arrived",
@@ -252,10 +253,12 @@ mod tests {
             Phase::Holding,
             Phase::Descent,
             Phase::Approach,
+            Phase::GoAround,
             Phase::Landing,
             Phase::TaxiIn,
             Phase::Arrived,
         ];
+        assert_eq!(phase_name(Phase::GoAround), "Going around");
         let names: HashSet<_> = phases.iter().map(|phase| phase_name(*phase)).collect();
         assert_eq!(names.len(), phases.len());
     }

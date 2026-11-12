@@ -1,6 +1,8 @@
 //! Departures under ground control: the pushback clearance and departure
 //! management at the holding positions (plan M4 D78, D82).
 
+use std::collections::BTreeMap;
+
 use anyhow::{Context, Result};
 
 use super::{
@@ -9,10 +11,10 @@ use super::{
 };
 use crate::{
     Id, SimDuration, SimTime,
-    ground::Node,
+    ground::{AirportGround, Node},
     ops::{fleet::Operations, path::Path},
     scenario::Scenario,
-    world::Airport,
+    world::{Airport, RunwayDesignator},
 };
 
 impl Operations {
@@ -51,11 +53,26 @@ impl Operations {
             0.0
         };
         // Departure management: no pushback while the runway queue is long.
+        let runway = self
+            .ground
+            .airside(origin)
+            .and_then(|a| a.hold_runway.get(&hold).copied());
+        // Its turn on the runway, behind the departures cleared before it
+        // (plan M4 D91).
         let turn = self
             .ground
             .airside(origin)
-            .and_then(|a| a.next_departure.get(&hold).copied())
-            .unwrap_or(i64::MIN);
+            .zip(runway)
+            .map_or(i64::MIN, |(a, runway)| {
+                let (last, pace) = a
+                    .pace
+                    .get(&runway)
+                    .map_or((None, DEPARTURE_INTERVAL), |&(last, pace)| {
+                        (Some(last), pace)
+                    });
+                let ahead = a.departing.get(&runway).copied().unwrap_or(0);
+                self::turn(last, pace, ahead, ms(now))
+            });
         // SAFETY: a pushback takes minutes.
         #[allow(clippy::cast_possible_truncation)]
         let expected =
@@ -93,7 +110,7 @@ impl Operations {
             taxi.push = push;
             taxi.escaped = escape;
         }
-        if !self.clear_way(index, push, push + PUSH_CLEAR) {
+        if !self.clear_way(index, push, push + PUSH_CLEAR, f64::INFINITY) {
             self.ground.release(origin, Self::owner(index));
             self.taxis[index] = None;
             return Ok(Some(SimDuration::from_millis(GATE_RETRY)));
@@ -102,11 +119,8 @@ impl Operations {
             self.stats.ground_conflict(origin);
         }
         self.gate_blocked[index] = None;
-        if let Some(airside) = self.ground.airside_mut(origin) {
-            let interval = airside.interval(hold);
-            airside
-                .next_departure
-                .insert(hold, expected.max(turn) + interval);
+        if let (Some(airside), Some(runway)) = (self.ground.airside_mut(origin), runway) {
+            *airside.departing.entry(runway).or_insert(0) += 1;
         }
         if let Some(path) = self.paths[index].as_mut() {
             let length = path.set_taxi_out(polyline);
@@ -126,23 +140,118 @@ impl Operations {
         let Some(hold) = hold else {
             return;
         };
-        // Someone else already waits for this holding position.
-        let queued = self.taxis.iter().flatten().any(|taxi| {
-            taxi.airport == airport && taxi.target == Target::Hold && taxi.end_node == Some(hold)
+        let Some(runway) = self
+            .ground
+            .airside(airport)
+            .and_then(|a| a.hold_runway.get(&hold).copied())
+        else {
+            return;
+        };
+        // Someone else already waits at this runway, at any of its holding
+        // positions (plan M4 D91): only then does the interval show what the
+        // runway can take.
+        let queued = self.taxis.iter().enumerate().any(|(k, taxi)| {
+            taxi.as_ref().is_some_and(|taxi| {
+                taxi.airport == airport
+                    && taxi.target == Target::Hold
+                    && self
+                        .along_of(k)
+                        .is_some_and(|along| along >= taxi.end - QUEUE_REACH)
+                    && self
+                        .ground
+                        .airside(airport)
+                        .and_then(|a| taxi.end_node.and_then(|n| a.hold_runway.get(&n)))
+                        == Some(&runway)
+            })
         });
         if let Some(airside) = self.ground.airside_mut(airport) {
             let (last, mut pace) = airside
                 .pace
-                .get(&hold)
+                .get(&runway)
                 .copied()
                 .unwrap_or((i64::MIN, DEPARTURE_INTERVAL));
-            if queued && last > i64::MIN {
-                let seen = (ms(now) - last).clamp(DEPARTURE_INTERVAL, MAX_INTERVAL);
-                pace = (pace * 7 + seen * 3) / 10;
-            }
-            airside.pace.insert(hold, (ms(now), pace));
-            let next = airside.next_departure.entry(hold).or_insert(i64::MIN);
-            *next = (*next).max(ms(now) + pace);
+            pace = learn_pace(
+                pace,
+                queued.then(|| ms(now) - last).filter(|_| last > i64::MIN),
+            );
+            airside.pace.insert(runway, (ms(now), pace));
         }
+    }
+}
+
+/// A departure this near its holding position waits in the runway's queue,
+/// m: first or second in line.
+const QUEUE_REACH: f64 = 120.0;
+
+/// The interval between departures learnt from `pace` and the interval
+/// `seen` while a queue waited, ms; without a queue the runway was not
+/// the limit, and the estimate relaxes towards the nominal interval.
+fn learn_pace(pace: i64, seen: Option<i64>) -> i64 {
+    let towards = seen.map_or(DEPARTURE_INTERVAL, |seen| {
+        seen.clamp(DEPARTURE_INTERVAL, MAX_INTERVAL)
+    });
+    (pace * 7 + towards * 3) / 10
+}
+
+/// When the next departure cleared now may take off, ms: one interval
+/// `pace` after the last line-up `last` (or now, if that is later) and one
+/// more for each of the `ahead` departures cleared before it.
+fn turn(last: Option<i64>, pace: i64, ahead: usize, now: i64) -> i64 {
+    let first = last.map_or(now, |last| (last + pace).max(now));
+    first + pace * i64::try_from(ahead).unwrap_or(i64::MAX / pace.max(1))
+}
+
+/// The departure runway each holding position of `layout` feeds.
+pub(super) fn hold_runways(layout: &AirportGround) -> BTreeMap<Id<Node>, RunwayDesignator> {
+    layout
+        .holding_positions()
+        .iter()
+        .map(|h| (h.node(), h.runway()))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::{Context, Result};
+
+    use super::*;
+    use crate::{ground::GroundNetwork, test_data::data};
+
+    #[test]
+    fn test_a_departure_takes_its_turn_behind_those_cleared_before() {
+        // Last line-up at 100 s, one every 90 s.
+        assert_eq!(turn(Some(100_000), 90_000, 0, 120_000), 190_000);
+        // Two cleared before it: two intervals later.
+        assert_eq!(turn(Some(100_000), 90_000, 2, 120_000), 370_000);
+        // Long quiet: its turn comes at once.
+        assert_eq!(turn(Some(100_000), 90_000, 0, 900_000), 900_000);
+        assert_eq!(turn(None, 90_000, 1, 900_000), 990_000);
+    }
+
+    #[test]
+    fn test_the_interval_is_learnt_from_queues_and_relaxes_without() {
+        // A queue moved every 150 s: the estimate rises towards it.
+        assert_eq!(learn_pace(60_000, Some(150_000)), 87_000);
+        // Never above the longest interval.
+        assert_eq!(learn_pace(60_000, Some(900_000)), 132_000);
+        // Nobody waited: back towards the nominal interval.
+        assert_eq!(learn_pace(200_000, None), 158_000);
+    }
+
+    #[test]
+    fn test_holding_positions_queue_for_their_runway() -> Result<()> {
+        let world = data()?.world;
+        let network = GroundNetwork::from_json(
+            include_str!("../../../../../../assets/ground/germany.ground.json"),
+            &world,
+        )?;
+        let berlin = world.airport_by_ident("EDDB".parse()?).context("BER")?;
+        let layout = network.airport(berlin).context("layout")?;
+        let runways = hold_runways(layout);
+        assert_eq!(runways.len(), layout.holding_positions().len());
+        // Several holding positions feed each departure runway end.
+        let on_24r = runways.values().filter(|r| r.to_string() == "24R").count();
+        assert!(on_24r >= 2, "{on_24r}");
+        Ok(())
     }
 }

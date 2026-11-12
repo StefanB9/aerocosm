@@ -1,7 +1,8 @@
 //! The airborne phases: take-off roll to approach, holding.
 
 use super::{
-    Event, FINAL_LENGTH, GLIDE_SLOPE, Motion, Phase, Profile, Request, TAKEOFF_ACCELERATION,
+    Event, FINAL_LENGTH, GLIDE_SLOPE, MISSED_APPROACH_HEIGHT, Motion, Phase, Profile, Request,
+    SHORT_FINAL, TAKEOFF_ACCELERATION,
 };
 
 impl Motion {
@@ -21,6 +22,33 @@ impl Motion {
         if clearance(Request::LeaveHold) {
             self.hold_at = super::NO_HOLD;
             self.phase = Phase::Descent;
+        }
+        None
+    }
+
+    /// Missed approach: climbs out to the missed-approach height, flies the
+    /// pattern back and descends to the final fix, where it holds for the
+    /// next approach clearance.
+    pub(super) fn go_around(&mut self, p: &Profile, dt: f64) -> Option<Event> {
+        let inputs = &p.inputs;
+        self.speed = p.climb_entry_speed;
+        self.along += self.speed * dt;
+        let remaining = inputs.go_around_length - self.along;
+        if remaining <= 0.0 {
+            self.hold_altitude = self.altitude.max(p.faf_altitude);
+            self.hold_at = super::NO_HOLD;
+            self.enter_hold(inputs.enroute_length);
+            return None;
+        }
+        // Down to the fix at the descent rate in time, else up to the
+        // missed-approach height.
+        let descent =
+            (self.altitude - p.faf_altitude).max(0.0) / inputs.descent_rate.max(0.1) * self.speed;
+        if remaining <= descent {
+            self.altitude = (self.altitude - inputs.descent_rate * dt).max(p.faf_altitude);
+        } else {
+            let top = inputs.destination_elevation + MISSED_APPROACH_HEIGHT;
+            self.altitude = (self.altitude + inputs.climb_rate * dt).min(top.max(self.altitude));
         }
         None
     }
@@ -113,10 +141,22 @@ impl Motion {
         None
     }
 
-    /// The 3° final down to the threshold.
-    pub(super) fn approach(&mut self, p: &Profile, dt: f64) -> Option<Event> {
+    /// The 3° final down to the threshold; on short final it asks to land
+    /// and goes around if refused.
+    pub(super) fn approach(
+        &mut self,
+        p: &Profile,
+        dt: f64,
+        clearance: &mut impl FnMut(Request) -> bool,
+    ) -> Option<Event> {
         let inputs = &p.inputs;
         self.speed = inputs.approach_speed;
+        let check = FINAL_LENGTH - SHORT_FINAL;
+        if self.along < check && self.along + self.speed * dt >= check && !clearance(Request::Land)
+        {
+            self.enter(Phase::GoAround);
+            return Some(Event::GoAround);
+        }
         self.along += self.speed * dt;
         if self.along < FINAL_LENGTH {
             self.altitude =

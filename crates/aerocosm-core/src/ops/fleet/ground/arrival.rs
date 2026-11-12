@@ -14,6 +14,10 @@ use crate::{
 /// A landing vacates where its way is clear this far from the exit node:
 /// off the runway and past its hold, m.
 const VACATE_CLEAR: f64 = 200.0;
+/// …and nobody comes the other way this far, m: about the way from the
+/// exit to the aprons. Beyond, it waits for the way like any taxi; a
+/// landing cannot wait for its whole route on the runway.
+const VACATE_REACH: f64 = 3_000.0;
 
 impl Operations {
     /// At touchdown at a controlled airport: a free stand or a waiting spot,
@@ -126,7 +130,7 @@ impl Operations {
             };
             if let Some(polyline) =
                 self.start_taxi(scenario, index, airport, start(route, exit), now)
-                && self.clear_way(index, 0.0, VACATE_CLEAR)
+                && self.clear_way(index, 0.0, VACATE_CLEAR, VACATE_REACH)
             {
                 return Some((exit, polyline));
             }

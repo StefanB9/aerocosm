@@ -39,6 +39,9 @@ pub(crate) struct ProfileInputs {
     /// From the holding position onto the runway, m; 0 when the roll starts
     /// where the aircraft queued (plan M4 D78).
     pub(crate) lineup_length: f64,
+    /// From the short-final check to the final approach fix round the
+    /// missed-approach pattern, m (plan M4 D90).
+    pub(crate) go_around_length: f64,
 }
 
 /// A leg's precomputed speeds, altitudes and segment lengths.
@@ -148,6 +151,17 @@ impl Profile {
     /// Sets the taxi-in length once the route to the stand is known, m.
     pub(crate) const fn set_taxi_in_length(&mut self, length: f64) {
         self.inputs.taxi_in_length = length;
+    }
+
+    /// Length of the missed approach back to the final fix, m.
+    #[cfg(test)]
+    pub(crate) const fn go_around_length(&self) -> f64 {
+        self.inputs.go_around_length
+    }
+
+    /// Seconds a missed approach takes back to the final fix.
+    pub(crate) fn go_around_seconds(&self) -> f64 {
+        self.inputs.go_around_length / self.climb_entry_speed.max(1.0)
     }
 
     /// Length of the line-up, m.

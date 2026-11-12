@@ -1,6 +1,6 @@
 //! Tests of the scalar kinematics.
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use proptest::prelude::*;
 
 use super::*;
@@ -364,4 +364,53 @@ proptest! {
         // Never much slower than cruising the whole way plus an hour.
         prop_assert!(f64::from(flown.seconds) < distance / 230.0 * 1.3 + 3_600.0);
     }
+}
+
+#[test]
+fn test_a_landing_refused_on_short_final_goes_around_and_comes_back() -> Result<()> {
+    let mut inputs = profile(400_000.0).inputs;
+    inputs.go_around_length = 40_000.0;
+    let profile = Profile::new(&inputs);
+    let mut refused = 0;
+    let flown = fly_with(
+        &profile,
+        1.0,
+        |_| {},
+        |request, _| {
+            if request == Request::Land && refused == 0 {
+                refused += 1;
+                return false;
+            }
+            true
+        },
+    )?;
+    assert_eq!(refused, 1);
+    assert_eq!(
+        flown.events,
+        [
+            Event::Takeoff,
+            Event::GoAround,
+            Event::Landing,
+            Event::Arrived
+        ]
+    );
+    let around = flown
+        .phases
+        .iter()
+        .position(|&p| p == Phase::GoAround)
+        .context("a go-around")?;
+    // Back at the fix it holds for the next approach, then lands.
+    assert_eq!(
+        flown.phases[around - 1..around + 4],
+        [
+            Phase::Approach,
+            Phase::GoAround,
+            Phase::Holding,
+            Phase::Descent,
+            Phase::Approach
+        ]
+    );
+    // It climbs to the missed-approach altitude above the field.
+    assert!(flown.peak >= 450.0 + MISSED_APPROACH_HEIGHT - 1.0);
+    Ok(())
 }

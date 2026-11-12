@@ -392,6 +392,7 @@ impl Operations {
                         self.count(destination);
                         self.stats.moved(destination, now);
                     }
+                    Some(Event::GoAround) => self.went_around(index, leg, now)?,
                     Some(Event::Arrived) => {
                         self.flights_flown += 1;
                         let flight = *self.flight(index, leg)?;

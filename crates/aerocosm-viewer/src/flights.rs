@@ -43,7 +43,7 @@ impl PhaseBand {
     /// The band of a phase.
     pub(crate) const fn of(phase: Phase) -> Self {
         match phase {
-            Phase::Climb => Self::Climb,
+            Phase::Climb | Phase::GoAround => Self::Climb,
             Phase::Cruise => Self::Cruise,
             Phase::Holding => Self::Holding,
             Phase::Descent | Phase::Approach => Self::Descent,
@@ -211,6 +211,7 @@ mod tests {
         assert_eq!(PhaseBand::of(Phase::LineUp), PhaseBand::Ground);
         assert_eq!(PhaseBand::of(Phase::TakeoffRoll), PhaseBand::Ground);
         assert_eq!(PhaseBand::of(Phase::Climb), PhaseBand::Climb);
+        assert_eq!(PhaseBand::of(Phase::GoAround), PhaseBand::Climb);
         assert_eq!(PhaseBand::of(Phase::Cruise), PhaseBand::Cruise);
         assert_eq!(PhaseBand::of(Phase::Approach), PhaseBand::Descent);
         assert_eq!(PhaseBand::of(Phase::Holding), PhaseBand::Holding);

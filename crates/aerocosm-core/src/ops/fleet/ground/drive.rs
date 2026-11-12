@@ -4,7 +4,7 @@
 //! the taxiways it has locked, and its route's end; then it finishes at its
 //! stand, waiting spot or holding position.
 
-use super::{AIRCRAFT_LENGTH, EDGE, FOLLOW, HOLD_SHORT, Target, control::overdue, ms};
+use super::{EDGE, FOLLOW, HOLD_SHORT, Target, control::overdue, ms};
 use crate::{
     LatLon, SimDuration, SimTime, TICK,
     ground::{TAXI_SPEED, junctions::Passage},
@@ -57,7 +57,6 @@ impl Operations {
             return None;
         }
         let along = motion.along();
-        self.go_around(index, along);
         // Held up far too long, or the one to give way in a deadlock: it is
         // sent another way (D93), or if there is none taxies regardless
         // (D75).
@@ -194,55 +193,6 @@ impl Operations {
         stop
     }
 
-    /// A landing that rolled out at an exit another aircraft is still at
-    /// would have been sent around by the tower; go-arounds come later
-    /// (plan M4 D90), so it taxies on regardless (D75).
-    fn go_around(&mut self, index: usize, along: f64) {
-        let Some(taxi) = self.taxis[index].as_ref() else {
-            return;
-        };
-        if taxi.escaped || taxi.target == Target::Hold || along > taxi.offset + 1.0 {
-            return;
-        }
-        let Some(airside) = self.ground.airside(taxi.airport) else {
-            return;
-        };
-        let owner = Self::owner(index);
-        let on_runway = taxi.passages.first().is_some_and(|p| {
-            p.entry <= taxi.offset + 1e-6
-                && airside
-                    .junctions
-                    .junctions()
-                    .get(p.junction as usize)
-                    .is_some_and(|j| j.runway)
-        });
-        let blocked = on_runway
-            && (self
-                .nearest_ahead(index, along, along + AIRCRAFT_LENGTH)
-                .is_some()
-                || taxi.passages.first().is_some_and(|p| {
-                    airside
-                        .occupied
-                        .get(p.junction as usize)
-                        .is_some_and(|list| {
-                            list.iter().any(|&o| {
-                                o != owner
-                                    && self
-                                        .taxis
-                                        .get(o as usize)
-                                        .and_then(Option::as_ref)
-                                        .is_some_and(|t| t.end_node.is_some() && t.offset <= 1e-6)
-                                    && self.along_of_tail(o).is_some_and(|a| a < AIRCRAFT_LENGTH)
-                            })
-                        })
-                }));
-        if blocked && let Some(taxi) = self.taxis[index].as_mut() {
-            taxi.escaped = true;
-            let airport = taxi.airport;
-            self.stats.ground_conflict(airport);
-        }
-    }
-
     /// Tail `index`, moving from `along` to `next`, claims the junctions
     /// whose zone it enters, so that nobody else enters them this tick.
     fn claim_entered(&mut self, index: usize, along: f64, next: f64) {
@@ -276,23 +226,25 @@ impl Operations {
         let (here, heading) = self.paths.get(index)?.as_ref()?.locate(motion);
         let next = here.destination(heading, crate::units::Meters::from_raw(step));
         let airside = self.ground.airside(taxi.airport)?;
+        // Nobody farther than this can be in the way: a cheap box first,
+        // great circles only inside it.
+        let reach = (SEE_AND_AVOID + step + 10.0) / METRES_PER_DEGREE;
+        let (lat, lon) = (here.latitude().value(), here.longitude().value());
+        let wide = reach / lat.to_radians().cos().max(0.1);
         airside
             .seen
             .iter()
+            .filter(|other| {
+                (other.at.latitude().value() - lat).abs() <= reach
+                    && (other.at.longitude().value() - lon).abs() <= wide
+            })
             .find(|other| other.tail != owner && in_the_way(here, next, other, owner))
             .map(|other| other.tail)
     }
-
-    /// How far along its taxi tail `tail` is.
-    fn along_of_tail(&self, tail: u32) -> Option<f64> {
-        self.tails
-            .get(tail as usize)?
-            .motion
-            .as_ref()
-            .map(Motion::along)
-    }
 }
 
+/// Metres per degree of latitude (and of longitude at the equator).
+const METRES_PER_DEGREE: f64 = 111_195.0;
 /// Pilots do not close in on another aircraft in front nearer than this,
 /// m, …
 const SEE_AND_AVOID: f64 = 50.0;

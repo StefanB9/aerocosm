@@ -32,6 +32,7 @@ impl Operations {
     /// ties by how long they have waited, then tail index.
     pub(in crate::ops::fleet) fn control_ground(&mut self, now: SimTime) {
         self.survey_ground();
+        self.report_blocked_runways(now);
         self.find_deadlocks(now);
         let mut requests = std::mem::take(&mut self.requests);
         requests.clear();
@@ -49,6 +50,42 @@ impl Operations {
             self.advance(index, now);
         }
         self.requests = requests;
+    }
+
+    /// Tells the tower which runways a landing stands on, unable to vacate:
+    /// the next arrival goes around (plan M4 D90).
+    fn report_blocked_runways(&mut self, now: SimTime) {
+        let until = time_of(ms(now) + crate::TICK.as_millis());
+        for index in 0..self.taxis.len() {
+            let Some(key) = self.blocking_runway(index) else {
+                continue;
+            };
+            self.control.blocked(key, until);
+        }
+    }
+
+    /// The runway tail `index` stands on after landing, unable to vacate.
+    fn blocking_runway(&self, index: usize) -> Option<RunwayKey> {
+        let taxi = self.taxis[index].as_ref()?;
+        let motion = self.tails[index].motion.as_ref()?;
+        if taxi.target == Target::Hold || motion.speed() > STANDING {
+            return None;
+        }
+        let airside = self.ground.airside(taxi.airport)?;
+        let first = taxi.passages.first()?;
+        let along = motion.along();
+        let junction = airside.junctions.junctions().get(first.junction as usize)?;
+        if !junction.runway || first.entry > taxi.offset + 1e-6 || along > first.exit + ZONE {
+            return None;
+        }
+        let runway = junction
+            .nodes
+            .iter()
+            .find_map(|&n| airside.runway_at(Some(n)))?;
+        Some(RunwayKey {
+            airport: taxi.airport,
+            runway,
+        })
     }
 
     /// How far along its taxi tail `index` is, if it is on one.
@@ -80,6 +117,9 @@ impl Operations {
             for list in &mut airside.on_chain {
                 list.clear();
             }
+            for count in airside.departing.values_mut() {
+                *count = 0;
+            }
         }
         for index in 0..self.taxis.len() {
             let Some(along) = self.along_of(index) else {
@@ -92,6 +132,11 @@ impl Operations {
             let Some(airside) = self.ground.airside_mut(taxi.airport) else {
                 continue;
             };
+            if taxi.target == Target::Hold
+                && let Some(runway) = taxi.end_node.and_then(|n| airside.hold_runway.get(&n))
+            {
+                *airside.departing.entry(*runway).or_insert(0) += 1;
+            }
             let tail = along - AIRCRAFT_LENGTH;
             airside.taxiing.push(owner);
             if let (Some(path), Some(motion)) = (
@@ -522,9 +567,11 @@ impl Operations {
     /// Whether tail `index`'s way from `from` to `to` metres along its path
     /// is clear: nobody on it, or within `PUSH_CLEAR` of `from` on the same
     /// chain either way, nobody in a junction there, and nobody coming the
-    /// other way on its whole route; if so its taxiways are locked (D93).
-    /// For a pushback (`from` where it ends) and a landing vacating.
-    pub(super) fn clear_way(&mut self, index: usize, from: f64, to: f64) -> bool {
+    /// other way on its route up to `reach` metres along; if so its taxiways
+    /// that far are locked (D93). For a pushback (`from` where it ends),
+    /// which can wait at the gate for its whole route, and a landing
+    /// vacating, which cannot and needs only the way off the runway.
+    pub(super) fn clear_way(&mut self, index: usize, from: f64, to: f64, reach: f64) -> bool {
         let owner = Self::owner(index);
         let Some(taxi) = self.taxis[index].as_ref() else {
             return false;
@@ -554,7 +601,7 @@ impl Operations {
                 && p.exit + ZONE >= from
                 && airside.taken(p.junction, owner).is_some()
         });
-        let horizon = taxi.end;
+        let horizon = taxi.end.min(reach);
         let opposed = taxi
             .runs
             .iter()

@@ -29,6 +29,9 @@ pub(crate) struct Path {
     takeoff: Segment,
     enroute: Route,
     approach: Segment,
+    /// The missed approach from short final back to the final approach fix
+    /// (plan M4 D90).
+    go_around: Polyline,
     landing: Segment,
     /// From the runway exit to the stand (or the airport point).
     taxi_in: Polyline,
@@ -185,6 +188,7 @@ impl Path {
                 (self.enroute.point_at(along), self.enroute.bearing_at(along))
             }
             Phase::Approach => at(&self.approach, along),
+            Phase::GoAround => on(&self.go_around, along),
             Phase::Landing => at(&self.landing, along),
             Phase::TaxiIn => on(&self.taxi_in, along),
             Phase::Arrived => {
