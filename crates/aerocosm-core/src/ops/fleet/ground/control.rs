@@ -522,9 +522,11 @@ impl Operations {
     /// Whether tail `index`'s way from `from` to `to` metres along its path
     /// is clear: nobody on it, or within `PUSH_CLEAR` of `from` on the same
     /// chain either way, nobody in a junction there, and nobody coming the
-    /// other way on its whole route; if so its taxiways are locked (D93).
-    /// For a pushback (`from` where it ends) and a landing vacating.
-    pub(super) fn clear_way(&mut self, index: usize, from: f64, to: f64) -> bool {
+    /// other way on its route up to `reach` metres along; if so its taxiways
+    /// that far are locked (D93). For a pushback (`from` where it ends),
+    /// which can wait at the gate for its whole route, and a landing
+    /// vacating, which cannot and needs only the way off the runway.
+    pub(super) fn clear_way(&mut self, index: usize, from: f64, to: f64, reach: f64) -> bool {
         let owner = Self::owner(index);
         let Some(taxi) = self.taxis[index].as_ref() else {
             return false;
@@ -554,7 +556,7 @@ impl Operations {
                 && p.exit + ZONE >= from
                 && airside.taken(p.junction, owner).is_some()
         });
-        let horizon = taxi.end;
+        let horizon = taxi.end.min(reach);
         let opposed = taxi
             .runs
             .iter()

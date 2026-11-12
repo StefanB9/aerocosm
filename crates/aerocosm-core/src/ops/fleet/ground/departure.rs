@@ -93,7 +93,7 @@ impl Operations {
             taxi.push = push;
             taxi.escaped = escape;
         }
-        if !self.clear_way(index, push, push + PUSH_CLEAR) {
+        if !self.clear_way(index, push, push + PUSH_CLEAR, f64::INFINITY) {
             self.ground.release(origin, Self::owner(index));
             self.taxis[index] = None;
             return Ok(Some(SimDuration::from_millis(GATE_RETRY)));
