@@ -122,6 +122,53 @@ pub(crate) fn outline(class: SizeClass) -> Vec<Vec2> {
     points
 }
 
+/// Width of the dark halo round a silhouette, as a fraction of its length:
+/// it sets the aircraft off whatever it is over (runway, stands, taxiways).
+pub(crate) const HALO_WIDTH: f32 = 0.035;
+/// The halo while an aircraft is small on screen, as a fraction of its
+/// length: wide enough to show at all.
+pub(crate) const WIDE_HALO_WIDTH: f32 = 0.125;
+/// At least this many pixels of halo.
+const MIN_HALO_PIXELS: f32 = 1.5;
+
+/// The halo for an aircraft `pixels` long on screen: the thin one, or the
+/// wide one while the thin one would be under `MIN_HALO_PIXELS`.
+pub(crate) fn halo_width(pixels: f32) -> f32 {
+    if pixels * HALO_WIDTH < MIN_HALO_PIXELS {
+        WIDE_HALO_WIDTH
+    } else {
+        HALO_WIDTH
+    }
+}
+
+/// A halo corner moves out at most this many widths, so that sharp corners
+/// (nose, wing tips) do not spike.
+const MITER_LIMIT: f32 = 2.0;
+
+/// `outline` grown outwards by `width` all round (in either winding), for a
+/// halo behind the silhouette.
+pub(crate) fn halo(outline: &[Vec2], width: f32) -> Vec<Vec2> {
+    let n = outline.len();
+    // Twice the signed area: positive counter-clockwise.
+    let area: f32 = (0..n)
+        .map(|k| outline[k].perp_dot(outline[(k + 1) % n]))
+        .sum();
+    let outward = |a: Vec2, b: Vec2| {
+        let edge = (b - a).normalize_or_zero();
+        let normal = Vec2::new(edge.y, -edge.x);
+        if area >= 0.0 { normal } else { -normal }
+    };
+    (0..n)
+        .map(|k| {
+            let (prev, here, next) = (outline[(k + n - 1) % n], outline[k], outline[(k + 1) % n]);
+            let (a, b) = (outward(prev, here), outward(here, next));
+            let mid = (a + b).normalize_or_zero();
+            let cos = mid.dot(a).max(1.0 / MITER_LIMIT);
+            here + mid * (width / cos)
+        })
+        .collect()
+}
+
 /// Length on screen when zoomed out, in pixels.
 pub(crate) const fn pixel_length(class: SizeClass) -> f32 {
     match class {
@@ -207,5 +254,73 @@ mod tests {
             assert_eq!(triangles.indices.len() % 3, 0);
         }
         Ok(())
+    }
+
+    /// Whether `p` lies inside the closed `outline` (ray casting).
+    fn inside(outline: &[Vec2], p: Vec2) -> bool {
+        let mut inside = false;
+        for (k, a) in outline.iter().enumerate() {
+            let b = outline[(k + 1) % outline.len()];
+            if (a.y > p.y) != (b.y > p.y) && p.x < a.x + (p.y - a.y) / (b.y - a.y) * (b.x - a.x) {
+                inside = !inside;
+            }
+        }
+        inside
+    }
+
+    #[test]
+    fn test_a_halo_grows_an_outline_evenly_either_way_round() {
+        let square = [
+            Vec2::new(0.0, 0.0),
+            Vec2::new(1.0, 0.0),
+            Vec2::new(1.0, 1.0),
+            Vec2::new(0.0, 1.0),
+        ];
+        for outline in [square.to_vec(), square.iter().rev().copied().collect()] {
+            let grown = halo(&outline, 0.1);
+            assert_eq!(grown.len(), 4);
+            for corner in &grown {
+                // Corners move out diagonally by the width on both axes.
+                assert!((corner.x.abs().min((corner.x - 1.0).abs()) - 0.1).abs() < 1e-5);
+                assert!((corner.y.abs().min((corner.y - 1.0).abs()) - 0.1).abs() < 1e-5);
+                assert!(!inside(&outline, *corner));
+            }
+        }
+    }
+
+    #[test]
+    fn test_every_silhouette_has_a_halo_round_it() -> Result<()> {
+        for class in SizeClass::ALL {
+            let shape = outline(class);
+            let grown = halo(&shape, HALO_WIDTH);
+            assert_eq!(grown.len(), shape.len());
+            // The halo encloses the silhouette and fills as one shape.
+            for point in &shape {
+                assert!(inside(&grown, *point * 0.999), "{class:?} {point}");
+            }
+            let triangles = crate::tessellate::fill_outline(&grown)?;
+            assert_ne!(triangles.indices.len(), 0);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_small_aircraft_get_a_wider_halo() {
+        // A narrow-body zoomed out (15 px): about 2 px of halo.
+        assert!((1.5..=2.0).contains(&(halo_width(15.0) * 15.0)));
+        // Large on screen: the thin halo.
+        assert!((halo_width(200.0) - HALO_WIDTH).abs() < 1e-6);
+        // At least 1.5 px at any size.
+        for pixels in [12.0_f32, 15.0, 30.0, 42.0, 43.0, 60.0, 120.0, 400.0] {
+            assert!(halo_width(pixels) * pixels >= 1.5 - 1e-3, "{pixels}");
+        }
+        // The wide halo fills as one shape round every silhouette too.
+        for class in SizeClass::ALL {
+            let shape = outline(class);
+            let grown = halo(&shape, WIDE_HALO_WIDTH);
+            for point in &shape {
+                assert!(inside(&grown, *point * 0.999), "{class:?} {point}");
+            }
+        }
     }
 }

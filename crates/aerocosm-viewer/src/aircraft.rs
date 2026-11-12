@@ -15,6 +15,7 @@ use bevy::{
     ecs::{
         change_detection::DetectChangesMut,
         component::Component,
+        hierarchy::ChildOf,
         resource::Resource,
         schedule::IntoScheduleConfigs,
         system::{Commands, Query, Res, ResMut},
@@ -36,7 +37,10 @@ use crate::{
     },
     projection::MapProjection,
     selection::Selection,
-    silhouette::{SizeClass, outline, pixel_length, real_length, size_class},
+    silhouette::{
+        HALO_WIDTH, SizeClass, WIDE_HALO_WIDTH, halo, halo_width, outline, pixel_length,
+        real_length, size_class,
+    },
     tessellate::fill_outline,
     theme,
 };
@@ -45,6 +49,8 @@ use crate::{
 const AIRCRAFT_Z: f32 = 20.0;
 /// The selected or hovered aircraft draws above the others.
 const HIGHLIGHT_Z: f32 = 21.0;
+/// An aircraft's halo draws just behind it, above everything on the ground.
+const HALO_Z: f32 = -0.5;
 /// Opacity of holding pattern outlines.
 const HOLD_ALPHA: f32 = 0.35;
 /// Trail opacity at the aircraft, fading to zero at its oldest point.
@@ -64,11 +70,26 @@ impl AircraftSprite {
     }
 }
 
-/// The silhouette and current colour band of a sprite.
+/// The silhouette and current colour band of a sprite, and whether it is
+/// small enough on screen for the wide halo.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 struct SpriteLook {
     class: SizeClass,
     band: PhaseBand,
+    small: bool,
+}
+
+/// The halo behind a sprite, and whether it is the wide one.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+struct Halo {
+    wide: bool,
+}
+
+/// Halo meshes per size class: thin, and wide for aircraft small on screen.
+#[derive(Resource)]
+struct HaloMeshes {
+    thin: Vec<Handle<Mesh>>,
+    wide: Vec<Handle<Mesh>>,
 }
 
 /// One material per phase band.
@@ -175,6 +196,7 @@ impl Plugin for AircraftPlugin {
                         .in_set(DrawSet)
                         .after(sample_traffic)
                         .after(CameraSet),
+                    size_halos.after(DrawSet),
                     draw_trails.after(DrawSet),
                 ),
             );
@@ -193,15 +215,29 @@ fn spawn_aircraft(
         return;
     };
     let mut shapes = Vec::with_capacity(SizeClass::ALL.len());
+    let mut halos = HaloMeshes {
+        thin: Vec::with_capacity(SizeClass::ALL.len()),
+        wide: Vec::with_capacity(SizeClass::ALL.len()),
+    };
     for class in SizeClass::ALL {
-        match fill_outline(&outline(class)) {
-            Ok(triangles) => shapes.push(meshes.add(triangles.into_mesh())),
-            Err(error) => {
+        let shape = outline(class);
+        match (
+            fill_outline(&shape),
+            fill_outline(&halo(&shape, HALO_WIDTH)),
+            fill_outline(&halo(&shape, WIDE_HALO_WIDTH)),
+        ) {
+            (Ok(triangles), Ok(thin), Ok(wide)) => {
+                shapes.push(meshes.add(triangles.into_mesh()));
+                halos.thin.push(meshes.add(thin.into_mesh()));
+                halos.wide.push(meshes.add(wide.into_mesh()));
+            }
+            (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => {
                 error!("cannot draw aircraft: {error:#}");
                 return;
             }
         }
     }
+    let dark = materials.add(theme::AIRCRAFT_HALO);
     let bands = BandMaterials(PhaseBand::ALL.map(|band| materials.add(band.color())));
     let layer = RenderLayers::layer(OVERLAY_LAYER);
     for (tail, info) in schedule.tails() {
@@ -209,20 +245,57 @@ fn spawn_aircraft(
             .aircraft()
             .get(info.aircraft())
             .map_or(SizeClass::NarrowBody, size_class);
-        commands.spawn((
-            AircraftSprite::new(tail, Vec2::ZERO),
-            SpriteLook {
-                class,
-                band: PhaseBand::Ground,
-            },
-            Mesh2d(shapes[class.index()].clone()),
-            MeshMaterial2d(bands.0[PhaseBand::Ground.index()].clone()),
-            Transform::from_xyz(0.0, 0.0, AIRCRAFT_Z),
-            Visibility::Hidden,
-            layer.clone(),
-        ));
+        commands
+            .spawn((
+                AircraftSprite::new(tail, Vec2::ZERO),
+                SpriteLook {
+                    class,
+                    band: PhaseBand::Ground,
+                    small: true,
+                },
+                Mesh2d(shapes[class.index()].clone()),
+                MeshMaterial2d(bands.0[PhaseBand::Ground.index()].clone()),
+                Transform::from_xyz(0.0, 0.0, AIRCRAFT_Z),
+                Visibility::Hidden,
+                layer.clone(),
+            ))
+            .with_children(|sprite| {
+                sprite.spawn((
+                    Halo { wide: true },
+                    Mesh2d(halos.wide[class.index()].clone()),
+                    MeshMaterial2d(dark.clone()),
+                    Transform::from_xyz(0.0, 0.0, HALO_Z),
+                    layer.clone(),
+                ));
+            });
     }
     commands.insert_resource(bands);
+    commands.insert_resource(halos);
+}
+
+/// Gives each halo the width for its aircraft's size on screen.
+fn size_halos(
+    meshes: Option<Res<HaloMeshes>>,
+    looks: Query<&SpriteLook>,
+    mut halos: Query<(&ChildOf, &mut Halo, &mut Mesh2d)>,
+) {
+    let Some(meshes) = meshes else {
+        return;
+    };
+    for (child_of, mut halo, mut mesh) in &mut halos {
+        let Ok(look) = looks.get(child_of.parent()) else {
+            continue;
+        };
+        if halo.wide != look.small {
+            halo.wide = look.small;
+            let set = if look.small {
+                &meshes.wide
+            } else {
+                &meshes.thin
+            };
+            mesh.0 = set[look.class.index()].clone();
+        }
+    }
 }
 
 fn sample_traffic(
@@ -278,12 +351,18 @@ fn draw_aircraft(
         let z = if highlighted { HIGHLIGHT_Z } else { AIRCRAFT_Z };
         *transform = Transform::from_translation(pose.position.extend(z))
             .with_rotation(Quat::from_rotation_z(rotation(pose.heading)))
-            .with_scale(Vec3::splat(display_length(
-                pixel_length(look.class),
-                real_length(look.class),
-                scale,
-                units_per_meter,
-            )));
+            .with_scale({
+                let length = display_length(
+                    pixel_length(look.class),
+                    real_length(look.class),
+                    scale,
+                    units_per_meter,
+                );
+                let small = halo_width(length / scale.max(f32::EPSILON)) > HALO_WIDTH;
+                look.small = small;
+                // z unscaled: the halo stays just behind at every zoom.
+                Vec3::new(length, length, 1.0)
+            });
         let band = PhaseBand::of(view.phase());
         if look.band != band {
             look.band = band;
