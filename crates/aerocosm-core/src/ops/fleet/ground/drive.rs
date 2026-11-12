@@ -308,6 +308,8 @@ pub(super) struct Seen {
     pub(super) at: LatLon,
     pub(super) heading: Degrees,
     pub(super) moving: bool,
+    /// Waiting at a hold line, which is drawn wingtip-clear of the way.
+    pub(super) at_hold: bool,
 }
 
 /// Whether an aircraft at `here`, about to move to `next`, has to stop for
@@ -319,7 +321,7 @@ fn in_the_way(here: LatLon, next: LatLon, other: &Seen, first: bool) -> bool {
         here.distance_to(other.at).value(),
         next.distance_to(other.at).value(),
     );
-    if after >= SEE_AND_AVOID || after >= before {
+    if other.at_hold || after >= SEE_AND_AVOID || after >= before {
         return false;
     }
     let ahead = here.initial_bearing_to(other.at).value();
@@ -351,6 +353,7 @@ mod tests {
                 at: metres_north(m)?,
                 heading: Degrees::from_raw(0.0),
                 moving: false,
+                at_hold: false,
             })
         };
         // Standing 40 m ahead: stop; 80 m ahead: go on.
@@ -378,6 +381,12 @@ mod tests {
             ..standing(0.0)?
         };
         assert!(in_the_way(here, next, &close, false));
+        // Unless it waits at a hold line: those are drawn wingtip-clear.
+        let at_hold = Seen {
+            at_hold: true,
+            ..close
+        };
+        assert!(!in_the_way(here, next, &at_hold, false));
         // Head-on, both moving: the one with priority goes on.
         let coming = Seen {
             heading: Degrees::from_raw(180.0),

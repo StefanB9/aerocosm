@@ -103,6 +103,9 @@ impl Operations {
                     at,
                     heading,
                     moving: motion.speed() > STANDING,
+                    at_hold: taxi
+                        .next_hold()
+                        .is_some_and(|(_, hold)| (along - hold).abs() <= 1.0),
                 });
             }
             // Past its last chain (at the holding point) it stands at that
