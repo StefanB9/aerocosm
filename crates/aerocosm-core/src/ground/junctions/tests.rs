@@ -294,9 +294,9 @@ fn test_shipped_hubs_have_compact_junctions() -> Result<()> {
 
 #[test]
 fn test_a_hold_is_kept_clear_of_traffic_through_the_junction() -> Result<()> {
-    // A junction of nodes 0 and 1, 20 m apart; A comes in from the north to
-    // node 0 with a mapped hold (node 5) 15 m out, only 25 m from node 1:
-    // the hold moves back to 25 m out, 32 m from node 1.
+    // A junction of nodes 0 and 1, 20 m apart on N; A comes in from the
+    // north to node 0 with a mapped hold (node 5) only 15 m off N: the hold
+    // moves back to 30 m out.
     let ground = layout(
         &[
             (0.0, 0.0),
@@ -327,6 +327,41 @@ fn test_a_hold_is_kept_clear_of_traffic_through_the_junction() -> Result<()> {
     );
     let hold = from_a[0].hold.context("a hold")?;
     assert!((from_a[0].entry - 300.0).abs() < 1.0);
-    assert!((hold - 275.0).abs() < 1.0, "{hold}");
+    assert!((hold - 270.0).abs() < 1.0, "{hold}");
+    Ok(())
+}
+
+#[test]
+fn test_a_hold_is_kept_clear_of_the_crossing_taxiway() -> Result<()> {
+    // A joins N at a shallow angle (from 300 m east, 100 m north): 45 m out
+    // it would stand 14 m off N's centreline; it holds where it is 30 m off,
+    // 95 m out.
+    let ground = layout(
+        &[
+            (0.0, 0.0),
+            (300.0, 0.0),
+            (-300.0, 0.0),
+            (300.0, 100.0),
+            (0.0, -300.0),
+        ],
+        &[
+            (0, 1, TAXIWAY, Some("N")),
+            (0, 2, TAXIWAY, Some("N")),
+            (0, 3, TAXIWAY, Some("A")),
+            (0, 4, TAXIWAY, Some("B")),
+        ],
+        &[],
+        &[],
+    )?;
+    let junctions = Junctions::new(&ground);
+    let (from_a, _) = junctions.passages(
+        &ground,
+        Id::new(3),
+        &[(Id::new(2), false), (Id::new(1), true)],
+        0.0,
+    );
+    let into = from_a.first().context("the junction")?;
+    let out = into.entry - into.hold.context("a hold")?;
+    assert!((out - 95.0).abs() < 1.0, "{out}");
     Ok(())
 }

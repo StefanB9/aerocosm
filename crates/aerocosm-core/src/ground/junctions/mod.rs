@@ -145,8 +145,8 @@ fn point_along(
 }
 
 /// A hold `hold` metres out on `chain`'s end `end`, moved back until it is
-/// `HOLD_CLEAR` from the junction's other `nodes`, at most to the chain's
-/// middle.
+/// `HOLD_CLEAR` from the taxiways at the junction of `nodes` other than its
+/// own, at most to the chain's middle.
 fn clear_of(
     layout: &AirportGround,
     chain: &Chain,
@@ -154,17 +154,19 @@ fn clear_of(
     nodes: &[Id<Node>],
     hold: f64,
 ) -> f64 {
-    let entry = if end == 0 { chain.start } else { chain.end };
-    let others: Vec<[f64; 2]> = nodes
+    let xy = |n: Id<Node>| layout.nodes().get(n.as_usize()).map(|node| node.xy);
+    let others: Vec<([f64; 2], [f64; 2])> = nodes
         .iter()
-        .filter(|&&n| Some(n) != entry)
-        .filter_map(|n| layout.nodes().get(n.as_usize()).map(|node| node.xy))
+        .flat_map(|&n| layout.edges_at(n).iter().copied())
+        .filter(|e| !chain.edges.iter().any(|&(own, _)| own == *e))
+        .filter_map(|e| layout.edge(e))
+        .filter_map(|e| Some((xy(e.from())?, xy(e.to())?)))
         .collect();
     let near = |d: f64| {
         point_along(layout, chain, end, d).is_some_and(|p| {
             others
                 .iter()
-                .any(|o| (p[0] - o[0]).hypot(p[1] - o[1]) < HOLD_CLEAR)
+                .any(|&(a, b)| distance_to_segment(p, a, b) < HOLD_CLEAR - 0.01)
         })
     };
     let mut at = hold;
@@ -172,6 +174,18 @@ fn clear_of(
         at += HOLD_STEP;
     }
     at
+}
+
+/// How far `p` is from the segment `a`–`b`, local metres.
+fn distance_to_segment(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
+    let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+    let squared = dx * dx + dy * dy;
+    let t = if squared > 0.0 {
+        (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / squared).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    (p[0] - a[0] - t * dx).hypot(p[1] - a[1] - t * dy)
 }
 
 /// Union-find over node indices.
