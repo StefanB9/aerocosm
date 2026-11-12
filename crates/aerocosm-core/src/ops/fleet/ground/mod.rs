@@ -28,6 +28,8 @@ use crate::{
 /// this close are held together, and an aircraft holds what lies this far
 /// behind it, m.
 const AIRCRAFT_LENGTH: f64 = 45.0;
+/// A follower keeps this far behind its leader, m (D89).
+const FOLLOW_DISTANCE: f64 = 60.0;
 /// An aircraft asks to be cleared on once it is this close to its limit,
 /// so that it rarely has to stop, m.
 const LOOKAHEAD: f64 = 120.0;
@@ -241,6 +243,8 @@ pub(super) struct Taxi {
     escaped: bool,
     /// Holding short of a runway to cross it, since this time, ms.
     crossing: Option<(RunwayKey, i64)>,
+    /// The aircraft it is cleared to follow, while they still limit it.
+    leaders: Vec<Leader>,
 }
 
 impl Taxi {
@@ -255,6 +259,15 @@ impl Taxi {
                 .map_or(f64::NEG_INFINITY, |hop| hop.along)
         }
     }
+}
+
+/// The aircraft a taxi follows (D89), through a point both pass: how far
+/// along each one's path that point lies, m.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Leader {
+    tail: u32,
+    mine: f64,
+    theirs: f64,
 }
 
 /// How a taxi starts: the route, its goal, the polyline already taxied and
@@ -358,6 +371,7 @@ impl Operations {
             spot_since: 0,
             escaped: false,
             crossing: None,
+            leaders: Vec::new(),
             points: points.clone(),
         });
         Polyline::new(&points).ok()

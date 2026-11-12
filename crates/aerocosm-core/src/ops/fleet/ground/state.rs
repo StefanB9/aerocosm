@@ -55,6 +55,13 @@ impl Operations {
         if holding && let Some(flight) = taxi.waiting_for.and_then(|b| self.callsign(b as usize)) {
             return Some(TaxiState::WaitingFor { flight, to });
         }
+        if let Some(flight) = taxi
+            .leaders
+            .first()
+            .and_then(|l| self.callsign(l.tail as usize))
+        {
+            return Some(TaxiState::Following { flight, to });
+        }
         Some(TaxiState::Taxiing {
             via: via_names(names(taxi.passed).map(|(name, _)| name)),
             to,

@@ -46,6 +46,13 @@ pub enum TaxiState {
         /// Where the taxi ends.
         to: TaxiGoal,
     },
+    /// Cleared to follow another aircraft going the same way (D89).
+    Following {
+        /// The flight it follows.
+        flight: Callsign,
+        /// Where the taxi ends.
+        to: TaxiGoal,
+    },
     /// At the holding point, waiting to line up.
     AtHoldingPoint {
         /// The runway end it takes off from, where the layout says which.
