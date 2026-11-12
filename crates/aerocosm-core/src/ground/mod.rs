@@ -14,9 +14,9 @@ pub(crate) mod clearance;
 mod definition;
 mod elements;
 
+pub(crate) mod junctions;
 mod route;
 mod runways;
-pub(crate) mod sections;
 mod spacing;
 mod taxi;
 
