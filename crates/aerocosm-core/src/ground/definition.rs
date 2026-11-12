@@ -113,6 +113,10 @@ pub struct AirportGroundDefinition {
     pub holding_positions: Vec<HoldingPositionDefinition>,
     /// Runway exits.
     pub exits: Vec<ExitDefinition>,
+    /// Nodes with an intermediate holding position: where aircraft hold
+    /// short of an intersection (plan M4 D89).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub intermediate_holds: Vec<u32>,
     /// Apron outlines, for drawing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub aprons: Vec<Vec<Point>>,
@@ -203,6 +207,7 @@ pub(crate) mod tests {
                 distance: Meters::new(2_400.0)?,
                 angle: Degrees::new(30.0)?,
             }],
+            intermediate_holds: vec![1],
             aprons: vec![vec![[50.029, 8.559], [50.029, 8.561], [50.0305, 8.561]]],
         })
     }

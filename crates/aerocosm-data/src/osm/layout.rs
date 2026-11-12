@@ -288,6 +288,7 @@ fn assemble(
         stands,
         holding_positions,
         exits,
+        intermediate_holds: Vec::new(),
         aprons,
     })
 }

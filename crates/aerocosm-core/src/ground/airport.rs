@@ -38,6 +38,7 @@ pub struct AirportGround {
     /// time.
     pub(super) variants: Vec<Vec<Id<Stand>>>,
     pub(super) holding_positions: Vec<HoldingPosition>,
+    pub(super) intermediate_holds: Vec<Id<Node>>,
     pub(super) exits: Vec<Exit>,
     pub(super) aprons: Vec<Vec<LatLon>>,
 }
@@ -158,6 +159,11 @@ impl AirportGround {
                 })
             })
             .collect::<Result<Vec<_>>>()?;
+        let intermediate_holds = definition
+            .intermediate_holds
+            .into_iter()
+            .map(|node| check.node(node, "an intermediate hold references a missing node"))
+            .collect::<Result<Vec<_>>>()?;
         let aprons = definition
             .aprons
             .into_iter()
@@ -179,6 +185,7 @@ impl AirportGround {
             stands,
             variants,
             holding_positions,
+            intermediate_holds,
             exits,
             aprons,
         })
@@ -333,6 +340,11 @@ impl AirportGround {
         &self.holding_positions
     }
 
+    /// Nodes with an intermediate holding position (plan M4 D89).
+    pub fn intermediate_holds(&self) -> &[Id<Node>] {
+        &self.intermediate_holds
+    }
+
     /// All runway exits.
     pub fn exits(&self) -> &[Exit] {
         &self.exits
@@ -398,6 +410,7 @@ mod tests {
         assert_eq!(ground.holding_positions()[0].runway(), "25C".parse()?);
         assert_eq!(ground.exits()[0].node(), Id::new(2));
         assert_eq!(ground.aprons()[0].len(), 3);
+        assert_eq!(ground.intermediate_holds(), &[Id::new(1)]);
         Ok(())
     }
 
@@ -467,6 +480,12 @@ mod tests {
         ));
         let mut definition = sample()?;
         definition.nodes[0] = [95.0, 8.0];
+        assert!(matches!(
+            rejection(definition)?,
+            CoreError::InvalidGround { .. }
+        ));
+        let mut definition = sample()?;
+        definition.intermediate_holds.push(99);
         assert!(matches!(
             rejection(definition)?,
             CoreError::InvalidGround { .. }

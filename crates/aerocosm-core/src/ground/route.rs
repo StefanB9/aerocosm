@@ -261,6 +261,7 @@ mod tests {
                 stands: Vec::new(),
                 holding_positions: Vec::new(),
                 exits: Vec::new(),
+                intermediate_holds: Vec::new(),
                 aprons: Vec::new(),
             },
             &world,
