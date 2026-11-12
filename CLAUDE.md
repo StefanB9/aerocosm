@@ -58,17 +58,19 @@ aerocosm/                              (workspace root)
     │       │                          delay split); fleet/flow.rs applies it per tail, with
     │       │                          ground delays at off-block; fleet/stands.rs (stand
     │       │                          bookkeeping); stats.rs (punctuality); fleet/ground/
-    │       │                          (plan M4 PR 4: ground controller: grant.rs clearances by
-    │       │                          priority, deadlocks; departure.rs pushback, arrival.rs
-    │       │                          exits and stands, drive.rs taxis to the clearance limit,
-    │       │                          state.rs taxi state and route for the view)
+    │       │                          (plan M4 PR 4, PR 6: ground controller: control.rs
+    │       │                          survey, clearances at junctions, deadlocks, pushback
+    │       │                          approval; drive.rs stops and see-and-avoid; tight.rs
+    │       │                          junctions too close to stop between; reroute.rs ways
+    │       │                          out of deadlocks; departure.rs pushback, arrival.rs
+    │       │                          exits and stands, state.rs taxi state and route)
     │       ├── ground/                Airport ground layouts (plan M4): file format, validated
-    │       │                          networks (nodes, edges, stands, holding positions, exits),
-    │       │                          route.rs (A*), areas.rs (stand choice), taxi.rs (entries,
-    │       │                          exits, typical taxi times for schedules), clearance.rs
-    │       │                          (clearance points, holders, edge directions, flows),
-    │       │                          runways.rs (runway nodes, waiting spots), spacing.rs
-    │       │                          (points too close for two aircraft)
+    │       │                          networks (nodes, edges, stands, holding positions incl.
+    │       │                          intermediate, exits), route.rs (A*), areas.rs (stand
+    │       │                          choice), taxi.rs (entries, exits, typical taxi times for
+    │       │                          schedules), junctions/ (plan M4 D93: intersections,
+    │       │                          chains, passages, who yields and where it holds),
+    │       │                          runways.rs (runway nodes, waiting spots)
     │       ├── scenario.rs            Scenario: world + optional traffic and ground (D45)
     │       ├── units.rs               Meters, Feet, NauticalMiles, Knots, Degrees, …
     │       ├── geo/                   LatLon, great-circle maths, Segment and Route (waypoints
