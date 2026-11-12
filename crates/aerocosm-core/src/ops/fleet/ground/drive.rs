@@ -4,7 +4,7 @@
 //! the taxiways it has locked, and its route's end; then it finishes at its
 //! stand, waiting spot or holding position.
 
-use super::{AIRCRAFT_LENGTH, FOLLOW, Target, ZONE, control::overdue, ms};
+use super::{AIRCRAFT_LENGTH, EDGE, FOLLOW, Target, ZONE, control::overdue, ms};
 use crate::{
     LatLon, SimDuration, SimTime, TICK,
     ground::TAXI_SPEED,
@@ -77,6 +77,7 @@ impl Operations {
             stop = stop.nearer(along, Some(other), false);
         }
         let next = (along + TAXI_SPEED * dt).min(stop.at.max(along));
+        self.claim_entered(index, along, next);
         motion.taxi_at(next, (next - along) / dt);
         let taxi = self.taxis[index].as_mut()?;
         taxi.limit = stop.at.max(along);
@@ -162,7 +163,8 @@ impl Operations {
         for passage in taxi
             .passages
             .iter()
-            .filter(|p| p.entry - ZONE > along && p.entry - ZONE < stop.at)
+            // Stopped right at a zone's edge it is still outside.
+            .filter(|p| p.entry - ZONE > along - EDGE && p.entry - ZONE < stop.at)
         {
             let j = passage.junction as usize;
             let other = airside
@@ -238,6 +240,27 @@ impl Operations {
         }
     }
 
+    /// Tail `index`, moving from `along` to `next`, claims the junctions
+    /// whose zone it enters, so that nobody else enters them this tick.
+    fn claim_entered(&mut self, index: usize, along: f64, next: f64) {
+        let owner = Self::owner(index);
+        let Some(taxi) = self.taxis[index].as_ref() else {
+            return;
+        };
+        let Some(airside) = self.ground.airside_mut(taxi.airport) else {
+            return;
+        };
+        for passage in &taxi.passages {
+            let edge = passage.entry - ZONE;
+            if edge > along - EDGE
+                && edge <= next
+                && let Some(slot) = airside.claims.get_mut(passage.junction as usize)
+            {
+                slot.get_or_insert(owner);
+            }
+        }
+    }
+
     /// Another aircraft tail `index` would close in on by moving `step`
     /// metres now (see and avoid), unless it taxies regardless.
     fn seen_ahead(&self, index: usize, motion: &Motion, step: f64) -> Option<u32> {
@@ -263,8 +286,14 @@ impl Operations {
     }
 }
 
-/// Pilots do not close in on another aircraft nearer than this, m.
+/// Pilots do not close in on another aircraft in front nearer than this,
+/// m, …
 const SEE_AND_AVOID: f64 = 50.0;
+/// …in front meaning within this angle of their heading, degrees…
+const IN_FRONT: f64 = 35.0;
+/// …nor on anyone nearer than this, m: an aircraft holding short of a
+/// junction is passed wingtip-clear.
+const TOO_CLOSE: f64 = 25.0;
 
 /// Another aircraft as a pilot sees it: where it is, which way it heads and
 /// whether it moves.
@@ -277,15 +306,21 @@ pub(super) struct Seen {
 }
 
 /// Whether an aircraft at `here`, about to move to `next`, has to stop for
-/// `other` (see and avoid): the move brings it within `SEE_AND_AVOID` and
-/// closer. When both close in on each other, the one with priority (`first`)
-/// goes on.
+/// `other` (see and avoid): the move brings it closer, within
+/// `SEE_AND_AVOID` of one in front or `TOO_CLOSE` of any. When both close in on
+/// each other, the one with priority (`first`) goes on.
 fn in_the_way(here: LatLon, next: LatLon, other: &Seen, first: bool) -> bool {
     let (before, after) = (
         here.distance_to(other.at).value(),
         next.distance_to(other.at).value(),
     );
     if after >= SEE_AND_AVOID || after >= before {
+        return false;
+    }
+    let ahead = here.initial_bearing_to(other.at).value();
+    let going = here.initial_bearing_to(next).value();
+    let off_nose = (ahead - going + 540.0).rem_euclid(360.0) - 180.0;
+    if after >= TOO_CLOSE && off_nose.abs() > IN_FRONT {
         return false;
     }
     let towards = other.at.initial_bearing_to(here).value();
@@ -317,6 +352,19 @@ mod tests {
         assert!(!in_the_way(here, next, &standing(80.0)?, true));
         // Behind: moving away from it is fine.
         assert!(!in_the_way(here, next, &standing(-30.0)?, false));
+        // Holding short 45 m off to the side of the way: pass it.
+        let east = |m: f64| LatLon::new(50.03 + 20.0 / 111_195.0, 8.56 + m / 71_470.0);
+        let aside = Seen {
+            at: east(42.0)?,
+            ..standing(0.0)?
+        };
+        assert!(!in_the_way(here, next, &aside, false));
+        // Anyone closer than 25 m that it closes in on: stop.
+        let close = Seen {
+            at: east(15.0)?,
+            ..standing(0.0)?
+        };
+        assert!(in_the_way(here, next, &close, false));
         // Head-on, both moving: the one with priority goes on.
         let coming = Seen {
             heading: Degrees::from_raw(180.0),

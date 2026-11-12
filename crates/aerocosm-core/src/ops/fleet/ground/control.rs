@@ -3,8 +3,8 @@
 //! ahead of their hold, the most urgent first.
 
 use super::{
-    AIRCRAFT_LENGTH, DEADLOCK_AFTER, FOLLOW, GAP, LOCK_AHEAD, LOOKAHEAD, Occupant, PUSH_CLEAR,
-    STUCK_AFTER, Target, Taxi, ZONE, ms, taxi_millis, time_of,
+    AIRCRAFT_LENGTH, DEADLOCK_AFTER, EDGE, FOLLOW, GAP, LOCK_AHEAD, LOOKAHEAD, Occupant,
+    PUSH_CLEAR, STUCK_AFTER, Target, Taxi, ZONE, ms, taxi_millis, time_of,
 };
 use crate::{
     SimDuration, SimTime,
@@ -120,14 +120,13 @@ impl Operations {
                     });
                 }
             }
-            for (i, passage) in taxi.passages.iter().enumerate() {
+            for passage in &taxi.passages {
                 let j = passage.junction as usize;
-                if along >= passage.entry - ZONE && tail <= passage.exit + ZONE {
+                if along > passage.entry - ZONE + EDGE && tail <= passage.exit + ZONE {
                     if let Some(list) = airside.occupied.get_mut(j) {
                         list.push(owner);
                     }
-                } else if i < taxi.next
-                    && tail > passage.exit + ZONE
+                } else if tail > passage.exit + ZONE
                     && airside.claims.get(j).copied().flatten() == Some(owner)
                 {
                     airside.claims[j] = None;
