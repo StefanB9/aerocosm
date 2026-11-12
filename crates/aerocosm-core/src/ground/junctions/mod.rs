@@ -19,6 +19,11 @@ const CLUSTER: f64 = 30.0;
 const YIELD_HOLD: f64 = 45.0;
 /// A synthesised runway hold this far from the runway, m.
 const RUNWAY_HOLD: f64 = 90.0;
+/// A hold is at least this far from the junction's other nodes, m: traffic
+/// through the junction passes a waiting aircraft wingtip-clear.
+const HOLD_CLEAR: f64 = 30.0;
+/// Holds too near that traffic move back in steps of this, m.
+const HOLD_STEP: f64 = 5.0;
 /// Approaches turning less than this off straight on are a through pair
 /// without a common name, degrees.
 const STRAIGHT: f64 = 30.0;
@@ -102,6 +107,71 @@ struct Chain {
     holds: Vec<f64>,
     /// Bearing leaving the start and leaving the end, degrees.
     bearings: [f64; 2],
+}
+
+/// The point `distance` metres along `chain` from its end `end` (0 = start),
+/// local metres, between its nodes.
+fn point_along(
+    layout: &AirportGround,
+    chain: &Chain,
+    end: usize,
+    distance: f64,
+) -> Option<[f64; 2]> {
+    let mut node = if end == 0 { chain.start } else { chain.end }?;
+    let mut walked = 0.0;
+    let count = chain.edges.len();
+    let mut order = (0..count).map(|k| if end == 0 { k } else { count - 1 - k });
+    order.find_map(|k| {
+        let edge = layout.edge(chain.edges[k].0)?;
+        let next = if edge.from() == node {
+            edge.to()
+        } else {
+            edge.from()
+        };
+        let length = edge.length().value();
+        let from = layout.nodes().get(node.as_usize())?.xy;
+        node = next;
+        if walked + length < distance {
+            walked += length;
+            return None;
+        }
+        let to = layout.nodes().get(next.as_usize())?.xy;
+        let t = ((distance - walked) / length.max(1e-9)).clamp(0.0, 1.0);
+        Some([
+            from[0] + (to[0] - from[0]) * t,
+            from[1] + (to[1] - from[1]) * t,
+        ])
+    })
+}
+
+/// A hold `hold` metres out on `chain`'s end `end`, moved back until it is
+/// `HOLD_CLEAR` from the junction's other `nodes`, at most to the chain's
+/// middle.
+fn clear_of(
+    layout: &AirportGround,
+    chain: &Chain,
+    end: usize,
+    nodes: &[Id<Node>],
+    hold: f64,
+) -> f64 {
+    let entry = if end == 0 { chain.start } else { chain.end };
+    let others: Vec<[f64; 2]> = nodes
+        .iter()
+        .filter(|&&n| Some(n) != entry)
+        .filter_map(|n| layout.nodes().get(n.as_usize()).map(|node| node.xy))
+        .collect();
+    let near = |d: f64| {
+        point_along(layout, chain, end, d).is_some_and(|p| {
+            others
+                .iter()
+                .any(|o| (p[0] - o[0]).hypot(p[1] - o[1]) < HOLD_CLEAR)
+        })
+    };
+    let mut at = hold;
+    while near(at) && at + HOLD_STEP <= chain.length / 2.0 {
+        at += HOLD_STEP;
+    }
+    at
 }
 
 /// Union-find over node indices.
@@ -250,7 +320,14 @@ impl Junctions {
                     None
                 } else {
                     Some(YIELD_HOLD.min(chain.length / 2.0))
-                };
+                }
+                .map(|hold| {
+                    if runway {
+                        hold
+                    } else {
+                        clear_of(layout, chain, end, &junctions[j].nodes, hold)
+                    }
+                });
             }
         }
         let mut chain_of = vec![None; layout.edges().len()];

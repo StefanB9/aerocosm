@@ -4,7 +4,7 @@
 
 use super::{
     AIRCRAFT_LENGTH, DEADLOCK_AFTER, EDGE, FOLLOW, GAP, LOCK_AHEAD, LOOKAHEAD, Occupant,
-    PUSH_CLEAR, STUCK_AFTER, Target, Taxi, ZONE, ms, taxi_millis, time_of,
+    PUSH_CLEAR, STUCK_AFTER, Target, Taxi, ZONE, ms, taxi_millis, tight, time_of,
 };
 use crate::{
     SimDuration, SimTime,
@@ -322,8 +322,20 @@ impl Operations {
             .skip(i + 1)
             .find_map(|p| p.hold)
             .unwrap_or(passage.exit + LOCK_AHEAD);
+        // Junctions after it too close to stop short of: they must be free.
+        let onwards = taxi.passages[tight::committed(&taxi.passages, i)]
+            .iter()
+            .find_map(|p| {
+                let k = p.junction as usize;
+                airside
+                    .occupied
+                    .get(k)
+                    .and_then(|list| list.iter().copied().find(|&o| o != owner))
+                    .or_else(|| other(airside.claims.get(k).copied().flatten()))
+            });
         let blocker = inside
             .or_else(|| other(airside.claims.get(j).copied().flatten()))
+            .or(onwards)
             // Cleared in the order they queue: the first in line first.
             .or_else(|| self.ahead_on_path(index, along + EDGE, passage.entry))
             .or_else(|| self.through_near(index, passage.junction))

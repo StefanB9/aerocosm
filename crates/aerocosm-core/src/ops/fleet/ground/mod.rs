@@ -12,6 +12,7 @@ mod control;
 mod departure;
 mod drive;
 mod state;
+mod tight;
 
 use super::Operations;
 use crate::{

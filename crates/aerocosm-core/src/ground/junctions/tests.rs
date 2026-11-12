@@ -291,3 +291,42 @@ fn test_shipped_hubs_have_compact_junctions() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn test_a_hold_is_kept_clear_of_traffic_through_the_junction() -> Result<()> {
+    // A junction of nodes 0 and 1, 20 m apart; A comes in from the north to
+    // node 0 with a mapped hold (node 5) 15 m out, only 25 m from node 1:
+    // the hold moves back to 25 m out, 32 m from node 1.
+    let ground = layout(
+        &[
+            (0.0, 0.0),
+            (20.0, 0.0),
+            (-300.0, 0.0),
+            (320.0, 0.0),
+            (0.0, 300.0),
+            (0.0, 15.0),
+            (20.0, -300.0),
+        ],
+        &[
+            (0, 1, TAXIWAY, Some("N")),
+            (0, 2, TAXIWAY, Some("N")),
+            (1, 3, TAXIWAY, Some("N")),
+            (0, 5, TAXIWAY, Some("A")),
+            (5, 4, TAXIWAY, Some("A")),
+            (1, 6, TAXIWAY, Some("B")),
+        ],
+        &[5],
+        &[],
+    )?;
+    let junctions = Junctions::new(&ground);
+    let (from_a, _) = junctions.passages(
+        &ground,
+        Id::new(4),
+        &[(Id::new(4), false), (Id::new(3), false), (Id::new(1), true)],
+        0.0,
+    );
+    let hold = from_a[0].hold.context("a hold")?;
+    assert!((from_a[0].entry - 300.0).abs() < 1.0);
+    assert!((hold - 275.0).abs() < 1.0, "{hold}");
+    Ok(())
+}
