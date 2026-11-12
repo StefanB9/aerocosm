@@ -34,6 +34,9 @@ const FOLLOW: f64 = 60.0;
 /// A junction's zone reaches this far beyond its nodes along a path: an
 /// aircraft whose body is within it is in the junction, m.
 const ZONE: f64 = 30.0;
+/// Before a junction someone else is in, an aircraft holds this far short
+/// of its nodes, wingtip-clear of whoever passes through, m.
+const HOLD_SHORT: f64 = 45.0;
 /// An aircraft this close to a junction zone's edge, m, has not entered
 /// the zone (it stopped there).
 const EDGE: f64 = 0.5;

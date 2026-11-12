@@ -271,9 +271,9 @@ impl Operations {
         let Some(airside) = self.ground.airside_mut(taxi.airport) else {
             return;
         };
-        let horizon = taxi
-            .next_hold()
-            .map_or((along + LOCK_AHEAD).min(taxi.end), |(_, hold)| hold);
+        // The whole route, as a controller clears it, so that nobody is let
+        // into a corridor someone is coming down the other way.
+        let horizon = taxi.end.max(along + LOCK_AHEAD);
         while let Some(&run) = taxi.runs.get(taxi.locked) {
             if run.from >= horizon {
                 break;
@@ -460,7 +460,7 @@ impl Operations {
     /// Whether tail `index`'s way from `from` to `to` metres along its path
     /// is clear: nobody on it, or within `PUSH_CLEAR` of `from` on the same
     /// chain either way, nobody in a junction there, and nobody coming the
-    /// other way up to its first hold; if so its taxiways are locked (D93).
+    /// other way on its whole route; if so its taxiways are locked (D93).
     /// For a pushback (`from` where it ends) and a landing vacating.
     pub(super) fn clear_way(&mut self, index: usize, from: f64, to: f64) -> bool {
         let owner = Self::owner(index);
@@ -500,7 +500,7 @@ impl Operations {
                         .flatten()
                         .is_some_and(|o| o != owner))
         });
-        let horizon = taxi.next_hold().map_or(taxi.end, |(_, hold)| hold);
+        let horizon = taxi.end;
         let opposed = taxi
             .runs
             .iter()
@@ -519,7 +519,23 @@ impl Operations {
                     .along_of(k)
                     .is_some_and(|along| along < from + AIRCRAFT_LENGTH)
         });
-        if lane || junction || opposed || lead_in || self.ahead_on_path(index, from, to).is_some() {
+        // Nobody near where it will stand, whatever the network says.
+        let point = crate::geo::Polyline::new(&taxi.points)
+            .ok()
+            .map(|line| line.point_at(crate::units::Meters::from_raw(from - taxi.offset)));
+        let near = point.is_some_and(|point| {
+            airside
+                .seen
+                .iter()
+                .any(|seen| seen.tail != owner && seen.at.distance_to(point).value() < FOLLOW)
+        });
+        if lane
+            || junction
+            || opposed
+            || lead_in
+            || near
+            || self.ahead_on_path(index, from, to).is_some()
+        {
             return false;
         }
         let Some(taxi) = self.taxis[index].as_mut() else {

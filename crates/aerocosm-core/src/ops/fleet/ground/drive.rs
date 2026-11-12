@@ -4,7 +4,7 @@
 //! the taxiways it has locked, and its route's end; then it finishes at its
 //! stand, waiting spot or holding position.
 
-use super::{AIRCRAFT_LENGTH, EDGE, FOLLOW, Target, ZONE, control::overdue, ms};
+use super::{AIRCRAFT_LENGTH, EDGE, FOLLOW, HOLD_SHORT, Target, control::overdue, ms};
 use crate::{
     LatLon, SimDuration, SimTime, TICK,
     ground::TAXI_SPEED,
@@ -156,7 +156,7 @@ impl Operations {
                 .iter()
                 .rev()
                 .find(|p| p.entry <= run.from + 1e-6)
-                .map_or(run.from, |p| p.entry - ZONE);
+                .map_or(run.from, |p| p.entry - HOLD_SHORT);
             stop = stop.nearer(short, taxi.waiting_for, false);
         }
         // Short of a junction someone else is in or has been cleared into.
@@ -164,7 +164,7 @@ impl Operations {
             .passages
             .iter()
             // Stopped right at a zone's edge it is still outside.
-            .filter(|p| p.entry - ZONE > along - EDGE && p.entry - ZONE < stop.at)
+            .filter(|p| p.entry - HOLD_SHORT > along - EDGE && p.entry - HOLD_SHORT < stop.at)
         {
             let j = passage.junction as usize;
             let other = airside
@@ -180,7 +180,7 @@ impl Operations {
                         .filter(|&o| o != owner)
                 });
             if other.is_some() {
-                stop = stop.nearer(passage.entry - ZONE, other, false);
+                stop = stop.nearer(passage.entry - HOLD_SHORT, other, false);
                 break;
             }
         }
@@ -251,7 +251,7 @@ impl Operations {
             return;
         };
         for passage in &taxi.passages {
-            let edge = passage.entry - ZONE;
+            let edge = passage.entry - HOLD_SHORT;
             if edge > along - EDGE
                 && edge <= next
                 && let Some(slot) = airside.claims.get_mut(passage.junction as usize)
@@ -289,8 +289,9 @@ impl Operations {
 /// Pilots do not close in on another aircraft in front nearer than this,
 /// m, …
 const SEE_AND_AVOID: f64 = 50.0;
-/// …in front meaning within this angle of their heading, degrees…
-const IN_FRONT: f64 = 35.0;
+/// …in front meaning ahead and at most this far to either side of their
+/// way, m…
+const IN_FRONT: f64 = 25.0;
 /// …nor on anyone nearer than this, m: an aircraft holding short of a
 /// junction is passed wingtip-clear.
 const TOO_CLOSE: f64 = 25.0;
@@ -307,8 +308,8 @@ pub(super) struct Seen {
 
 /// Whether an aircraft at `here`, about to move to `next`, has to stop for
 /// `other` (see and avoid): the move brings it closer, within
-/// `SEE_AND_AVOID` of one in front or `TOO_CLOSE` of any. When both close in on
-/// each other, the one with priority (`first`) goes on.
+/// `SEE_AND_AVOID` of one in front on its way or `TOO_CLOSE` of any. When both
+/// close in on each other, the one with priority (`first`) goes on.
 fn in_the_way(here: LatLon, next: LatLon, other: &Seen, first: bool) -> bool {
     let (before, after) = (
         here.distance_to(other.at).value(),
@@ -319,8 +320,9 @@ fn in_the_way(here: LatLon, next: LatLon, other: &Seen, first: bool) -> bool {
     }
     let ahead = here.initial_bearing_to(other.at).value();
     let going = here.initial_bearing_to(next).value();
-    let off_nose = (ahead - going + 540.0).rem_euclid(360.0) - 180.0;
-    if after >= TOO_CLOSE && off_nose.abs() > IN_FRONT {
+    let off_nose = ((ahead - going + 540.0).rem_euclid(360.0) - 180.0).to_radians();
+    let aside = before * off_nose.sin().abs();
+    if after >= TOO_CLOSE && (off_nose.cos() <= 0.0 || aside > IN_FRONT) {
         return false;
     }
     let towards = other.at.initial_bearing_to(here).value();
@@ -359,6 +361,13 @@ mod tests {
             ..standing(0.0)?
         };
         assert!(!in_the_way(here, next, &aside, false));
+        // Holding short at a side branch ahead, 45 m along and 26 m off the
+        // way: pass it.
+        let side = Seen {
+            at: LatLon::new(50.03 + 45.0 / 111_195.0, 8.56 + 26.0 / 71_470.0)?,
+            ..standing(0.0)?
+        };
+        assert!(!in_the_way(here, next, &side, false));
         // Anyone closer than 25 m that it closes in on: stop.
         let close = Seen {
             at: east(15.0)?,
