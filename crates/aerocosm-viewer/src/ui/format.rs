@@ -2,7 +2,7 @@
 
 use aerocosm_core::{
     SimDuration, SimTime,
-    ops::{FlightStatus, Phase},
+    ops::{FlightStatus, Phase, TaxiGoal, TaxiState},
     time::Zone,
     units::Feet,
 };
@@ -69,6 +69,49 @@ pub(crate) const fn phase_name(phase: Phase) -> &'static str {
     }
 }
 
+/// Where a taxi goes, as in "to holding point 25C".
+fn taxi_goal(goal: TaxiGoal) -> String {
+    match goal {
+        TaxiGoal::HoldingPoint(Some(runway)) => format!("holding point {runway}"),
+        TaxiGoal::HoldingPoint(None) => "the holding point".to_owned(),
+        TaxiGoal::Stand(stand) => format!("stand {stand}"),
+        TaxiGoal::Spot => "a waiting spot".to_owned(),
+    }
+}
+
+/// What ground control does with an aircraft, for the flight panel (plan
+/// M4 D85).
+pub(crate) fn taxi_state(state: TaxiState) -> String {
+    match state {
+        TaxiState::Pushback { stand: Some(stand) } => format!("Pushback from {stand}"),
+        TaxiState::Pushback { stand: None } => "Pushback".to_owned(),
+        TaxiState::Taxiing { via, to } => {
+            let names: Vec<String> = via.iter().flatten().map(ToString::to_string).collect();
+            if names.is_empty() {
+                format!("Taxiing to {}", taxi_goal(to))
+            } else {
+                format!("Taxiing via {} to {}", names.join(", "), taxi_goal(to))
+            }
+        }
+        TaxiState::HoldingShort {
+            runway: Some(runway),
+        } => format!("Holding short of runway {runway}"),
+        TaxiState::HoldingShort { runway: None } => "Holding short of a runway".to_owned(),
+        TaxiState::WaitingFor { flight, to } => {
+            format!("Waiting for {flight}, then to {}", taxi_goal(to))
+        }
+        TaxiState::AtHoldingPoint {
+            runway: Some(runway),
+        } => format!("At holding point {runway}"),
+        TaxiState::AtHoldingPoint { runway: None } => "At the holding point".to_owned(),
+        TaxiState::WaitingForStand => "Waiting at a spot for a stand".to_owned(),
+        TaxiState::ClearedRegardless { to } => format!(
+            "Taxiing regardless of traffic to {} (ground conflict)",
+            taxi_goal(to)
+        ),
+    }
+}
+
 /// `+7 min` for delays of a minute or more.
 pub(crate) fn delay(delay: SimDuration) -> Option<String> {
     let minutes = delay.as_millis() / 60_000;
@@ -96,9 +139,70 @@ pub(crate) fn slot(time: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use aerocosm_core::{ops::Callsign, schedule::FlightNumber};
     use anyhow::Result;
 
     use super::*;
+
+    #[test]
+    fn test_taxi_state_reads_like_a_ground_clearance() -> Result<()> {
+        let (n, n7) = ("N".parse()?, "N7".parse()?);
+        let hold = TaxiGoal::HoldingPoint(Some("25C".parse()?));
+        let stand = TaxiGoal::Stand("A14".parse()?);
+        assert_eq!(
+            taxi_state(TaxiState::Pushback {
+                stand: Some("V155".parse()?)
+            }),
+            "Pushback from V155"
+        );
+        assert_eq!(taxi_state(TaxiState::Pushback { stand: None }), "Pushback");
+        assert_eq!(
+            taxi_state(TaxiState::Taxiing {
+                via: [Some(n), Some(n7), None],
+                to: hold,
+            }),
+            "Taxiing via N, N7 to holding point 25C"
+        );
+        assert_eq!(
+            taxi_state(TaxiState::Taxiing {
+                via: [None; 3],
+                to: stand,
+            }),
+            "Taxiing to stand A14"
+        );
+        assert_eq!(
+            taxi_state(TaxiState::HoldingShort {
+                runway: Some("07C/25C".parse()?)
+            }),
+            "Holding short of runway 07C/25C"
+        );
+        assert_eq!(
+            taxi_state(TaxiState::WaitingFor {
+                flight: Callsign::new("DLH".parse()?, FlightNumber::new(123)),
+                to: TaxiGoal::Spot,
+            }),
+            "Waiting for DLH123, then to a waiting spot"
+        );
+        assert_eq!(
+            taxi_state(TaxiState::AtHoldingPoint {
+                runway: Some("25C".parse()?)
+            }),
+            "At holding point 25C"
+        );
+        assert_eq!(
+            taxi_state(TaxiState::AtHoldingPoint { runway: None }),
+            "At the holding point"
+        );
+        assert_eq!(
+            taxi_state(TaxiState::WaitingForStand),
+            "Waiting at a spot for a stand"
+        );
+        assert_eq!(
+            taxi_state(TaxiState::ClearedRegardless { to: stand }),
+            "Taxiing regardless of traffic to stand A14 (ground conflict)"
+        );
+        Ok(())
+    }
 
     #[test]
     fn test_clock_and_local_clock() -> Result<()> {

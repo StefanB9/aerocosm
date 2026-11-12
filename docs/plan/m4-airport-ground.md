@@ -61,6 +61,10 @@ small components are cut off by the query box or are disconnected service areas.
 | D82 | **Runways and pushback (PR 4):** crossings and line-up stay with the runway controller (D77, D78): an aircraft holds short until it may cross, then is cleared across in one go. A pushback needs a clearance for its lead-in and on to where it may stop, and is refused (asked again after 30 s) otherwise. A landing chooses its exit at touchdown: the planned one or a later one whose way off the runway is free, cleared at once; a vacating aircraft stops 90 m clear of the runway at the first point that is no junction, holding short of the taxiway there if need be. With every exit taken, the tower would send it around; go-arounds are not modelled, so it taxies regardless and counts as a ground conflict | One set of rules for everything that moves on the ground; arrivals never wait on the runway |
 | D83 | **Gridlock (PR 4, as built):** the controller follows who waits for whom; in a cycle the least urgent member gives way and, after 60 s, is cleared regardless (counted as a ground conflict, D75). Re-routing round the cycle was tried and is mostly infeasible on real layouts. Routes avoid edges in use the other way (10× their length) and, as published taxi flows would, edges against the direction traffic has recently taken them (3×, learnt per edge). The 30-minute last resort (D75) remains, except in a runway queue | Mirrors controllers noticing a jam; learnt flows remove most head-on cycles before they form |
 | D84 | **No published taxi flows yet:** standard one-way flows per runway direction are not curated in PR 4; the learnt edge directions of D83 stand in for them. Published flows are a later improvement (curated, or Navigraph in the premium tier) | Needs per-airport sources |
+| D85 | **Taxi state (PR 5):** `FlightView` gains a `TaxiState` while an aircraft moves on the ground of a mapped airport: *pushback from* a stand; *taxiing via* the next (up to three) taxiway names *to* a holding point (runway), a stand or a waiting spot; *holding short of* a runway to cross it; *waiting for* another flight (its callsign) or behind the runway queue; *waiting at a spot for a stand*; *cleared regardless* (an escape, D75). Fixed-size, so `FlightView` stays `Copy` | The flight panel says what ground control is doing with the aircraft; the waits name who is in the way |
+| D86 | **Taxi route query (PR 5):** `Simulation::taxi_route(tail)` returns the selected aircraft's taxi polyline, how far along it is, how far it is cleared and where the route ends; computed on demand for one aircraft, not per tick | The viewer draws the route and the cleared part without the core keeping anything for it |
+| D87 | **Ground drawing (PR 5):** below an airport zoom threshold, apron polygons as meshes tessellated once at start-up; taxiway and taxilane centrelines, stand lead-ins and stand markers as gizmo lines redrawn each frame, only for mapped airports in view. A selected taxiing aircraft shows its route ahead, the cleared part brighter and its clearance limit marked. Taxiway names (one label per named stretch) and stand names at closer zoom go through the existing label placement, after airports | Gizmos keep the code small; culling by airport keeps the per-frame cost to the airports on screen |
+| D88 | **Clearance waits (PR 5):** the statistics add the time taxiing aircraft wait for a clearance, per airport (total and average per taxi), shown in the airport panel's flow status next to the taxi delay and in the headless run summary | Shows where ground control holds traffic, e.g. the Frankfurt regression |
 
 
 ## PR 1 — OSM import and ground network asset
@@ -137,17 +141,30 @@ small components are cut off by the query box or are disconnected service areas.
   "holding short", "following DLH123") and a clearance-wait statistic, with the viewer that
   shows them.
 
-## PR 5 — Viewer
+## PR 5 — Viewer (D85–D88)
 
-- Aprons, taxiway centrelines and stand markers at airport zoom (meshes and gizmo lines); OSM
-  attribution in the footer.
-- Labels for taxiway names and stand numbers at close zoom (existing label placement).
-- Selected aircraft: planned taxi route and how far it is cleared; flight panel shows the stand
-  and taxi state ("Pushback from V155", "Taxiing via N, N7 to 25C", "Waiting for stand").
-- Pushback animation (reverse movement, heading from the core).
-- Core (moved from PR 4): the taxi state in the flight view and time waiting for clearances
-  per airport in the statistics.
-- Browser build checked.
+- Core: `TaxiState` in `FlightView` (D85), kept by ground control as it clears, holds and
+  escapes; `Simulation::taxi_route` (D86); clearance-wait statistics (D88) and the headless
+  run summary.
+- Viewer, pure and tested: the ground level of detail (zoom thresholds), culling of airports in
+  view, stand marker and lead-in geometry, taxiway name label candidates (one per named
+  stretch), route split at the cleared distance, taxi state wording.
+- Viewer systems: apron meshes (start-up), centrelines, lead-ins and stand markers (gizmos),
+  the selected aircraft's route and limit, taxiway and stand labels, the flight panel's taxi
+  line, the airport panel's clearance-wait line.
+- Pushback (already reversing in the core): checked in the viewer, and the turn from pushback
+  heading to taxi heading blended rather than snapped.
+- OSM attribution is already in the footer (PR 1); kept.
+- **Tests:** core unit tests for each taxi state and the route query; a ground-test check
+  that every taxiing aircraft at a mapped airport has a taxi state; viewer unit tests for the
+  pure functions; screenshots at FRA (aprons, taxiways, stands, labels, a selected taxiing
+  aircraft with its cleared route) natively; the browser build checked.
+- **As built:** the ground shows below scale 30 (map units per pixel), taxiway names below 6
+  and stand names below 1.8; taxiway and stand lines are retained gizmos per airport (like the
+  rivers), switched by zoom and view. Map labels now keep clear of the panels over the map.
+  The pushback turn is in the core: the heading eases from nose-to-stand to the taxi
+  direction over the push, so the viewer needs no special blend. Speed control is noted only
+  while airborne.
 
 ## Definition of done
 

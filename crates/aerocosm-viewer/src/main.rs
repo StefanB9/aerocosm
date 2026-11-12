@@ -11,6 +11,7 @@ mod camera;
 mod data;
 mod driver;
 mod flights;
+mod ground;
 mod labels;
 mod lod;
 mod map;
@@ -43,6 +44,7 @@ use crate::{
     airports::{AirportsPlugin, WorldView},
     camera::CameraPlugin,
     driver::{SimDriver, SimSet},
+    ground::{GroundPlugin, GroundView},
     map::MapPlugin,
     projection::MapProjection,
     runway_use::RunwayUsePlugin,
@@ -60,6 +62,7 @@ fn main() -> Result<()> {
     // small and never mutated, and this keeps the core free of shared-ownership
     // types.
     let world = scenario.world().clone();
+    let ground = scenario.ground().clone();
     let simulation = Simulation::new(SimConfig::new(start, RngSeed::new(0)), scenario)?;
     let driver = SimDriver::new(simulation)?;
 
@@ -78,12 +81,14 @@ fn main() -> Result<()> {
         .insert_resource(MapProjection::germany()?)
         .insert_resource(map)
         .insert_resource(WorldView { world })
+        .insert_resource(GroundView { ground })
         .insert_resource(driver)
         .add_systems(Startup, data::setup_fonts)
         .add_plugins((
             CameraPlugin,
             MapPlugin,
             AirportsPlugin,
+            GroundPlugin,
             AircraftPlugin,
             RunwayUsePlugin,
             UiPlugin,

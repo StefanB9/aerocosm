@@ -63,6 +63,10 @@ impl Plugin for UiPlugin {
     }
 }
 
+/// A UI element over the map that map labels keep clear of.
+#[derive(Component)]
+pub(crate) struct MapCover;
+
 #[derive(Component)]
 struct ClockText;
 
@@ -128,6 +132,7 @@ fn spawn_chrome(mut commands: Commands, fonts: Res<Fonts>) {
 fn spawn_top_bar(commands: &mut Commands, fonts: &Fonts) {
     let bar = commands
         .spawn((
+            MapCover,
             Node {
                 position_type: PositionType::Absolute,
                 top: px(12),
@@ -235,6 +240,7 @@ fn spawn_speed_buttons(commands: &mut Commands, fonts: &Fonts, bar: Entity) {
 
 fn spawn_footer(commands: &mut Commands, fonts: &Fonts) {
     commands.spawn((
+        MapCover,
         Node {
             position_type: PositionType::Absolute,
             left: px(16),
@@ -251,6 +257,7 @@ fn spawn_footer(commands: &mut Commands, fonts: &Fonts) {
         Pickable::IGNORE,
     ));
     commands.spawn((
+        MapCover,
         Node {
             position_type: PositionType::Absolute,
             right: px(16),

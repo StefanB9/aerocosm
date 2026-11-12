@@ -29,6 +29,7 @@ struct Panel;
 fn spawn_panel(mut commands: Commands) {
     commands.spawn((
         Panel,
+        super::MapCover,
         Node {
             position_type: PositionType::Absolute,
             top: px(72),

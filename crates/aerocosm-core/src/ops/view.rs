@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use super::Phase;
+use super::{Phase, TaxiState};
 use crate::{
     AircraftType, Id, LatLon, SimTime,
     airline::{Airline, AirlineIcao},
@@ -90,6 +90,7 @@ pub struct FlightView {
     pub(super) expected_landing: Option<SimTime>,
     pub(super) speed_factor: f64,
     pub(super) ground_conflict: bool,
+    pub(super) taxi: Option<TaxiState>,
 }
 
 impl FlightView {
@@ -193,6 +194,12 @@ impl FlightView {
     /// control found no conflict-free one (plan M4 D75).
     pub const fn ground_conflict(&self) -> bool {
         self.ground_conflict
+    }
+
+    /// What ground control is doing with it, while it pushes back, taxies
+    /// or waits at the holding point of a mapped airport (plan M4 D85).
+    pub const fn taxi(&self) -> Option<TaxiState> {
+        self.taxi
     }
 }
 

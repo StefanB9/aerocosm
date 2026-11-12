@@ -52,14 +52,16 @@ aerocosm/                              (workspace root)
     │       │                          taxi routes and exits), procedure.rs
     │       │                          (climb-out, final intercepts), runway.rs (modes), tail.rs
     │       │                          (delays, taxi), timeline.rs (week → UTC), view.rs,
-    │       │                          hold.rs (racetracks), control/ (plan M3 PR 3: wake
+    │       │                          hold.rs (racetracks), taxi.rs (TaxiState, TaxiRoute:
+    │       │                          plan M4 D85, D86), control/ (plan M3 PR 3: wake
     │       │                          separation, landing timelines, runway state, arrival
     │       │                          delay split); fleet/flow.rs applies it per tail, with
     │       │                          ground delays at off-block; fleet/stands.rs (stand
     │       │                          bookkeeping); stats.rs (punctuality); fleet/ground/
     │       │                          (plan M4 PR 4: ground controller: grant.rs clearances by
     │       │                          priority, deadlocks; departure.rs pushback, arrival.rs
-    │       │                          exits and stands, drive.rs taxis to the clearance limit)
+    │       │                          exits and stands, drive.rs taxis to the clearance limit,
+    │       │                          state.rs taxi state and route for the view)
     │       ├── ground/                Airport ground layouts (plan M4): file format, validated
     │       │                          networks (nodes, edges, stands, holding positions, exits),
     │       │                          route.rs (A*), areas.rs (stand choice), taxi.rs (entries,
@@ -100,6 +102,9 @@ aerocosm/                              (workspace root)
     │       ├── lod.rs, labels.rs,     Pure logic: level of detail, label placement,
     │       │   picking.rs, ...        hit-testing, tessellation, simulation driver
     │       ├── runway_use.rs          Arrows on the runways in use (pure geometry + systems)
+    │       ├── ground/                Airport grounds (plan M4 D87): aprons, taxiways, stands
+    │       │                          (retained gizmos), geometry.rs (pure: LOD, culling,
+    │       │                          markers, name anchors), route.rs (selected taxi route)
     │       └── ui/                    Top bar, airport panel + boards + flow status (status.rs),
     │                                  flight panel with flow notes, labels
     ├── xtask/                         (binary — project tooling: `cargo xtask web build|serve`)

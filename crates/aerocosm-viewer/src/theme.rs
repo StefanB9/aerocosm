@@ -26,6 +26,12 @@ pub(crate) const AIRFIELD: Color = Color::srgb(0.540, 0.580, 0.660);
 pub(crate) const RUNWAY_PAVED: Color = Color::srgb(0.780, 0.800, 0.840);
 /// Grass and unpaved runways.
 pub(crate) const RUNWAY_SOFT: Color = Color::srgb(0.310, 0.480, 0.350);
+/// Aprons: a quiet surface between land and runways.
+pub(crate) const APRON: Color = Color::srgb(0.155, 0.190, 0.262);
+/// Taxiway and taxilane centrelines.
+pub(crate) const TAXIWAY: Color = Color::srgba(0.961, 0.722, 0.255, 0.32);
+/// Stand markers and lead-ins.
+pub(crate) const STAND: Color = Color::srgba(0.780, 0.800, 0.840, 0.4);
 /// Primary text.
 pub(crate) const TEXT: Color = Color::srgb(0.902, 0.918, 0.949);
 /// Secondary text.

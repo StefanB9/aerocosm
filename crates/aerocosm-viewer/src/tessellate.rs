@@ -91,6 +91,21 @@ pub(crate) fn fill_outline(outline: &[Vec2]) -> Result<Triangles> {
     })
 }
 
+/// Triangulates simple closed outlines in local units into one buffer.
+pub(crate) fn fill_outlines(outlines: impl IntoIterator<Item = Vec<Vec2>>) -> Result<Triangles> {
+    let mut all = Triangles::default();
+    for outline in outlines {
+        let triangles = fill_outline(&outline)?;
+        // SAFETY: a few thousand outlines stay far below u32::MAX vertices.
+        #[allow(clippy::cast_possible_truncation)]
+        let base = all.positions.len() as u32;
+        all.positions.extend(triangles.positions);
+        all.indices
+            .extend(triangles.indices.into_iter().map(|i| i + base));
+    }
+    Ok(all)
+}
+
 impl Triangles {
     /// A render mesh at `z = 0`.
     pub(crate) fn into_mesh(self) -> Mesh {
@@ -188,6 +203,24 @@ mod tests {
             triangles.indices[3..].iter().all(|i| *i >= 3),
             "second polygon indexes its own vertices"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_fill_outlines_merges_outlines_with_offset_indices() -> Result<()> {
+        let square = |x: f32| {
+            vec![
+                Vec2::new(x, 0.0),
+                Vec2::new(x + 2.0, 0.0),
+                Vec2::new(x + 2.0, 2.0),
+                Vec2::new(x, 2.0),
+            ]
+        };
+        let triangles = fill_outlines([square(0.0), square(10.0)])?;
+        assert_eq!(triangles.indices.len(), 12);
+        assert_eq!(triangles.positions.len(), 8);
+        assert!((area(&triangles) - 8.0).abs() < 1e-4);
+        assert!(triangles.indices[6..].iter().all(|&i| (4..8).contains(&i)));
         Ok(())
     }
 

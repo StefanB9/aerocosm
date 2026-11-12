@@ -308,6 +308,7 @@ pub(crate) fn plan_leg(
         departure_runway: departure_runway.map(|(index, _)| index),
         arrival_runway: arrival_runway.map(|(index, _)| index),
         routed_out: out.routed,
+        push: out.pushback,
         stand_out: out.stand_heading,
         stand_in: None,
         exit,
@@ -358,7 +359,8 @@ mod tests {
     /// Flies the whole leg, checking that positions never jump.
     fn fly(leg: &Leg, dt: f64) -> Result<LatLon> {
         let mut motion = Motion::start(&leg.profile, 480.0, 300.0);
-        let (mut last, _) = leg.path.locate(&motion);
+        let (mut last, mut last_heading) = leg.path.locate(&motion);
+        let mut last_phase = motion.phase();
         for _ in 0..200_000 {
             motion.advance_free(&leg.profile, dt);
             let (here, heading) = leg.path.locate(&motion);
@@ -369,7 +371,17 @@ mod tests {
             if !(0.0..360.0).contains(&heading.value()) {
                 bail!("heading {heading}");
             }
+            // The tug turns the aircraft to taxi on: no snap at the handover.
+            let turn = (heading.value() - last_heading.value() + 540.0).rem_euclid(360.0) - 180.0;
+            if last_phase == Phase::Pushback
+                && motion.phase() == Phase::TaxiOut
+                && turn.abs() > 20.0
+            {
+                bail!("turned {turn:.0}° from pushback to taxi");
+            }
             last = here;
+            last_heading = heading;
+            last_phase = motion.phase();
             if motion.phase() == Phase::Arrived {
                 return Ok(here);
             }

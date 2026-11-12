@@ -42,12 +42,14 @@ impl LabelCandidate {
 }
 
 /// Places candidates in order (most important first). Each label takes the
-/// first of its positions that is fully on screen and clear of every label
-/// placed before it, or is left out. Writes `(candidate index, screen rect)`
-/// pairs into `placed`, reusing its allocation.
+/// first of its positions that is fully on screen, clear of the `blocked`
+/// screen rects (panels over the map) and of every label placed before it,
+/// or is left out. Writes `(candidate index, screen rect)` pairs into
+/// `placed`, reusing its allocation.
 pub(crate) fn place_labels(
     candidates: &[LabelCandidate],
     viewport: Vec2,
+    blocked: &[Rect],
     placed: &mut Vec<(usize, Rect)>,
 ) {
     placed.clear();
@@ -56,6 +58,9 @@ pub(crate) fn place_labels(
         let free = candidate.positions().find(|rect| {
             screen.contains(rect.min)
                 && screen.contains(rect.max)
+                && blocked
+                    .iter()
+                    .all(|panel| panel.intersect(*rect).is_empty())
                 && placed
                     .iter()
                     .all(|(_, other)| other.intersect(rect.inflate(PADDING)).is_empty())
@@ -93,7 +98,7 @@ mod tests {
     #[test]
     fn test_label_prefers_right_of_anchor() {
         let mut placed = Vec::new();
-        place_labels(&[candidate(100.0, 100.0, 50.0)], VIEWPORT, &mut placed);
+        place_labels(&[candidate(100.0, 100.0, 50.0)], VIEWPORT, &[], &mut placed);
         assert_eq!(placed.len(), 1);
         let rect = placed[0].1;
         assert!(rect.min.x > 100.0 && (rect.center().y - 100.0).abs() < 1e-3);
@@ -103,7 +108,7 @@ mod tests {
     fn test_crowded_label_moves_to_another_side() {
         let mut placed = Vec::new();
         let candidates = [candidate(100.0, 100.0, 80.0), candidate(110.0, 102.0, 80.0)];
-        place_labels(&candidates, VIEWPORT, &mut placed);
+        place_labels(&candidates, VIEWPORT, &[], &mut placed);
         assert_eq!(placed.len(), 2);
         assert!(placed[1].1.max.x < 110.0, "goes left: {:?}", placed[1].1);
     }
@@ -116,7 +121,7 @@ mod tests {
             centred(105.0, 101.0, 120.0),
             centred(100.0, 300.0, 80.0),
         ];
-        place_labels(&candidates, VIEWPORT, &mut placed);
+        place_labels(&candidates, VIEWPORT, &[], &mut placed);
         let indices: Vec<usize> = placed.iter().map(|(index, _)| *index).collect();
         assert_eq!(indices, [0, 2]);
     }
@@ -124,7 +129,7 @@ mod tests {
     #[test]
     fn test_centred_label_sits_on_anchor() {
         let mut placed = Vec::new();
-        place_labels(&[centred(400.0, 300.0, 60.0)], VIEWPORT, &mut placed);
+        place_labels(&[centred(400.0, 300.0, 60.0)], VIEWPORT, &[], &mut placed);
         assert_eq!(placed[0].1.center(), Vec2::new(400.0, 300.0));
     }
 
@@ -132,7 +137,7 @@ mod tests {
     fn test_crowded_centred_label_moves_above_its_anchor() {
         let mut placed = Vec::new();
         let candidates = [candidate(380.0, 308.0, 60.0), centred(400.0, 300.0, 60.0)];
-        place_labels(&candidates, VIEWPORT, &mut placed);
+        place_labels(&candidates, VIEWPORT, &[], &mut placed);
         assert_eq!(placed.len(), 2);
         assert!(placed[1].1.max.y <= 300.0, "above: {:?}", placed[1].1);
     }
@@ -140,7 +145,7 @@ mod tests {
     #[test]
     fn test_label_at_screen_edge_flips_inside() {
         let mut placed = Vec::new();
-        place_labels(&[candidate(790.0, 100.0, 80.0)], VIEWPORT, &mut placed);
+        place_labels(&[candidate(790.0, 100.0, 80.0)], VIEWPORT, &[], &mut placed);
         assert!(placed[0].1.max.x <= 790.0);
     }
 
@@ -150,6 +155,31 @@ mod tests {
         place_labels(
             &[candidate(-50.0, 100.0, 20.0), centred(400.0, -40.0, 20.0)],
             VIEWPORT,
+            &[],
+            &mut placed,
+        );
+        assert_eq!(placed.len(), 0);
+    }
+
+    #[test]
+    fn test_labels_keep_out_of_blocked_rects() {
+        let mut placed = Vec::new();
+        // A panel over the right of the anchor: the label goes left.
+        let panel = Rect::new(105.0, 0.0, 800.0, 600.0);
+        place_labels(
+            &[candidate(100.0, 100.0, 50.0)],
+            VIEWPORT,
+            &[panel],
+            &mut placed,
+        );
+        assert_eq!(placed.len(), 1);
+        assert!(placed[0].1.max.x < 100.0, "{:?}", placed[0].1);
+        // Fully covered: left out.
+        let all = Rect::new(0.0, 0.0, 800.0, 600.0);
+        place_labels(
+            &[candidate(100.0, 100.0, 50.0)],
+            VIEWPORT,
+            &[all],
             &mut placed,
         );
         assert_eq!(placed.len(), 0);
@@ -158,7 +188,7 @@ mod tests {
     #[test]
     fn test_output_is_cleared_between_frames() {
         let mut placed = vec![(7, Rect::new(0.0, 0.0, 1.0, 1.0))];
-        place_labels(&[], VIEWPORT, &mut placed);
+        place_labels(&[], VIEWPORT, &[], &mut placed);
         assert_eq!(placed.len(), 0);
     }
 
@@ -171,7 +201,7 @@ mod tests {
         ) {
             let candidates: Vec<_> = raw.iter().map(|(x, y, w)| candidate(*x, *y, *w)).collect();
             let mut placed = Vec::new();
-            place_labels(&candidates, VIEWPORT, &mut placed);
+            place_labels(&candidates, VIEWPORT, &[], &mut placed);
             let screen = Rect::from_corners(Vec2::ZERO, VIEWPORT);
             for (i, (_, a)) in placed.iter().enumerate() {
                 prop_assert!(screen.contains(a.min) && screen.contains(a.max));
@@ -184,7 +214,7 @@ mod tests {
         #[test]
         fn test_first_visible_candidate_is_always_placed(x in 0.0_f32..600.0, y in 20.0_f32..580.0) {
             let mut placed = Vec::new();
-            place_labels(&[candidate(x, y, 100.0), candidate(x, y, 100.0)], VIEWPORT, &mut placed);
+            place_labels(&[candidate(x, y, 100.0), candidate(x, y, 100.0)], VIEWPORT, &[], &mut placed);
             prop_assert!(!placed.is_empty());
             prop_assert_eq!(placed[0].0, 0);
             prop_assert!(placed[0].1.min.x > x, "first choice is right of the anchor");

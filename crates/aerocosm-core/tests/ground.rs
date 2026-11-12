@@ -8,7 +8,7 @@ use aerocosm_core::{
     AircraftCatalog, RngSeed, Scenario, SimConfig, SimDuration, SimTime, Simulation,
     airline::AirlineCatalog,
     ground::{GroundDefinition, StandAreasDefinition},
-    ops::{FlightView, Phase},
+    ops::{FlightView, Phase, TaxiState},
     traffic::TrafficTargets,
     world::World,
 };
@@ -62,6 +62,10 @@ struct Observed {
     closest: (f64, String),
     /// Longest any aircraft taxied without a break, and who.
     longest: (SimDuration, String),
+    /// Aircraft seen taxiing without a taxi state, and who.
+    stateless: (u32, String),
+    /// Which taxi states were seen, in `TaxiState` order.
+    states: [bool; 7],
 }
 
 fn describe(flight: &FlightView, simulation: &Simulation) -> String {
@@ -77,6 +81,43 @@ fn describe(flight: &FlightView, simulation: &Simulation) -> String {
     )
 }
 
+/// The taxi route of a taxiing `flight` (D86) runs through where it is, and
+/// it is cleared at least that far.
+fn check_route(simulation: &Simulation, flight: &FlightView) -> Result<()> {
+    let route = simulation
+        .taxi_route(flight.tail())
+        .with_context(|| format!("no taxi route: {}", describe(flight, simulation)))?;
+    let (along, cleared, end) = (
+        route.along().value(),
+        route.cleared().value(),
+        route.end().value(),
+    );
+    anyhow::ensure!(
+        along <= cleared + 1e-6 && cleared <= end + 1e-6,
+        "{along} {cleared} {end}: {}",
+        describe(flight, simulation)
+    );
+    let here = route
+        .point_at(route.along())
+        .distance_to(flight.position())
+        .value();
+    anyhow::ensure!(here < 1.0, "{here} m off: {}", describe(flight, simulation));
+    Ok(())
+}
+
+/// `state`'s place in the declaration of `TaxiState`.
+fn state_index(state: TaxiState) -> usize {
+    match state {
+        TaxiState::Pushback { .. } => 0,
+        TaxiState::Taxiing { .. } => 1,
+        TaxiState::HoldingShort { .. } => 2,
+        TaxiState::WaitingFor { .. } => 3,
+        TaxiState::AtHoldingPoint { .. } => 4,
+        TaxiState::WaitingForStand => 5,
+        TaxiState::ClearedRegardless { .. } => 6,
+    }
+}
+
 /// The warm start puts aircraft on the ground without ground control; their
 /// legs end within this many ticks.
 const SETTLE: u32 = 15 * 60;
@@ -89,6 +130,8 @@ fn observe(simulation: &mut Simulation, hours: u32, every: u32) -> Result<Observ
     let mut observed = Observed {
         closest: (f64::INFINITY, String::new()),
         longest: (SimDuration::ZERO, String::new()),
+        stateless: (0, String::new()),
+        states: [false; 7],
     };
     let mut since: HashMap<usize, SimTime> = HashMap::new();
     for _ in 0..hours * 3_600 / every {
@@ -100,6 +143,19 @@ fn observe(simulation: &mut Simulation, hours: u32, every: u32) -> Result<Observ
             let Some(airport) = taxiing_at(&flight).filter(|a| mapped[*a]) else {
                 continue;
             };
+            match flight.taxi() {
+                None => {
+                    observed.stateless.0 += 1;
+                    observed.stateless.1 = describe(&flight, simulation);
+                }
+                Some(state) => observed.states[state_index(state)] = true,
+            }
+            if matches!(
+                flight.phase(),
+                Phase::Pushback | Phase::TaxiOut | Phase::TaxiIn
+            ) {
+                check_route(simulation, &flight)?;
+            }
             let tail = flight.tail().as_usize();
             let start = since.get(&tail).copied().unwrap_or(now);
             still.insert(tail, start);
@@ -147,6 +203,7 @@ const CLOSEST: f64 = 20.0;
 
 #[test]
 fn test_ground_traffic_keeps_apart_and_flows() -> Result<()> {
+    let mut seen = [false; 7];
     for seed in [3, 7, 11] {
         let mut simulation = simulation(seed)?;
         let observed = observe(&mut simulation, 4, 10)?;
@@ -164,6 +221,16 @@ fn test_ground_traffic_keeps_apart_and_flows() -> Result<()> {
             observed.longest.0.as_millis() / 1000,
             observed.longest.1
         );
+        // Ground control says what each aircraft on its ground is doing
+        // (D85).
+        assert_eq!(
+            observed.stateless.0, 0,
+            "seed {seed}: {}",
+            observed.stateless.1
+        );
+        for (any, now) in seen.iter_mut().zip(observed.states) {
+            *any |= now;
+        }
         // Near zero (D75): at most one taxi in a hundred escapes a deadlock
         // in the morning bank.
         assert!(
@@ -180,6 +247,8 @@ fn test_ground_traffic_keeps_apart_and_flows() -> Result<()> {
             stats.taxis()
         );
     }
+    // Every taxi state occurs in the morning bank.
+    assert_eq!(seen, [true; 7]);
     Ok(())
 }
 

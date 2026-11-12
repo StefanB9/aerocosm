@@ -26,6 +26,8 @@ pub struct AirportStats {
     /// Controlled taxis and their delay over unimpeded taxiing, ms (plan M4).
     taxis: u32,
     taxi_delay: i64,
+    /// Time taxiing aircraft waited for a clearance, ms (plan M4 D88).
+    clearance_wait: i64,
     /// Arrivals sent to a waiting spot for want of a stand.
     stand_waits: u32,
     /// Taxis that went ahead without a conflict-free plan (D75).
@@ -114,6 +116,19 @@ impl AirportStats {
         average(self.taxi_delay, self.taxis)
     }
 
+    /// Total time taxiing aircraft waited for a clearance, minutes (D88).
+    pub fn clearance_wait_minutes(&self) -> f64 {
+        // SAFETY: a run's waits stay far below 2^53 ms.
+        #[allow(clippy::cast_precision_loss)]
+        let millis = self.clearance_wait as f64;
+        millis / 60_000.0
+    }
+
+    /// Average time a taxi waited for clearances.
+    pub fn average_clearance_wait(&self) -> SimDuration {
+        average(self.clearance_wait, self.taxis)
+    }
+
     /// Arrivals that waited at a spot for a stand.
     pub const fn stand_waits(&self) -> u32 {
         self.stand_waits
@@ -147,6 +162,7 @@ impl AirportStats {
         self.ground_delay += other.ground_delay;
         self.taxis += other.taxis;
         self.taxi_delay += other.taxi_delay;
+        self.clearance_wait += other.clearance_wait;
         self.stand_waits += other.stand_waits;
         self.ground_conflicts += other.ground_conflicts;
         self.stand_shares += other.stand_shares;
@@ -217,6 +233,13 @@ impl Statistics {
         if let Some(stats) = self.airports.get_mut(airport.as_usize()) {
             stats.taxis += 1;
             stats.taxi_delay += delay.as_millis();
+        }
+    }
+
+    /// A taxiing aircraft at `airport` was cleared on after waiting `wait`.
+    pub(crate) fn waited_for_clearance(&mut self, airport: Id<Airport>, wait: SimDuration) {
+        if let Some(stats) = self.airports.get_mut(airport.as_usize()) {
+            stats.clearance_wait += wait.as_millis().max(0);
         }
     }
 
@@ -304,6 +327,25 @@ mod tests {
         assert_eq!(stats.network().taxis(), 2);
         assert_eq!(
             stats.airport(Id::new(1)).average_taxi_delay(),
+            SimDuration::ZERO
+        );
+    }
+
+    #[test]
+    fn test_clearance_waits_add_up_per_airport_and_taxi() {
+        let mut stats = Statistics::new(2);
+        let airport = Id::new(0);
+        stats.taxied(airport, SimDuration::ZERO);
+        stats.taxied(airport, SimDuration::ZERO);
+        stats.waited_for_clearance(airport, SimDuration::from_secs(90));
+        stats.waited_for_clearance(airport, SimDuration::from_secs(150));
+        stats.waited_for_clearance(Id::new(9), SimDuration::from_secs(60));
+        let at = stats.airport(airport);
+        assert!((at.clearance_wait_minutes() - 4.0).abs() < 1e-9);
+        assert_eq!(at.average_clearance_wait(), SimDuration::from_secs(120));
+        assert!((stats.network().clearance_wait_minutes() - 4.0).abs() < 1e-9);
+        assert_eq!(
+            stats.airport(Id::new(1)).average_clearance_wait(),
             SimDuration::ZERO
         );
     }

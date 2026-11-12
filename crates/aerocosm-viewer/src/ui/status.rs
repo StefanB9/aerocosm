@@ -5,10 +5,11 @@ use std::fmt::Write as _;
 
 use aerocosm_core::{Id, Simulation, ops::Phase, world::Airport};
 
-/// Runways in use, aircraft holding for or queuing at `airport` now, and its
-/// punctuality since the start; runway line only without traffic.
+/// Runways in use, aircraft holding for or queuing at `airport` now, its
+/// punctuality since the start, and its taxiing under ground control (plan
+/// M4 D88); runway line only without traffic.
 pub(crate) fn status_lines(simulation: &Simulation, airport: Id<Airport>) -> Vec<String> {
-    let mut lines = Vec::with_capacity(3);
+    let mut lines = Vec::with_capacity(4);
     let runways = simulation.world().runways_of(airport);
     let mut landing = Vec::new();
     let mut departing = Vec::new();
@@ -62,6 +63,14 @@ pub(crate) fn status_lines(simulation: &Simulation, airport: Id<Airport>) -> Vec
         at.holding_minutes()
     );
     lines.push(summary);
+    if at.taxis() > 0 {
+        lines.push(format!(
+            "Ground: {} taxis · taxi delay {:.0} min · waiting for clearance {:.0} min",
+            at.taxis(),
+            at.average_taxi_delay().as_secs_f64() / 60.0,
+            at.average_clearance_wait().as_secs_f64() / 60.0
+        ));
+    }
     lines
 }
 
@@ -85,7 +94,7 @@ mod tests {
             .airport_by_ident("EDDF".parse()?)
             .context("EDDF")?;
         let lines = status_lines(&simulation, frankfurt);
-        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert_eq!(lines.len(), 4, "{lines:?}");
         assert!(lines[0].starts_with("Landing 25"), "{}", lines[0]);
         assert!(
             lines[0].contains("take-off 25C 18") || lines[0].contains("take-off 18 25C"),
@@ -94,6 +103,8 @@ mod tests {
         );
         assert!(lines[1].starts_with("Now: "), "{}", lines[1]);
         assert!(lines[2].contains("% on time"), "{}", lines[2]);
+        assert!(lines[3].starts_with("Ground: "), "{}", lines[3]);
+        assert!(lines[3].contains("waiting for clearance"), "{}", lines[3]);
         Ok(())
     }
 

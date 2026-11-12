@@ -3,19 +3,30 @@
 
 use aerocosm_core::{
     Id,
+    ground::GroundNetwork,
     world::{Airport, AirportKind},
 };
-use bevy::{picking::Pickable, prelude::*, ui::ComputedNode};
+use bevy::{
+    picking::Pickable,
+    prelude::*,
+    ui::{ComputedNode, UiGlobalTransform},
+};
 
 use crate::{
     airports::WorldView,
     camera::{CameraRig, PointerState},
     data::{Fonts, MapData},
+    ground::{
+        GroundView,
+        geometry::{stand_names_visible, stretch_anchors, taxiway_names_visible},
+        named_edges,
+    },
     labels::{LabelCandidate, place_labels},
     lod,
     projection::MapProjection,
     selection::Selection,
     theme,
+    ui::MapCover,
 };
 
 /// What a label belongs to, for level of detail.
@@ -24,6 +35,8 @@ enum Subject {
     Airport(Id<Airport>, AirportKind),
     Place(u8),
     Runway,
+    Taxiway,
+    Stand,
 }
 
 /// A label anchored to a map position.
@@ -65,6 +78,8 @@ fn tier(subject: Subject) -> u8 {
         Subject::Place(_) => 3,
         Subject::Airport(_, AirportKind::Airfield) => 4,
         Subject::Runway => 5,
+        Subject::Taxiway => 6,
+        Subject::Stand => 7,
     }
 }
 
@@ -73,6 +88,7 @@ fn spawn_labels(
     fonts: Res<Fonts>,
     view: Res<WorldView>,
     map: Res<MapData>,
+    ground: Res<GroundView>,
     projection: Res<MapProjection>,
     mut order: ResMut<LabelOrder>,
 ) {
@@ -96,9 +112,8 @@ fn spawn_labels(
     let mut spawn = |commands: &mut Commands,
                      subject: Subject,
                      (position, outward): (Vec2, Vec2),
-                     text: String,
-                     font: TextFont,
-                     color: Color| {
+                     text: String| {
+        let (font, color) = style(subject, &fonts);
         let entity = commands
             .spawn((
                 MapLabel {
@@ -125,31 +140,14 @@ fn spawn_labels(
         labels.push((tier(subject), labels.len(), entity));
     };
     for (id, airport) in view.world.airports() {
-        let kind = airport.kind();
         let code = airport
             .iata()
             .map_or_else(|| airport.ident().to_string(), |iata| iata.to_string());
-        let (font, color) = match kind {
-            AirportKind::Major | AirportKind::Edge => (
-                TextFont::from_font_size(13.0).with_font(fonts.semibold.clone()),
-                theme::TEXT,
-            ),
-            AirportKind::Regional => (
-                TextFont::from_font_size(12.0).with_font(fonts.semibold.clone()),
-                theme::REGIONAL.with_alpha(0.9),
-            ),
-            AirportKind::Airfield => (
-                TextFont::from_font_size(11.0).with_font(fonts.regular.clone()),
-                theme::TEXT_MUTED,
-            ),
-        };
         spawn(
             &mut commands,
-            Subject::Airport(id, kind),
+            Subject::Airport(id, airport.kind()),
             (projection.project(airport.location()), Vec2::ZERO),
             code,
-            font,
-            color,
         );
     }
     // Places arrive sorted by importance.
@@ -159,8 +157,6 @@ fn spawn_labels(
             Subject::Place(place.rank()),
             (projection.project(place.location()), Vec2::ZERO),
             place.name().to_owned(),
-            TextFont::from_font_size(12.0).with_font(fonts.regular.clone()),
-            theme::TEXT_PLACE,
         );
     }
     for (id, _) in view.world.airports() {
@@ -172,14 +168,59 @@ fn spawn_labels(
                     Subject::Runway,
                     (here, (here - other).normalize_or_zero()),
                     end.designator().to_string(),
-                    TextFont::from_font_size(10.0).with_font(fonts.semibold.clone()),
-                    theme::TEXT_MUTED,
                 );
             }
         }
     }
+    for (subject, position, text) in ground_labels(&ground.ground, &projection) {
+        spawn(&mut commands, subject, (position, Vec2::ZERO), text);
+    }
     labels.sort_by_key(|(tier, index, _)| (*tier, *index));
     order.0 = labels.into_iter().map(|(_, _, entity)| entity).collect();
+}
+
+/// The typeface, size and colour of `subject`'s label.
+fn style(subject: Subject, fonts: &Fonts) -> (TextFont, Color) {
+    let (size, semibold, color) = match subject {
+        Subject::Airport(_, AirportKind::Major | AirportKind::Edge) => (13.0, true, theme::TEXT),
+        Subject::Airport(_, AirportKind::Regional) => (12.0, true, theme::REGIONAL.with_alpha(0.9)),
+        Subject::Airport(_, AirportKind::Airfield) => (11.0, false, theme::TEXT_MUTED),
+        Subject::Place(_) => (12.0, false, theme::TEXT_PLACE),
+        Subject::Runway => (10.0, true, theme::TEXT_MUTED),
+        Subject::Taxiway => (10.0, true, theme::TAXIWAY.with_alpha(0.9)),
+        Subject::Stand => (9.0, false, theme::TEXT_MUTED),
+    };
+    let font = if semibold {
+        fonts.semibold.clone()
+    } else {
+        fonts.regular.clone()
+    };
+    (TextFont::from_font_size(size).with_font(font), color)
+}
+
+/// Taxiway names, one per named stretch, and stand names at every mapped
+/// airport (plan M4 D87).
+fn ground_labels(
+    ground: &GroundNetwork,
+    projection: &MapProjection,
+) -> Vec<(Subject, Vec2, String)> {
+    let mut labels = Vec::new();
+    for layout in ground.airports() {
+        labels.extend(
+            stretch_anchors(&named_edges(layout, projection))
+                .into_iter()
+                .map(|(name, at)| (Subject::Taxiway, at, name.to_string())),
+        );
+        labels.extend(layout.stands().iter().map(|stand| {
+            let position = layout.nodes()[stand.node().as_usize()].position();
+            (
+                Subject::Stand,
+                projection.project(position),
+                stand.name().to_string(),
+            )
+        }));
+    }
+    labels
 }
 
 /// Per-frame scratch buffers, reused to avoid allocating every frame.
@@ -189,6 +230,7 @@ struct Scratch {
     owners: Vec<Entity>,
     placed: Vec<(usize, Rect)>,
     shown: Vec<(Entity, Vec2)>,
+    blocked: Vec<Rect>,
 }
 
 fn place(
@@ -197,6 +239,7 @@ fn place(
     selection: Res<Selection>,
     order: Res<LabelOrder>,
     mut labels: Query<(&MapLabel, &mut Node, &mut Visibility, &ComputedNode)>,
+    covers: Query<(&ComputedNode, &UiGlobalTransform, &InheritedVisibility), With<MapCover>>,
     mut scratch: Local<Scratch>,
 ) {
     let Some(rig) = rig else {
@@ -233,6 +276,8 @@ fn place(
             ),
             Subject::Place(rank) => (lod::place_label_visible(rank, scale), None),
             Subject::Runway => (lod::runways_visible(scale), None),
+            Subject::Taxiway => (taxiway_names_visible(scale), None),
+            Subject::Stand => (stand_names_visible(scale), None),
         };
         if !visible {
             continue;
@@ -252,7 +297,21 @@ fn place(
             .push(LabelCandidate { anchor, size, gap });
         scratch.owners.push(entity);
     }
-    place_labels(&scratch.candidates, pointer.viewport, &mut scratch.placed);
+    scratch.blocked.clear();
+    scratch
+        .blocked
+        .extend(covers.iter().filter(|(_, _, visible)| visible.get()).map(
+            |(node, transform, _)| {
+                let scale = node.inverse_scale_factor();
+                Rect::from_center_size(transform.translation * scale, node.size() * scale)
+            },
+        ));
+    place_labels(
+        &scratch.candidates,
+        pointer.viewport,
+        &scratch.blocked,
+        &mut scratch.placed,
+    );
 
     scratch.shown.clear();
     scratch.shown.extend(
@@ -289,5 +348,7 @@ mod tests {
         let airfield = tier(Subject::Airport(Id::new(1), AirportKind::Airfield));
         let runway = tier(Subject::Runway);
         assert!(major < capital && capital < village && village < airfield && airfield < runway);
+        // Ground names come last, stands after taxiways.
+        assert!(runway < tier(Subject::Taxiway) && tier(Subject::Taxiway) < tier(Subject::Stand));
     }
 }

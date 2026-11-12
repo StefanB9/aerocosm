@@ -37,6 +37,8 @@ pub(crate) struct Path {
     arrival_runway: Option<usize>,
     /// Whether the taxi-out follows taxiways (else a straight line).
     routed_out: bool,
+    /// How far the pushback goes along the taxi-out, m (0 without one).
+    push: f64,
     /// Heading on the stands at both ends, where known.
     stand_out: Option<Degrees>,
     stand_in: Option<Degrees>,
@@ -60,6 +62,15 @@ pub(crate) struct Leg {
 
 fn reverse(course: Degrees) -> Degrees {
     Degrees::from_raw(course.value() + 180.0).normalized()
+}
+
+/// The heading of an aircraft pushed back `fraction` of the way: nose to
+/// the stand (`back`) at first, turned by the tug to face the way it will
+/// taxi (`ahead`) by the end, most of the turn near the end.
+fn push_heading(back: Degrees, ahead: Degrees, fraction: f64) -> Degrees {
+    let turn = (ahead.value() - back.value() + 540.0).rem_euclid(360.0) - 180.0;
+    let eased = fraction.clamp(0.0, 1.0).powi(2);
+    Degrees::from_raw(turn.mul_add(eased, back.value())).normalized()
 }
 
 impl Path {
@@ -135,7 +146,14 @@ impl Path {
             }
             Phase::Pushback => {
                 let (point, course) = on(&self.taxi_out, along);
-                (point, reverse(course))
+                // The way it taxies on from where the pushback ends.
+                let ahead = self.taxi_out.bearing_at(Meters::from_raw(self.push + 1.0));
+                let fraction = if self.push > 0.0 {
+                    along.value() / self.push
+                } else {
+                    1.0
+                };
+                (point, push_heading(reverse(course), ahead, fraction))
             }
             Phase::TaxiOut => on(&self.taxi_out, along),
             Phase::Queue => on(&self.taxi_out, self.taxi_out.length()),
@@ -166,4 +184,20 @@ fn at(segment: &Segment, along: Meters) -> (LatLon, Degrees) {
 
 fn on(line: &Polyline, along: Meters) -> (LatLon, Degrees) {
     (line.point_at(along), line.bearing_at(along))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_push_heading_turns_from_the_stand_to_the_taxi_direction() {
+        let (back, ahead) = (Degrees::from_raw(350.0), Degrees::from_raw(100.0));
+        let at = |f: f64| push_heading(back, ahead, f).value();
+        assert!((at(0.0) - 350.0).abs() < 1e-9);
+        assert!((at(1.0) - 100.0).abs() < 1e-9);
+        // The short way round, through north, and mostly near the end.
+        assert!((at(0.5) - 377.5_f64.rem_euclid(360.0)).abs() < 1e-9);
+        assert!((at(2.0) - 100.0).abs() < 1e-9);
+    }
 }
