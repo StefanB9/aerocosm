@@ -122,6 +122,8 @@ pub(super) struct Airside {
     /// This tick: who is taxiing here, who is in each junction, and who is
     /// on each chain where.
     taxiing: Vec<u32>,
+    /// Where each of them is, as pilots see it.
+    seen: Vec<drive::Seen>,
     occupied: Vec<Vec<u32>>,
     on_chain: Vec<Vec<Occupant>>,
     spots: Vec<Id<Node>>,
@@ -229,6 +231,7 @@ impl GroundControl {
                     lengths: layout.edges().iter().map(|e| e.length().value()).collect(),
                     claims: vec![None; junctions.junctions().len()],
                     taxiing: Vec::new(),
+                    seen: Vec::new(),
                     occupied: vec![Vec::new(); junctions.junctions().len()],
                     locks: vec![Vec::new(); junctions.chains().len()],
                     flow: vec![0.0; junctions.chains().len()],
@@ -295,8 +298,10 @@ pub(super) struct Taxi {
     target: Target,
     /// Where it ends, as the flight panel names it (D85).
     goal: TaxiGoal,
-    /// The stand a departure pushes back from.
+    /// The stand a departure pushes back from, and how far the push goes,
+    /// m.
     stand: Option<GroundName>,
+    push: f64,
     /// The route's edges, the first taxied from `offset` metres along the
     /// path, and its last node.
     edges: Vec<(Id<Edge>, bool)>,
@@ -451,6 +456,7 @@ impl Operations {
             target,
             goal,
             stand: None,
+            push: 0.0,
             edges: route.edges().to_vec(),
             offset,
             end_node,

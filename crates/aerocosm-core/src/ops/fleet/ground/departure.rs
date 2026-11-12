@@ -90,6 +90,7 @@ impl Operations {
         // nobody coming the other way (D82, D93).
         if let Some(taxi) = self.taxis[index].as_mut() {
             taxi.stand = parked.map(crate::ground::Stand::name);
+            taxi.push = push;
             taxi.escaped = escape;
         }
         if !self.clear_way(index, push, push + PUSH_CLEAR) {

@@ -53,11 +53,18 @@ impl Operations {
     /// How far along its taxi tail `index` is, if it is on one.
     pub(super) fn along_of(&self, index: usize) -> Option<f64> {
         let motion = self.tails.get(index)?.motion.as_ref()?;
-        matches!(
-            motion.phase(),
-            Phase::Pushback | Phase::TaxiOut | Phase::TaxiIn | Phase::Queue
-        )
-        .then(|| motion.along())
+        match motion.phase() {
+            // While it pushes back it blocks the taxilane where it ends up.
+            Phase::Pushback => self
+                .taxis
+                .get(index)?
+                .as_ref()
+                .map(|taxi| taxi.push.max(motion.along())),
+            Phase::TaxiOut | Phase::TaxiIn => Some(motion.along()),
+            // Motion counts the queue from zero; it stands at its route's end.
+            Phase::Queue => self.taxis.get(index)?.as_ref().map(|taxi| taxi.end),
+            _ => None,
+        }
     }
 
     /// Where every taxiing aircraft is this tick (on which chains, in which
@@ -65,6 +72,7 @@ impl Operations {
     fn survey_ground(&mut self) {
         for airside in self.ground.airports.iter_mut().flatten() {
             airside.taxiing.clear();
+            airside.seen.clear();
             for list in &mut airside.occupied {
                 list.clear();
             }
@@ -85,14 +93,30 @@ impl Operations {
             };
             let tail = along - AIRCRAFT_LENGTH;
             airside.taxiing.push(owner);
-            for run in &taxi.runs {
-                if run.from <= along
-                    && along <= run.to
+            if let (Some(path), Some(motion)) = (
+                self.paths.get(index).and_then(Option::as_ref),
+                self.tails[index].motion.as_ref(),
+            ) {
+                let (at, heading) = path.locate(motion);
+                airside.seen.push(super::drive::Seen {
+                    tail: owner,
+                    at,
+                    heading,
+                    moving: motion.speed() > STANDING,
+                });
+            }
+            // Past its last chain (at the holding point) it stands at that
+            // chain's end.
+            let last = taxi.runs.len().saturating_sub(1);
+            for (k, run) in taxi.runs.iter().enumerate() {
+                let at = if k == last { along.min(run.to) } else { along };
+                if run.from <= at
+                    && at <= run.to
                     && let Some(list) = airside.on_chain.get_mut(run.chain as usize)
                 {
                     list.push(Occupant {
                         tail: owner,
-                        position: run.position(along),
+                        position: run.position(at),
                     });
                 }
             }
@@ -421,9 +445,10 @@ impl Operations {
                 .flatten()
             {
                 let at = run.along(occupant.position);
+                // Within the run, give or take rounding at its ends.
                 if occupant.tail != owner
-                    && at >= from.max(run.from)
-                    && at <= to.min(run.to)
+                    && at >= from.max(run.from - 1e-6)
+                    && at <= to.min(run.to + 1e-6)
                     && nearest.is_none_or(|(d, _)| at < d)
                 {
                     nearest = Some((at, occupant.tail));
@@ -482,7 +507,20 @@ impl Operations {
             .iter()
             .filter(|run| run.from < horizon)
             .any(|run| airside.opposed(owner, run.chain, run.forward).is_some());
-        if lane || junction || opposed || self.ahead_on_path(index, from, to).is_some() {
+        // Nobody else still on the same lead-in (a shared stand, or lead-ins
+        // that meet before the lane).
+        let first = taxi.edges.first().map(|&(edge, _)| edge);
+        let lead_in = airside.taxiing.iter().any(|&other| {
+            let k = other as usize;
+            k != index
+                && self.taxis[k]
+                    .as_ref()
+                    .is_some_and(|t| t.edges.first().map(|&(e, _)| e) == first)
+                && self
+                    .along_of(k)
+                    .is_some_and(|along| along < from + AIRCRAFT_LENGTH)
+        });
+        if lane || junction || opposed || lead_in || self.ahead_on_path(index, from, to).is_some() {
             return false;
         }
         let Some(taxi) = self.taxis[index].as_mut() else {
@@ -492,6 +530,26 @@ impl Operations {
             for run in taxi.runs.iter().take_while(|run| run.from < horizon) {
                 airside.lock(owner, run.chain, run.forward);
                 taxi.locked += 1;
+            }
+            // There already for anyone asking later this tick.
+            if let Some(run) = taxi
+                .runs
+                .iter()
+                .find(|run| run.from <= from + 1e-6 && from <= run.to)
+                && let Some(list) = airside.on_chain.get_mut(run.chain as usize)
+            {
+                list.push(Occupant {
+                    tail: owner,
+                    position: run.position(from),
+                });
+            }
+            for passage in &taxi.passages {
+                if from >= passage.entry - ZONE
+                    && from - AIRCRAFT_LENGTH <= passage.exit + ZONE
+                    && let Some(list) = airside.occupied.get_mut(passage.junction as usize)
+                {
+                    list.push(owner);
+                }
             }
         }
         true
