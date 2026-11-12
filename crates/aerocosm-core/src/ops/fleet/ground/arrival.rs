@@ -215,9 +215,10 @@ impl Operations {
         if shared {
             self.stats.shared_stand(airport);
         }
-        let base = self.taxis[index]
-            .as_ref()
-            .map_or_else(Vec::new, |taxi| taxi.points.clone());
+        let (base, escaped) = self.taxis[index].as_ref().map_or_else(
+            || (Vec::new(), false),
+            |taxi| (taxi.points.clone(), taxi.escaped),
+        );
         self.ground.release(airport, Self::owner(index));
         let heading = layout.stands()[stand.as_usize()].heading();
         let polyline = self.start_taxi(
@@ -234,6 +235,11 @@ impl Operations {
             },
             now,
         );
+        // Taxiing on from a spot it reached regardless, it still is: it may
+        // stand where another does.
+        if let Some(taxi) = self.taxis[index].as_mut() {
+            taxi.escaped = escaped;
+        }
         if let (Some(path), Some(polyline)) = (self.paths[index].as_mut(), polyline) {
             let length = path.set_taxi_in(polyline, heading);
             self.profiles[index].set_taxi_in_length(length);

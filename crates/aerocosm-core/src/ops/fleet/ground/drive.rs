@@ -73,9 +73,9 @@ impl Operations {
         }
         let mut stop = self.stop(index, along);
         let dt = TICK.as_secs_f64();
-        let step = (stop.at - along).clamp(0.0, TAXI_SPEED * dt);
-        if step > 0.0
-            && let Some(other) = self.seen_ahead(index, motion, step)
+        let reach = (stop.at - along).clamp(0.0, TAXI_SPEED * dt);
+        if reach > 0.0
+            && let Some(other) = self.seen_ahead(index, motion, reach)
         {
             stop = stop.nearer(along, Some(other), false);
         }
@@ -362,8 +362,8 @@ fn in_the_way(here: LatLon, next: LatLon, other: &Seen, me: u32) -> bool {
     let towards = other.at.initial_bearing_to(here).value();
     let off = (towards - other.heading.value() + 540.0).rem_euclid(360.0) - 180.0;
     let closing = other.moving && off.abs() < 90.0;
-    let stand_off = !other.moving && other.waits_for == Some(me) && after >= PAST_HOLD;
-    !((closing || stand_off) && first)
+    let stand_off = !other.moving && other.waits_for == Some(me);
+    !((closing || stand_off) && first && after >= PAST_HOLD)
 }
 
 #[cfg(test)]
@@ -444,6 +444,12 @@ mod tests {
         };
         assert!(!in_the_way(here, next, &coming, 0));
         assert!(in_the_way(here, next, &coming, 2));
+        // But not to closer than half an airliner's length.
+        let close_head_on = Seen {
+            at: metres_north(25.0)?,
+            ..coming
+        };
+        assert!(in_the_way(here, next, &close_head_on, 0));
         Ok(())
     }
 

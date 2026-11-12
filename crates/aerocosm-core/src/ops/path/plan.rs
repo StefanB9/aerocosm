@@ -426,6 +426,40 @@ mod tests {
     }
 
     #[test]
+    fn test_another_way_replaces_the_taxi_and_keeps_the_stand() -> Result<()> {
+        let data = data()?;
+        let (frankfurt, munich) = (airport(&data, "EDDF")?, airport(&data, "EDDM")?);
+        let mut leg = plan_leg(
+            &data.world,
+            &data.traffic,
+            unmapped(),
+            a320(&data)?,
+            frankfurt,
+            munich,
+        )?;
+        let start = leg.path.taxi_out.point_at(Meters::default());
+        let way = Polyline::new(&[
+            start,
+            start.destination(Degrees::new(90.0)?, Meters::new(800.0)?),
+        ])?;
+        let length = leg.path.retaxi(true, way);
+        assert!((length - 800.0).abs() < 1.0, "{length}");
+        assert!((leg.path.taxi_out.length().value() - 800.0).abs() < 1.0);
+        let end = start.destination(Degrees::new(90.0)?, Meters::new(800.0)?);
+        assert!(leg.path.taxi_out_point(800.0).distance_to(end).value() < 1.0);
+        let heading = Degrees::new(45.0)?;
+        leg.path
+            .set_taxi_in(Polyline::new(&[start, start])?, heading);
+        let back = Polyline::new(&[
+            start,
+            start.destination(Degrees::new(0.0)?, Meters::new(300.0)?),
+        ])?;
+        assert!((leg.path.retaxi(false, back) - 300.0).abs() < 1.0);
+        assert_eq!(leg.path.stand_in, Some(heading));
+        Ok(())
+    }
+
+    #[test]
     fn test_plan_leg_without_runways_uses_the_airport_point() -> Result<()> {
         let world = World::from_json(
             r#"{"format_version": 2, "runways": [], "airports": [

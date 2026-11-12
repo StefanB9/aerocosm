@@ -7,7 +7,7 @@ use super::{Start, Target};
 use crate::{
     Id, LatLon, SimTime,
     ground::{
-        AirportGround, Edge, Node,
+        AirportGround, Edge, GroundRoute, Node,
         junctions::{Passage, Run},
     },
     ops::{Phase, fleet::Operations, motion::Motion},
@@ -16,6 +16,8 @@ use crate::{
 
 /// Most times one taxi is sent another way before it taxies on regardless.
 const MOST: u8 = 3;
+/// How much longer than the way it was going another way may be, m.
+const DETOUR: f64 = 1_000.0;
 
 impl Operations {
     /// Sends tail `index`, in `motion` and the one to give way in a
@@ -35,85 +37,13 @@ impl Operations {
             _ => return false,
         };
         let along = motion.along();
-        let Some(old) = self.taxis[index].as_ref() else {
+        let Some((k, from, at, route)) = self.other_way(scenario, index, along) else {
             return false;
         };
-        if old.escaped || old.reroutes >= MOST || along < old.push {
-            return false;
-        }
-        let airport = old.airport;
-        let (Some(layout), Some(airside), Some(to)) = (
-            scenario.ground().airport(airport),
-            self.ground.airside(airport),
-            old.end_node,
-        ) else {
+        let Some(old) = self.taxis[index].clone() else {
             return false;
         };
-        let Some((k, from, at)) = node_ahead(layout, &old.edges, old.offset, along) else {
-            return false;
-        };
-        if from == to {
-            return false;
-        }
-        let mut avoid: Vec<u32> = Vec::new();
-        // The junction it is held up at, and those the other is in or
-        // cleared into: a way through them would leave it waiting still.
-        let mut closed: Vec<u32> = old
-            .passages
-            .iter()
-            .find(|p| p.entry > along)
-            .map(|p| p.junction)
-            .into_iter()
-            .collect();
-        if let Some(blocker) = old.waiting_for {
-            for (chain, list) in airside.on_chain.iter().enumerate() {
-                if list.iter().any(|o| o.tail == blocker) {
-                    avoid.push(u32::try_from(chain).unwrap_or(u32::MAX));
-                }
-            }
-            for (j, (inside, claim)) in airside.occupied.iter().zip(&airside.claims).enumerate() {
-                if inside.contains(&blocker) || *claim == Some(blocker) {
-                    closed.push(u32::try_from(j).unwrap_or(u32::MAX));
-                }
-            }
-        }
-        let shut = |node: Id<Node>| {
-            airside
-                .junctions
-                .junction_of(node)
-                .is_some_and(|j| closed.contains(&j))
-        };
-        if shut(from) {
-            return false;
-        }
-        let ahead = old.edges.get(k).map(|&(edge, _)| edge);
-        avoid.extend(
-            ahead
-                .and_then(|edge| airside.junctions.chain(edge))
-                .map(|(c, _)| c),
-        );
-        // It cannot turn round where it stands.
-        let behind = k.checked_sub(1).and_then(|i| old.edges.get(i)).copied();
-        let owner = Self::owner(index);
-        let route = self.route_avoiding(layout, index, (from, to), |edge, forward| {
-            Some(edge) == ahead
-                || behind == Some((edge, !forward))
-                || layout
-                    .edge(edge)
-                    .is_some_and(|e| shut(e.from()) || shut(e.to()))
-                || airside.junctions.chain(edge).is_some_and(|(chain, way)| {
-                    // Never into a taxiway someone is coming down.
-                    airside.opposed(owner, chain, way == forward).is_some()
-                })
-                || airside
-                    .junctions
-                    .chain(edge)
-                    .is_some_and(|(chain, _)| avoid.contains(&chain))
-        });
-        let Some(route) = route else {
-            return false;
-        };
-        let old = old.clone();
+        let (airport, owner) = (old.airport, Self::owner(index));
         let extension = match (out, old.target, self.paths[index].as_ref()) {
             (true, Target::Hold, Some(path)) => path.queue_points().to_vec(),
             _ => Vec::new(),
@@ -186,6 +116,95 @@ impl Operations {
         }
         self.stats.rerouted(airport);
         true
+    }
+
+    /// The way tail `index`, `along` its taxi, is sent instead (`reroute`):
+    /// how many of its edges it keeps, the node it leaves them at and where,
+    /// and the route on from there.
+    fn other_way(
+        &self,
+        scenario: &Scenario,
+        index: usize,
+        along: f64,
+    ) -> Option<(usize, Id<Node>, f64, GroundRoute)> {
+        let old = self.taxis[index].as_ref()?;
+        if old.escaped || old.reroutes >= MOST || along < old.push {
+            return None;
+        }
+        let (Some(layout), Some(airside), Some(to)) = (
+            scenario.ground().airport(old.airport),
+            self.ground.airside(old.airport),
+            old.end_node,
+        ) else {
+            return None;
+        };
+        let (k, from, at) = node_ahead(layout, &old.edges, old.offset, along)?;
+        if from == to {
+            return None;
+        }
+        let mut avoid: Vec<u32> = Vec::new();
+        // The junction it is held up at, and those the other is in or
+        // cleared into: a way through them would leave it waiting still.
+        let mut closed: Vec<u32> = old
+            .passages
+            .iter()
+            .find(|p| p.entry > along)
+            .map(|p| p.junction)
+            .into_iter()
+            .collect();
+        if let Some(blocker) = old.waiting_for {
+            for (chain, list) in airside.on_chain.iter().enumerate() {
+                if list.iter().any(|o| o.tail == blocker) {
+                    avoid.push(u32::try_from(chain).unwrap_or(u32::MAX));
+                }
+            }
+            for (j, (inside, claim)) in airside.occupied.iter().zip(&airside.claims).enumerate() {
+                if inside.contains(&blocker) || *claim == Some(blocker) {
+                    closed.push(u32::try_from(j).unwrap_or(u32::MAX));
+                }
+            }
+        }
+        let shut = |node: Id<Node>| {
+            airside
+                .junctions
+                .junction_of(node)
+                .is_some_and(|j| closed.contains(&j))
+        };
+        if shut(from) {
+            return None;
+        }
+        let ahead = old.edges.get(k).map(|&(edge, _)| edge);
+        avoid.extend(
+            ahead
+                .and_then(|edge| airside.junctions.chain(edge))
+                .map(|(c, _)| c),
+        );
+        // It cannot turn round where it stands.
+        let behind = k.checked_sub(1).and_then(|i| old.edges.get(i)).copied();
+        let owner = Self::owner(index);
+        let route = self.route_avoiding(layout, index, (from, to), |edge, forward| {
+            Some(edge) == ahead
+                || behind == Some((edge, !forward))
+                || layout
+                    .edge(edge)
+                    .is_some_and(|e| shut(e.from()) || shut(e.to()))
+                || airside.junctions.chain(edge).is_some_and(|(chain, way)| {
+                    // Never into a taxiway someone is coming down.
+                    airside.opposed(owner, chain, way == forward).is_some()
+                })
+                || airside
+                    .junctions
+                    .chain(edge)
+                    .is_some_and(|(chain, _)| avoid.contains(&chain))
+        });
+        // A way round much longer is no way out: it waits on instead.
+        let route = route?;
+        let route_end = old.edges[k..]
+            .iter()
+            .filter_map(|&(edge, _)| layout.edge(edge))
+            .map(|edge| edge.length().value())
+            .sum::<f64>();
+        (route.length().value() <= route_end + DETOUR).then_some((k, from, at, route))
     }
 }
 

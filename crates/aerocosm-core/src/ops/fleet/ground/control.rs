@@ -3,8 +3,9 @@
 //! ahead of their hold, the most urgent first.
 
 use super::{
-    AIRCRAFT_LENGTH, DEADLOCK_AFTER, EDGE, FOLLOW, GAP, LOCK_AHEAD, LOOKAHEAD, Occupant,
-    PUSH_CLEAR, STUCK_AFTER, Target, Taxi, ZONE, ms, taxi_millis, tight, time_of,
+    AIRCRAFT_LENGTH, DEADLOCK_AFTER, EDGE, ENGINE_START, FOLLOW, GAP, LOCK_AHEAD, LOOKAHEAD,
+    Occupant, PUSH_CLEAR, PUSH_SPEED, STUCK_AFTER, Target, Taxi, ZONE, ms, taxi_millis, tight,
+    time_of,
 };
 use crate::{
     SimDuration, SimTime,
@@ -107,6 +108,18 @@ impl Operations {
                         && super::drive::at_a_line(&taxi.passages, taxi.next, along),
                     waits_for: taxi.waiting_for,
                 });
+                // Pushing back, it shows where it will stand: pilots keep
+                // clear of a pushback in progress.
+                if motion.phase() == Phase::Pushback {
+                    airside.seen.push(super::drive::Seen {
+                        tail: owner,
+                        at: path.taxi_out_point(taxi.push),
+                        heading,
+                        moving: false,
+                        at_hold: false,
+                        waits_for: None,
+                    });
+                }
             }
             // Past its last chain (at the holding point) it stands at that
             // chain's end.
@@ -313,11 +326,6 @@ impl Operations {
         // Overdue, it is sent another way or taxies regardless when it next
         // moves (`drive_taxi`).
         let escape = taxi.escaped;
-        let other = |slot: Option<u32>| slot.filter(|&o| o != owner);
-        let inside = airside
-            .occupied
-            .get(j)
-            .and_then(|list| list.iter().copied().find(|&o| o != owner));
         let beyond = taxi
             .passages
             .iter()
@@ -327,16 +335,9 @@ impl Operations {
         // Junctions after it too close to stop short of: they must be free.
         let onwards = taxi.passages[tight::committed(&taxi.passages, i)]
             .iter()
-            .find_map(|p| {
-                let k = p.junction as usize;
-                airside
-                    .occupied
-                    .get(k)
-                    .and_then(|list| list.iter().copied().find(|&o| o != owner))
-                    .or_else(|| other(airside.claims.get(k).copied().flatten()))
-            });
-        let blocker = inside
-            .or_else(|| other(airside.claims.get(j).copied().flatten()))
+            .find_map(|p| airside.taken(p.junction, owner));
+        let blocker = airside
+            .taken(passage.junction, owner)
             .or(onwards)
             // Cleared in the order they queue: the first in line first.
             .or_else(|| self.ahead_on_path(index, along + EDGE, passage.entry))
@@ -411,6 +412,46 @@ impl Operations {
         taxi.waiting_for = None;
         taxi.deadlock_since = None;
         taxi.crossing = None;
+    }
+
+    /// Whether someone is cleared down the taxiways tail `index` pushes
+    /// and starts onto, `from` to `to` metres along, and soon there: a
+    /// pushback is approved after passing traffic.
+    fn traffic_passing(&self, index: usize, from: f64, to: f64) -> bool {
+        let owner = Self::owner(index);
+        let Some(taxi) = self.taxis[index].as_ref() else {
+            return false;
+        };
+        let Some(airside) = self.ground.airside(taxi.airport) else {
+            return false;
+        };
+        // As far as traffic taxies while it pushes and starts up.
+        let soon = (from / PUSH_SPEED + ENGINE_START) * crate::ground::TAXI_SPEED + PUSH_CLEAR;
+        taxi.runs
+            .iter()
+            .filter(|run| run.to > from - 1e-6 && run.from < to)
+            .any(|run| {
+                airside
+                    .locks
+                    .get(run.chain as usize)
+                    .into_iter()
+                    .flatten()
+                    .any(|&(other, _)| other != owner && self.soon_on(other, run.chain, soon))
+            })
+    }
+
+    /// Whether tail `tail` taxies along chain `chain` within `within`
+    /// metres from where it is, or is on it.
+    fn soon_on(&self, tail: u32, chain: u32, within: f64) -> bool {
+        let k = tail as usize;
+        let (Some(taxi), Some(along)) =
+            (self.taxis.get(k).and_then(Option::as_ref), self.along_of(k))
+        else {
+            return false;
+        };
+        taxi.runs
+            .iter()
+            .any(|run| run.chain == chain && run.to > along && run.from < along + within)
     }
 
     /// Another aircraft on the through taxiway (or already cleared in) that
@@ -507,19 +548,11 @@ impl Operations {
                     .flatten()
                     .any(|o| o.tail != owner && (o.position - here).abs() < PUSH_CLEAR)
             });
+        let passing = from > 0.0 && self.traffic_passing(index, from, to);
         let junction = taxi.passages.iter().any(|p| {
             p.entry - ZONE <= to
                 && p.exit + ZONE >= from
-                && (airside
-                    .occupied
-                    .get(p.junction as usize)
-                    .is_some_and(|list| list.iter().any(|&o| o != owner))
-                    || airside
-                        .claims
-                        .get(p.junction as usize)
-                        .copied()
-                        .flatten()
-                        .is_some_and(|o| o != owner))
+                && airside.taken(p.junction, owner).is_some()
         });
         let horizon = taxi.end;
         let opposed = taxi
@@ -551,6 +584,7 @@ impl Operations {
                 .any(|seen| seen.tail != owner && seen.at.distance_to(point).value() < FOLLOW)
         });
         if lane
+            || passing
             || junction
             || opposed
             || lead_in

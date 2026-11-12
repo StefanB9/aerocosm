@@ -148,6 +148,11 @@ impl Path {
         taxi.length().value()
     }
 
+    /// The point `distance` metres along the taxi-out, pushback included.
+    pub(crate) fn taxi_out_point(&self, distance: f64) -> LatLon {
+        self.taxi_out.point_at(Meters::from_raw(distance))
+    }
+
     /// Position and true course of an aircraft in `motion` on this path.
     pub(crate) fn locate(&self, motion: &Motion) -> (LatLon, Degrees) {
         let along = Meters::from_raw(motion.along());

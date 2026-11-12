@@ -167,6 +167,21 @@ impl Airside {
     }
 
     /// Locks `chain` for `owner` going `forward`, learning its flow.
+    /// Someone other than `owner` in junction `junction` or cleared into it.
+    fn taken(&self, junction: u32, owner: u32) -> Option<u32> {
+        let j = junction as usize;
+        self.occupied
+            .get(j)
+            .and_then(|list| list.iter().copied().find(|&o| o != owner))
+            .or_else(|| {
+                self.claims
+                    .get(j)
+                    .copied()
+                    .flatten()
+                    .filter(|&o| o != owner)
+            })
+    }
+
     fn lock(&mut self, owner: u32, chain: u32, forward: bool) {
         if let Some(locks) = self.locks.get_mut(chain as usize)
             && !locks.iter().any(|&(other, _)| other == owner)
