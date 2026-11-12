@@ -299,6 +299,9 @@ const IN_FRONT: f64 = 25.0;
 /// …nor on anyone nearer than this, m: an aircraft holding short of a
 /// junction is passed wingtip-clear.
 const TOO_CLOSE: f64 = 25.0;
+/// An aircraft waiting at a hold line, drawn wingtip-clear of the way, is
+/// passed down to this, m: half an airliner's length.
+const PAST_HOLD: f64 = 22.5;
 
 /// Another aircraft as a pilot sees it: where it is, which way it heads and
 /// whether it moves.
@@ -321,7 +324,13 @@ fn in_the_way(here: LatLon, next: LatLon, other: &Seen, first: bool) -> bool {
         here.distance_to(other.at).value(),
         next.distance_to(other.at).value(),
     );
-    if other.at_hold || after >= SEE_AND_AVOID || after >= before {
+    if after >= before {
+        return false;
+    }
+    if other.at_hold {
+        return after < PAST_HOLD;
+    }
+    if after >= SEE_AND_AVOID {
         return false;
     }
     let ahead = here.initial_bearing_to(other.at).value();
@@ -381,12 +390,20 @@ mod tests {
             ..standing(0.0)?
         };
         assert!(in_the_way(here, next, &close, false));
-        // Unless it waits at a hold line: those are drawn wingtip-clear.
+        // Unless it waits at a hold line, drawn wingtip-clear: those are
+        // passed down to half an airliner's length…
         let at_hold = Seen {
+            at: east(18.0)?,
             at_hold: true,
             ..close
         };
         assert!(!in_the_way(here, next, &at_hold, false));
+        // …but never driven into.
+        let on_the_way = Seen {
+            at_hold: true,
+            ..standing(20.0)?
+        };
+        assert!(in_the_way(here, next, &on_the_way, false));
         // Head-on, both moving: the one with priority goes on.
         let coming = Seen {
             heading: Degrees::from_raw(180.0),
