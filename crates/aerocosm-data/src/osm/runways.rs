@@ -144,6 +144,51 @@ pub(crate) fn holding_positions(
     found
 }
 
+/// Whether `tags` mark an intermediate holding position.
+fn intermediate(tags: &super::overpass::Tags) -> bool {
+    tags.get("aeroway").is_some_and(|a| a == "holding_position")
+        && tags
+            .get("holding_position:type")
+            .is_some_and(|kind| kind == "intermediate")
+}
+
+/// OSM nodes where an intermediate holding position drawn as a line across
+/// a taxiway meets the taxiway (plan M4 D89): the graph is split there.
+pub(crate) fn hold_lines(data: &OsmData) -> Vec<i64> {
+    let taxiway: std::collections::HashSet<i64> = data
+        .ways
+        .iter()
+        .filter(|way| matches!(way.aeroway(), Some("taxiway" | "taxilane")))
+        .flat_map(|way| way.nodes.iter().copied())
+        .collect();
+    let mut nodes: Vec<i64> = data
+        .ways
+        .iter()
+        .filter(|way| intermediate(&way.tags))
+        .flat_map(|way| way.nodes.iter().copied())
+        .filter(|id| taxiway.contains(id))
+        .collect();
+    nodes.sort_unstable();
+    nodes.dedup();
+    nodes
+}
+
+/// Graph nodes with an intermediate holding position, tagged on the node
+/// or where a hold line crosses the taxiway (plan M4 D89).
+pub(crate) fn intermediate_holds(graph: &Graph, data: &OsmData) -> Vec<usize> {
+    let mut nodes: Vec<usize> = data
+        .nodes
+        .values()
+        .filter(|node| intermediate(&node.tags))
+        .map(|node| node.id)
+        .chain(hold_lines(data))
+        .filter_map(|id| graph.node_of(id))
+        .collect();
+    nodes.sort_unstable();
+    nodes.dedup();
+    nodes
+}
+
 /// A runway exit found in the data.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct RawExit {
@@ -255,17 +300,31 @@ mod tests {
                 way(2, &[2, 802, 1602], "\"aeroway\":\"taxiway\""),
                 way(3, &[20, 118, 812], "\"aeroway\":\"taxiway\""),
                 way(4, &[28, 828, 1628], "\"aeroway\":\"taxiway\""),
+                // An intermediate hold drawn as a line across taxiway 3.
+                way(
+                    5,
+                    &[117, 118, 119],
+                    "\"aeroway\":\"holding_position\",\"holding_position:type\":\"intermediate\"",
+                ),
             ],
             &[holding(802, "runway"), holding(828, "intermediate")],
         )?;
         let plane = Plane::new(PLANE_ORIGIN);
-        let junctions: HashSet<i64> = [802, 828].into();
+        let mut junctions: HashSet<i64> = [802, 828].into();
+        junctions.extend(hold_lines(&data));
+        assert!(junctions.contains(&118) && !junctions.contains(&117));
         let graph = Graph::build(&data, &plane, |_| true, &junctions);
         let runways = [runway(&plane)?];
         let holds = holding_positions(&graph, &data, &runways);
         assert_eq!(holds.len(), 1);
         assert_eq!(graph.nodes[holds[0].node].osm, Some(802));
         assert_eq!(holds[0].runway, "09".parse()?);
+        let mut middle: Vec<Option<i64>> = intermediate_holds(&graph, &data)
+            .iter()
+            .map(|&n| graph.nodes[n].osm)
+            .collect();
+        middle.sort_unstable();
+        assert_eq!(middle, [Some(118), Some(828)]);
 
         let exits = exits(&graph, &runways);
         let east: Vec<(Option<i64>, f64)> = exits

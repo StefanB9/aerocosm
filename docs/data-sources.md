@@ -57,7 +57,9 @@ Downloaded 2026-11-06 from the Overpass mirror at `maps.mail.ru` (OSM database s
 2026-11-06), with the queries written by `aerocosm-data queries`.
 
 Import result: 22 of 24 airports pass the quality gate (1,857 stands). EDDR (no stands mapped)
-and EDLW (only 5 unnamed stand nodes) keep straight-line ground.
+and EDLW (only 5 unnamed stand nodes) keep straight-line ground. Intermediate holding positions
+(`holding_position:type=intermediate`, on nodes or as lines across a taxiway) are kept since
+plan M4 D89: e.g. FRA 168, MUC 206, BER 177, LEJ 119 (same snapshot, re-imported 2026-11-12).
 
 | File | SHA-256 |
 |------|---------|
