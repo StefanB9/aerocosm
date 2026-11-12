@@ -250,7 +250,11 @@ impl Operations {
         let Some(airside) = self.ground.airside_mut(taxi.airport) else {
             return;
         };
-        for passage in &taxi.passages {
+        for (i, passage) in taxi.passages.iter().enumerate() {
+            // Not a junction it has yet to be cleared into from its hold.
+            if i >= taxi.next && passage.hold.is_some() {
+                continue;
+            }
             let edge = passage.entry - HOLD_SHORT;
             if edge > along - EDGE
                 && edge <= next

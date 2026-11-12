@@ -120,9 +120,12 @@ impl Operations {
                     });
                 }
             }
-            for passage in &taxi.passages {
+            for (i, passage) in taxi.passages.iter().enumerate() {
                 let j = passage.junction as usize;
-                if along > passage.entry - ZONE + EDGE && tail <= passage.exit + ZONE {
+                // At a hold line it is clear of the junction, however near
+                // the line is drawn.
+                let holding = i >= taxi.next && passage.hold.is_some_and(|h| along <= h + EDGE);
+                if !holding && along > passage.entry - ZONE + EDGE && tail <= passage.exit + ZONE {
                     if let Some(list) = airside.occupied.get_mut(j) {
                         list.push(owner);
                     }
