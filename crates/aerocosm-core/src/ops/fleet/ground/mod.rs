@@ -139,6 +139,9 @@ pub(super) struct Airside {
     spot_owner: Vec<Option<u32>>,
     /// The departure runway each holding position feeds.
     hold_runway: BTreeMap<Id<Node>, RunwayDesignator>,
+    /// Per departure runway: the departures cleared to it and not yet
+    /// lined up, counted each tick and as pushbacks are approved.
+    departing: BTreeMap<RunwayDesignator, usize>,
     /// Per departure runway: the last line-up and the observed interval
     /// between line-ups while a queue waited, ms.
     pace: BTreeMap<RunwayDesignator, (i64, i64)>,
@@ -258,6 +261,7 @@ impl GroundControl {
                     spot_owner: vec![None; spots.len()],
                     spots,
                     hold_runway: departure::hold_runways(layout),
+                    departing: BTreeMap::new(),
                     pace: BTreeMap::new(),
                 });
             }

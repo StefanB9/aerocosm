@@ -117,6 +117,9 @@ impl Operations {
             for list in &mut airside.on_chain {
                 list.clear();
             }
+            for count in airside.departing.values_mut() {
+                *count = 0;
+            }
         }
         for index in 0..self.taxis.len() {
             let Some(along) = self.along_of(index) else {
@@ -129,6 +132,11 @@ impl Operations {
             let Some(airside) = self.ground.airside_mut(taxi.airport) else {
                 continue;
             };
+            if taxi.target == Target::Hold
+                && let Some(runway) = taxi.end_node.and_then(|n| airside.hold_runway.get(&n))
+            {
+                *airside.departing.entry(*runway).or_insert(0) += 1;
+            }
             let tail = along - AIRCRAFT_LENGTH;
             airside.taxiing.push(owner);
             if let (Some(path), Some(motion)) = (

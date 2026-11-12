@@ -70,16 +70,7 @@ impl Operations {
                     .map_or((None, DEPARTURE_INTERVAL), |&(last, pace)| {
                         (Some(last), pace)
                     });
-                let ahead = self
-                    .taxis
-                    .iter()
-                    .flatten()
-                    .filter(|t| {
-                        t.airport == origin
-                            && t.target == Target::Hold
-                            && t.end_node.and_then(|n| a.hold_runway.get(&n)) == Some(&runway)
-                    })
-                    .count();
+                let ahead = a.departing.get(&runway).copied().unwrap_or(0);
                 self::turn(last, pace, ahead, ms(now))
             });
         // SAFETY: a pushback takes minutes.
@@ -128,6 +119,9 @@ impl Operations {
             self.stats.ground_conflict(origin);
         }
         self.gate_blocked[index] = None;
+        if let (Some(airside), Some(runway)) = (self.ground.airside_mut(origin), runway) {
+            *airside.departing.entry(runway).or_insert(0) += 1;
+        }
         if let Some(path) = self.paths[index].as_mut() {
             let length = path.set_taxi_out(polyline);
             self.profiles[index].set_taxi_out_length(length);

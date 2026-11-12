@@ -226,14 +226,25 @@ impl Operations {
         let (here, heading) = self.paths.get(index)?.as_ref()?.locate(motion);
         let next = here.destination(heading, crate::units::Meters::from_raw(step));
         let airside = self.ground.airside(taxi.airport)?;
+        // Nobody farther than this can be in the way: a cheap box first,
+        // great circles only inside it.
+        let reach = (SEE_AND_AVOID + step + 10.0) / METRES_PER_DEGREE;
+        let (lat, lon) = (here.latitude().value(), here.longitude().value());
+        let wide = reach / lat.to_radians().cos().max(0.1);
         airside
             .seen
             .iter()
+            .filter(|other| {
+                (other.at.latitude().value() - lat).abs() <= reach
+                    && (other.at.longitude().value() - lon).abs() <= wide
+            })
             .find(|other| other.tail != owner && in_the_way(here, next, other, owner))
             .map(|other| other.tail)
     }
 }
 
+/// Metres per degree of latitude (and of longitude at the equator).
+const METRES_PER_DEGREE: f64 = 111_195.0;
 /// Pilots do not close in on another aircraft in front nearer than this,
 /// m, …
 const SEE_AND_AVOID: f64 = 50.0;
