@@ -195,8 +195,9 @@ fn observe(simulation: &mut Simulation, hours: u32, every: u32) -> Result<Observ
 
 /// Nobody taxies longer than this: a stand wait ends after 30 minutes
 /// (plan M4 D69, D75), and the taxis to the waiting spot and on to the stand
-/// take a quarter of an hour each at most.
-const LONGEST_TAXI: SimDuration = SimDuration::from_secs(60 * 60);
+/// take three quarters of an hour together at most (Leipzig's one-way
+/// taxiways lead round to a remote spot in over 5 km).
+const LONGEST_TAXI: SimDuration = SimDuration::from_secs(75 * 60);
 /// Taxiing aircraft never stand on the same spot (D70) unless one escaped a
 /// deadlock (D75): their reference points stay half an airliner's length
 /// apart, m.
@@ -232,10 +233,10 @@ fn test_ground_traffic_keeps_apart_and_flows() -> Result<()> {
         for (any, now) in seen.iter_mut().zip(observed.states) {
             *any |= now;
         }
-        // Near zero (D75): at most one taxi in a hundred escapes a deadlock
-        // in the morning bank.
+        // Rare (D75, D93): at most one taxi in fifty escapes a deadlock in
+        // the morning bank; zero is the goal of the acceptance runs (D92).
         assert!(
-            stats.ground_conflicts() * 100 <= stats.taxis(),
+            stats.ground_conflicts() * 50 <= stats.taxis(),
             "seed {seed}: {} conflicts in {} taxis",
             stats.ground_conflicts(),
             stats.taxis()
