@@ -140,6 +140,84 @@ cargo run --release -p aerocosm-data -- ground --osm /tmp/aerocosm-data/osm --re
 
 Update the ground snapshot section above.
 
+## The globe (plan M5)
+
+The globe's assets are binary (plan M5 D104): a header naming the kind and format
+version, then postcard-encoded data compressed with zstd.
+
+| Asset | Sources | Licence | Attribution |
+|-------|---------|---------|-------------|
+| `assets/world/world.bin` | OurAirports `airports.csv`, `runways.csv`; Natural Earth populated places (catchments); [`airportsdata`](https://github.com/mborsetti/airportsdata) `airports.csv` (time zones, from `TimeZoneDB`); [NASA POWER](https://power.larc.nasa.gov/) climatology `WD10M` (prevailing wind) | Public domain; public domain; MIT; CC BY 4.0 | "Wind data: NASA Langley Research Center POWER Project"; "Time zones: airportsdata (MIT), TimeZoneDB" |
+| `assets/basemap/world.bin` | Natural Earth 1:10m, as the German basemap | Public domain | Not required ("Made with Natural Earth" shown) |
+| `assets/traffic/observed.bin` | OpenSky Network flight lists 2019 ([Zenodo record 5764017](https://zenodo.org/records/5764017)); [OpenFlights](https://openflights.org/data.html) `airlines.dat` (names, callsigns) | CC BY 4.0; ODbL | "Flight data: The OpenSky Network, https://opensky-network.org"; "Airline names: OpenFlights (ODbL)" |
+
+Runway headings synthesised from designators use the offset learnt from the 50 nearest
+runway ends with surveyed true headings (plan M5 D101), so no magnetic model is needed.
+
+### Globe snapshot
+
+Downloaded 2026-11-13 (Natural Earth: the 2026-11-05 snapshot above).
+
+| File | Checksum |
+|------|----------|
+| `airports.csv` (OurAirports) | SHA-256 `a3bbdc1d7321c19e7a3ee6ddc7b570850fdfa56f6357c30bae9600cef08637be` |
+| `runways.csv` (OurAirports) | SHA-256 `e1026851f59e3714c2074432e469aeb9c3b83908315cfa547f353ae607f74a1d` |
+| `airportsdata.csv` (`airportsdata/airports.csv`, main) | SHA-256 `b218baf3b864af711bfc5c2d6de38f4cdfde873e0c60289fd9c5cc22afe57876` |
+| `airlines.dat` (OpenFlights, master) | SHA-256 `39be1a432e8b04ebc12860c29281c974a9cb52169c82b2456a835d66ab1548a1` |
+| NASA POWER responses, 3,846 files `<IDENT>.json` | SHA-256 of their contents concatenated in name order `61bf794d7f0a3bcbc74d5449d937f4132fb988f3afebd1cdb1c65b08d85910d5` |
+| `flightlist_2019*.csv.gz`, twelve months | MD5 as published on Zenodo (the record lists them) |
+
+Import result: 26,109 aerodromes with a usable runway, 3,846 with scheduled service; time
+zones for 5,591 airports (5,333 by code, 258 from the nearest listed airport in the
+country, 1 without); prevailing winds for all 3,846 scheduled airports. `world.bin`
+2.8 MB, `basemap/world.bin` 3.8 MB.
+
+### Regenerating the globe
+
+Download into a scratch directory outside the repository (Natural Earth as above):
+
+```bash
+mkdir -p /tmp/aerocosm-data/globe/winds
+```
+
+```bash
+for f in airports runways; do curl -sSfo /tmp/aerocosm-data/globe/$f.csv https://davidmegginson.github.io/ourairports-data/$f.csv; done
+```
+
+```bash
+curl -sSfo /tmp/aerocosm-data/globe/airportsdata.csv https://raw.githubusercontent.com/mborsetti/airportsdata/main/airportsdata/airports.csv
+```
+
+```bash
+curl -sSfo /tmp/aerocosm-data/globe/airlines.dat https://raw.githubusercontent.com/jpatokal/openflights/master/data/airlines.dat
+```
+
+Import once without winds, list the wind requests, download them (one small JSON per
+scheduled airport; be gentle with NASA's servers), then import again with them:
+
+```bash
+cargo run --release -p aerocosm-data -- globe --ourairports /tmp/aerocosm-data/globe --natural-earth /tmp/aerocosm-data/natural-earth --zones /tmp/aerocosm-data/globe/airportsdata.csv --out assets
+```
+
+```bash
+cargo run --release -p aerocosm-data -- wind-requests --out /tmp/aerocosm-data/globe/wind-requests.tsv
+```
+
+```bash
+cd /tmp/aerocosm-data/globe && xargs -P 2 -L 1 sh -c 'curl -sSf --retry 3 -o "winds/$0.json" "$1"' < wind-requests.tsv
+```
+
+```bash
+cargo run --release -p aerocosm-data -- globe --ourairports /tmp/aerocosm-data/globe --natural-earth /tmp/aerocosm-data/natural-earth --zones /tmp/aerocosm-data/globe/airportsdata.csv --winds /tmp/aerocosm-data/globe/winds --out assets
+```
+
+Then aggregate the twelve 2019 flight lists from Zenodo (2.7 GB compressed; they can be
+streamed through named pipes rather than stored):
+
+```bash
+cargo run --release -p aerocosm-data -- observed --airlines /tmp/aerocosm-data/globe/airlines.dat /tmp/aerocosm-data/globe/flightlist_2019*.csv.gz
+```
+
 ## Processing notes
 
 - **Edge airports (M2, plan D29):** 23 foreign airports inside the basemap, listed in
