@@ -6,8 +6,10 @@ edition.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 jiff = { workspace = true }
+postcard = { workspace = true }
 rand_chacha = { workspace = true }
 rand_core = { workspace = true }
+ruzstd = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

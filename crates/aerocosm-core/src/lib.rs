@@ -2,6 +2,7 @@
 
 pub mod aircraft;
 pub mod airline;
+pub mod asset;
 pub mod error;
 pub mod geo;
 pub mod ground;
