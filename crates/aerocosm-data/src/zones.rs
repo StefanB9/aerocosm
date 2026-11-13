@@ -1,5 +1,5 @@
 //! Time zones per airport (plan M5 D101) from the `airportsdata` table (MIT;
-//! its time zones come from TimeZoneDB): by ICAO code, else by IATA code,
+//! its time zones come from `TimeZoneDB`): by ICAO code, else by IATA code,
 //! else the zone of the nearest airport in the same country that has one.
 
 use std::{collections::HashMap, io::Read};

@@ -3,6 +3,7 @@
 
 mod geometry;
 pub mod natural_earth;
+pub mod opensky;
 pub mod osm;
 pub mod ourairports;
 pub mod wind;

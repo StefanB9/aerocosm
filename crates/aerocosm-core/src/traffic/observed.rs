@@ -1,4 +1,4 @@
-//! Observed traffic (plan M5 D97–D99): what the OpenSky flight lists show for
+//! Observed traffic (plan M5 D97–D99): what the `OpenSky` flight lists show for
 //! the reference year, aggregated by the importer. The world model calibrates
 //! airports to it and derives airlines from it; nothing here is curated.
 
@@ -17,7 +17,7 @@ const OBSERVED_ASSET: AssetKind = AssetKind {
     version: 1,
 };
 
-/// The traffic of one year as the OpenSky Network saw it.
+/// The traffic of one year as the `OpenSky` Network saw it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ObservedTraffic {
     /// The reference year.
@@ -46,9 +46,9 @@ pub struct ObservedAirport {
 pub struct ObservedAirline {
     /// ICAO designator, the callsign prefix.
     pub icao: AirlineIcao,
-    /// Name (OpenFlights).
+    /// Name (`OpenFlights`).
     pub name: String,
-    /// Radio callsign (OpenFlights), where known.
+    /// Radio callsign (`OpenFlights`), where known.
     pub callsign: Option<String>,
     /// Departures per airport, most first.
     pub departures: Vec<(AirportIdent, u32)>,
