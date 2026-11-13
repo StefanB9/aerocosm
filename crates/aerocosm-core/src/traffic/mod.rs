@@ -2,6 +2,7 @@
 //! (plan D28).
 
 mod clock;
+pub mod observed;
 mod operations;
 
 use std::collections::HashMap;
