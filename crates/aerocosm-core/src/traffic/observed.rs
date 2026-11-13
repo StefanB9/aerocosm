@@ -144,4 +144,48 @@ mod tests {
         assert!(none.share().abs() < 1e-12);
         Ok(())
     }
+
+    #[test]
+    fn test_shipped_observed_traffic_shows_the_real_network() -> Result<()> {
+        use anyhow::Context;
+        let observed =
+            ObservedTraffic::from_asset(include_bytes!("../../../../assets/traffic/observed.bin"))?;
+        assert_eq!(observed.year, 2019);
+        assert!(
+            observed.airports.len() > 4_000,
+            "{}",
+            observed.airports.len()
+        );
+        assert!(observed.airlines.len() > 400, "{}", observed.airlines.len());
+        let frankfurt = observed
+            .airports
+            .iter()
+            .find(|a| a.airport.as_str() == "EDDF")
+            .context("Frankfurt")?;
+        // About 257,000 departures in 2019, about 60 % of them seen whole.
+        assert!(
+            (120_000..200_000).contains(&frankfurt.departures),
+            "{frankfurt:?}"
+        );
+        let lufthansa = observed
+            .airlines
+            .iter()
+            .find(|a| a.icao.as_str() == "DLH")
+            .context("Lufthansa")?;
+        assert_eq!(
+            lufthansa.departures.first().map(|d| d.0.as_str()),
+            Some("EDDF")
+        );
+        assert_eq!(lufthansa.name, "Lufthansa");
+        let share = |code: &str| {
+            observed
+                .coverage
+                .iter()
+                .find(|c| c.country.as_str() == code)
+                .map(CountryCoverage::share)
+        };
+        assert!(share("DE").is_some_and(|s| s > 0.5));
+        assert!(share("US").is_some_and(|s| s > 0.4));
+        Ok(())
+    }
 }

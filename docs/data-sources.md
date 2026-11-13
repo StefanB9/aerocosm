@@ -172,6 +172,14 @@ zones for 5,591 airports (5,333 by code, 258 from the nearest listed airport in 
 country, 1 without); prevailing winds for all 3,846 scheduled airports. `world.bin`
 2.8 MB, `basemap/world.bin` 3.8 MB.
 
+Observed traffic: of 30,989,481 flights in the 2019 lists, 11,599,572 are counted with both
+ends at known airports (5,183 airports); dropped: 3,582,212 without a known airport,
+1,329,637 to the same airport, 323 faster than any airliner. 489 airlines with at least 365
+departures and an OpenFlights name; 1,673 smaller callsign prefixes left out. Coverage (the
+share of departures seen with both ends) varies: Germany 0.57, United States 0.46,
+Australia 0.50, India 0.31, Brazil 0.26, Japan 0.27, China 0.07. `traffic/observed.bin`
+219 KB.
+
 ### Regenerating the globe
 
 Download into a scratch directory outside the repository (Natural Earth as above):
