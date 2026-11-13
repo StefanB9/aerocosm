@@ -199,6 +199,9 @@ mod tests {
             kind: AirportKind::Major,
             country: "DE".parse()?,
             catchment: None,
+            scheduled: false,
+            zone: None,
+            wind: None,
         })
     }
 
@@ -213,6 +216,9 @@ mod tests {
             kind: AirportKind::Airfield,
             country: "DE".parse()?,
             catchment: None,
+            scheduled: false,
+            zone: None,
+            wind: None,
         })
     }
 

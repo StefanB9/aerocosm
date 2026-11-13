@@ -76,5 +76,8 @@ pub(super) fn convert_airport(
         kind,
         country,
         catchment: None,
+        scheduled: record.scheduled_service == "yes",
+        zone: None,
+        wind: None,
     }))
 }
