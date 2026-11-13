@@ -5,14 +5,26 @@ mod geometry;
 pub mod natural_earth;
 pub mod osm;
 pub mod ourairports;
+pub mod wind;
+pub mod zones;
 
-use std::io::{Cursor, Read};
+use std::{
+    collections::HashMap,
+    hash::BuildHasher,
+    io::{Cursor, Read},
+};
 
+use aerocosm_core::{
+    units::Degrees,
+    world::{WorldDefinition, codes::AirportIdent},
+};
 use anyhow::{Context, Result};
 
 use crate::{
     natural_earth::{BasemapSettings, NaturalEarthSources, import_basemap, read_places},
     ourairports::{ImportReport, OurAirportsSources, WorldSettings, import_world},
+    wind::assign_winds,
+    zones::{ZoneReport, assign_zones, read_zones},
 };
 
 /// Reads a whole layer into memory.
@@ -33,6 +45,62 @@ pub struct ImportOutput {
     pub basemap_json: String,
     /// What the world import did.
     pub report: ImportReport,
+}
+
+/// The inputs of the globe's world (plan M5 PR 1).
+#[derive(Debug)]
+pub struct GlobeSources<R> {
+    /// `OurAirports` `airports.csv`.
+    pub airports: R,
+    /// `OurAirports` `runways.csv`.
+    pub runways: R,
+    /// Natural Earth populated places, for catchments.
+    pub places: R,
+    /// The `airportsdata` table, for time zones.
+    pub zones: R,
+}
+
+/// The globe's world and how it was made.
+#[derive(Debug, Clone)]
+pub struct GlobeOutput {
+    /// The world.
+    pub world: WorldDefinition,
+    /// What the airport and runway import did.
+    pub report: ImportReport,
+    /// How the time zones were found.
+    pub zones: ZoneReport,
+    /// Airports given a prevailing wind.
+    pub winds: usize,
+}
+
+/// Imports every aerodrome on the globe with time zones and the prevailing
+/// winds downloaded so far. Pure: callers own all file I/O.
+pub fn import_globe<R: Read, S: BuildHasher>(
+    sources: GlobeSources<R>,
+    winds: &HashMap<AirportIdent, Degrees, S>,
+) -> Result<GlobeOutput> {
+    let places = read_places(sources.places).context("cannot read Natural Earth places")?;
+    let import = import_world(
+        OurAirportsSources {
+            airports: sources.airports,
+            runways: sources.runways,
+        },
+        &WorldSettings::globe()?,
+        &places,
+    )
+    .context("OurAirports import failed")?;
+    let mut world = import.definition;
+    let zones = assign_zones(
+        &mut world.airports,
+        &read_zones(sources.zones).context("cannot read the time zone table")?,
+    );
+    let winds = assign_winds(&mut world.airports, winds);
+    Ok(GlobeOutput {
+        world,
+        report: import.report,
+        zones,
+        winds,
+    })
 }
 
 /// Imports Germany from both datasets and renders the asset files. Pure:
@@ -69,7 +137,7 @@ pub fn import_all<R: Read>(
 mod tests {
     use std::io::Cursor;
 
-    use anyhow::Result;
+    use anyhow::{Context, Result};
 
     use super::*;
 
@@ -99,6 +167,48 @@ mod tests {
         assert!(aerocosm_core::world::World::from_json(&output.world_json).is_ok());
         assert!(aerocosm_basemap::Basemap::from_json(&output.basemap_json).is_ok());
         assert_eq!(output.report.airports, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_import_globe_fills_zones_and_winds() -> Result<()> {
+        let sources = GlobeSources {
+            airports: Cursor::new(b"id,ident,type,name,latitude_deg,longitude_deg,elevation_ft,iso_country,scheduled_service,icao_code,iata_code\n1,EDDF,large_airport,Frankfurt,50.03,8.57,364,DE,yes,EDDF,FRA\n2,KJFK,large_airport,Kennedy,40.64,-73.78,13,US,yes,KJFK,JFK\n".to_vec()),
+            runways: Cursor::new(b"airport_ident,length_ft,width_ft,surface,closed,le_ident,le_latitude_deg,le_longitude_deg,le_heading_degT,le_displaced_threshold_ft,he_ident,he_latitude_deg,he_longitude_deg,he_heading_degT,he_displaced_threshold_ft\nEDDF,13123,197,CON,0,07C,,,69.6,,25C,,,249.6,\nKJFK,14511,200,ASP,0,04L,,,31,,22R,,,211,\n".to_vec()),
+            places: empty_layer(),
+            zones: Cursor::new(b"\"icao\",\"iata\",\"name\",\"city\",\"subd\",\"country\",\"elevation\",\"lat\",\"lon\",\"tz\",\"lid\"\n\"EDDF\",\"FRA\",\"F\",\"\",\"\",\"DE\",364,50.03,8.57,\"Europe/Berlin\",\"\"\n".to_vec()),
+        };
+        let mut winds = std::collections::HashMap::new();
+        winds.insert("EDDF".parse()?, aerocosm_core::units::Degrees::new(232.3)?);
+        let output = import_globe(sources, &winds)?;
+        let airport = |ident: &str| {
+            output
+                .world
+                .airports
+                .iter()
+                .find(|a| a.ident.as_str() == ident)
+                .cloned()
+        };
+        let frankfurt = airport("EDDF").context("Frankfurt")?;
+        assert_eq!(
+            frankfurt.zone.map(|z| z.name().to_owned()).as_deref(),
+            Some("Europe/Berlin")
+        );
+        assert!(
+            frankfurt
+                .wind
+                .is_some_and(|w| (w.value() - 232.3).abs() < 1e-9)
+        );
+        // Kennedy: neither in the zone table nor with a wind downloaded.
+        let kennedy = airport("KJFK").context("Kennedy")?;
+        assert!(kennedy.zone.is_none() && kennedy.wind.is_none());
+        assert_eq!(
+            (output.zones.by_code, output.zones.missing, output.winds),
+            (1, 1, 1)
+        );
+        // The asset reads back.
+        let back = aerocosm_core::world::WorldDefinition::from_asset(&output.world.to_asset()?)?;
+        assert_eq!(back, output.world);
         Ok(())
     }
 }

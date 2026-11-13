@@ -22,6 +22,41 @@ pub(crate) enum Command {
     Ground(GroundArgs),
     /// Write the Overpass query of every airport with a ground layout.
     Queries(QueriesArgs),
+    /// Import every aerodrome on the globe (plan M5).
+    Globe(GlobeArgs),
+    /// Write the NASA POWER wind request of every scheduled airport.
+    WindRequests(WindRequestsArgs),
+}
+
+/// Options for [`Command::Globe`].
+#[derive(Debug, Args)]
+pub(crate) struct GlobeArgs {
+    /// Directory containing `OurAirports` `airports.csv` and `runways.csv`.
+    #[arg(long)]
+    pub(crate) ourairports: PathBuf,
+    /// Directory containing the Natural Earth 1:10m `GeoJSON` layers.
+    #[arg(long)]
+    pub(crate) natural_earth: PathBuf,
+    /// The `airportsdata` `airports.csv`, for time zones.
+    #[arg(long)]
+    pub(crate) zones: PathBuf,
+    /// Directory of downloaded NASA POWER responses, `<IDENT>.json`.
+    #[arg(long)]
+    pub(crate) winds: Option<PathBuf>,
+    /// Asset directory to write `world/world.bin` into.
+    #[arg(long, default_value = "assets")]
+    pub(crate) out: PathBuf,
+}
+
+/// Options for [`Command::WindRequests`].
+#[derive(Debug, Args)]
+pub(crate) struct WindRequestsArgs {
+    /// The globe's world asset.
+    #[arg(long, default_value = "assets/world/world.bin")]
+    pub(crate) world: PathBuf,
+    /// File to write, one `IDENT<TAB>URL` line per scheduled airport.
+    #[arg(long)]
+    pub(crate) out: PathBuf,
 }
 
 /// Options for [`Command::Import`].
@@ -122,5 +157,31 @@ mod tests {
     #[test]
     fn test_cli_import_requires_inputs() {
         assert!(Cli::try_parse_from(["aerocosm-data", "import", "--out", "assets"]).is_err());
+    }
+
+    #[test]
+    fn test_cli_globe_arguments() -> Result<()> {
+        let cli = Cli::try_parse_from([
+            "aerocosm-data",
+            "globe",
+            "--ourairports",
+            "dl/oa",
+            "--natural-earth",
+            "dl/ne",
+            "--zones",
+            "dl/airportsdata.csv",
+        ])?;
+        let Command::Globe(args) = cli.command else {
+            anyhow::bail!("expected globe");
+        };
+        assert_eq!(args.zones, Path::new("dl/airportsdata.csv"));
+        assert_eq!(args.winds, None);
+        assert_eq!(args.out, Path::new("assets"));
+        let cli = Cli::try_parse_from(["aerocosm-data", "wind-requests", "--out", "w.tsv"])?;
+        let Command::WindRequests(args) = cli.command else {
+            anyhow::bail!("expected wind-requests");
+        };
+        assert_eq!(args.world, Path::new("assets/world/world.bin"));
+        Ok(())
     }
 }
