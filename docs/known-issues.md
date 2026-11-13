@@ -67,13 +67,3 @@ movements a day): hundreds of aircraft taxi at each hub, each checked against th
 and most route searches fail after exploring the whole network.
 
 **Decision (M4 PR 3):** D74 amended; revisit when the world grows beyond Germany.
-
-## Viewer
-
-### Aircraft hard to see on the ground
-
-**What:** zoomed in to an airport's ground, aircraft are hard to tell apart from the aprons
-and taxiways in the current colour scheme.
-
-**Intended fix:** a small viewer change after plan M4 PR 7: contrast of aircraft against
-aprons and taxiways at ground zoom.
