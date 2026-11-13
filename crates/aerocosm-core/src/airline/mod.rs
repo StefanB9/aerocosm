@@ -39,9 +39,6 @@ pub enum Network {
     Hub,
     /// Point-to-point from its bases.
     PointToPoint,
-    /// A foreign carrier flying into Germany from its home hubs (edge
-    /// airports).
-    ForeignHub,
 }
 
 /// An airport an airline operates from, with its estimated market share there.

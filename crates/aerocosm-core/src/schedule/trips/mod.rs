@@ -136,7 +136,7 @@ pub(crate) fn build_trips(
             aircraft,
             ctx.taxi(service.other, service.base),
         ));
-        let turnaround = minutes(min_turnaround(aircraft));
+        let turnaround = minutes(min_turnaround(aircraft, service.kind == FlightKind::Cargo));
         for slot in 0..slots {
             let days: Vec<u32> = (0_u32..)
                 .zip(&counts)
@@ -251,7 +251,7 @@ mod tests {
 
     fn build(seed: u64) -> Result<(Data, TripsOutcome)> {
         let data = data()?;
-        let services = plan_services(&data.world, &data.airlines, &data.traffic)?;
+        let services = plan_services(&data.world, &data.aircraft, &data.airlines, &data.traffic)?;
         let mut rng = RngSeed::new(seed).stream(StreamId::Scheduling);
         let outcome = build_trips(&context(&data)?, &services, &mut rng)?;
         Ok((data, outcome))
@@ -326,7 +326,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cargo_departs_at_night_without_curfews() -> Result<()> {
+    fn test_cargo_departs_at_night_where_nothing_crowds_it() -> Result<()> {
         let (data, outcome) = build(4)?;
         let ctx = context(&data)?;
         let night = Profile::CargoNight.weights();
@@ -334,7 +334,11 @@ mod tests {
             .trips
             .iter()
             .filter(|t| t.kind == FlightKind::Cargo)
+            // Where a curfew or slots crowd the night, cargo moves to the day.
             .filter(|t| ctx.curfew(t.base).is_none() && ctx.curfew(t.other).is_none())
+            .filter(|t| {
+                !ctx.capacities.contains_key(&t.base) && !ctx.capacities.contains_key(&t.other)
+            })
             .collect();
         assert_ne!(cargo.len(), 0);
         for trip in cargo {
@@ -345,7 +349,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cargo_at_curfew_airports_moves_to_the_day() -> Result<()> {
+    fn test_cargo_at_coordinated_airports_moves_to_the_day() -> Result<()> {
         let data = data()?;
         let frankfurt = data
             .world
@@ -354,7 +358,7 @@ mod tests {
         let touches = |kind: FlightKind, base: Id<Airport>, other: Id<Airport>| {
             kind == FlightKind::Cargo && (base == frankfurt || other == frankfurt)
         };
-        let services = plan_services(&data.world, &data.airlines, &data.traffic)?;
+        let services = plan_services(&data.world, &data.aircraft, &data.airlines, &data.traffic)?;
         let wanted: f64 = services
             .iter()
             .filter(|s| touches(s.kind, s.base, s.other))
@@ -367,9 +371,11 @@ mod tests {
             .iter()
             .filter(|t| touches(t.kind, t.base, t.other))
             .count();
+        // Frankfurt's slots are full at night and at the peaks: most cargo
+        // still finds a time.
         assert!(wanted > 10.0, "{wanted}");
         assert!(
-            f64::from(u32::try_from(placed)?) >= wanted * 0.9,
+            f64::from(u32::try_from(placed)?) >= wanted * 0.8,
             "{placed} of {wanted:.0} placed"
         );
         Ok(())

@@ -193,8 +193,7 @@ mod tests {
     #[test]
     fn test_import_ground_rejects_unknown_airports_and_bad_json() -> Result<()> {
         let world = World::empty();
-        let traffic =
-            TrafficTargets::from_json(include_str!("../../../../assets/traffic/germany.json"))?;
+        let (_, traffic) = crate::shipped_model()?;
         let source = OsmSource {
             airport: "EDDF".parse()?,
             json: "{\"elements\": []}".to_owned(),
@@ -283,8 +282,7 @@ mod tests {
     #[test]
     fn test_import_ground_builds_a_layout_end_to_end() -> Result<()> {
         let world = grid_world()?;
-        let traffic =
-            TrafficTargets::from_json(include_str!("../../../../assets/traffic/germany.json"))?;
+        let (_, traffic) = crate::shipped_model()?;
         let source = grid_source()?;
         let first = import_ground(
             std::slice::from_ref(&source),

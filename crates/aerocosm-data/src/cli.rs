@@ -39,6 +39,9 @@ pub(crate) struct ObservedArgs {
     /// `OpenFlights` `airlines.dat`.
     #[arg(long)]
     pub(crate) airlines: PathBuf,
+    /// `OurAirports` `airports.csv`: where airports closed since were.
+    #[arg(long)]
+    pub(crate) airports: PathBuf,
     /// The globe's world asset.
     #[arg(long, default_value = "assets/world/world.bin")]
     pub(crate) world: PathBuf,
@@ -217,6 +220,8 @@ mod tests {
             "observed",
             "--airlines",
             "dl/airlines.dat",
+            "--airports",
+            "dl/airports.csv",
             "dl/flightlist_20190101_20190131.csv.gz",
             "dl/flightlist_20190201_20190228.csv.gz",
         ])?;

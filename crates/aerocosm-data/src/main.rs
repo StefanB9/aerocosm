@@ -20,8 +20,9 @@ use aerocosm_data::{
     natural_earth::NaturalEarthSources,
     opensky::{Aggregator, read_openflights},
     osm::{OsmSource, StandSizes, ground_airports, import_ground, overpass_query},
-    ourairports::OurAirportsSources,
+    ourairports::{OurAirportsSources, read_closed_airports},
     wind::parse_wind,
+    world_model,
 };
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -104,12 +105,7 @@ fn query_lines(world: &World, traffic: &TrafficTargets) -> Result<String> {
 
 fn queries(args: &QueriesArgs) -> Result<()> {
     let paths = GroundPaths::new(&args.assets);
-    let read = |path: &Path| {
-        fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))
-    };
-    let world = World::from_json(&read(&paths.world)?).context("invalid world file")?;
-    let traffic =
-        TrafficTargets::from_json(&read(&paths.traffic)?).context("invalid traffic file")?;
+    let (world, traffic) = paths.model()?;
     let lines = query_lines(&world, &traffic)?;
     fs::write(&args.out, &lines).with_context(|| format!("cannot write {}", args.out.display()))?;
     info!(path = %args.out.display(), airports = lines.lines().count(), "wrote queries");
@@ -119,7 +115,8 @@ fn queries(args: &QueriesArgs) -> Result<()> {
 /// The asset files the ground import reads and writes.
 struct GroundPaths {
     world: PathBuf,
-    traffic: PathBuf,
+    aircraft: PathBuf,
+    observed: PathBuf,
     ground: PathBuf,
     sizes: PathBuf,
 }
@@ -127,11 +124,21 @@ struct GroundPaths {
 impl GroundPaths {
     fn new(assets: &Path) -> Self {
         Self {
-            world: assets.join("world").join("germany.world.json"),
-            traffic: assets.join("traffic").join("germany.json"),
+            world: assets.join("world").join("world.bin"),
+            aircraft: assets.join("aircraft").join("types.json"),
+            observed: assets.join("traffic").join("observed.bin"),
             ground: assets.join("ground").join("germany.ground.json"),
             sizes: assets.join("ground").join("stand-sizes.json"),
         }
+    }
+
+    /// The world and its traffic model.
+    fn model(&self) -> Result<(World, TrafficTargets)> {
+        let bytes =
+            |path: &Path| fs::read(path).with_context(|| format!("cannot read {}", path.display()));
+        let aircraft = fs::read_to_string(&self.aircraft)
+            .with_context(|| format!("cannot read {}", self.aircraft.display()))?;
+        world_model(&bytes(&self.world)?, &aircraft, &bytes(&self.observed)?)
     }
 }
 
@@ -148,9 +155,7 @@ fn ground(args: &GroundArgs) -> Result<()> {
     let read = |path: &Path| {
         fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))
     };
-    let world = World::from_json(&read(&paths.world)?).context("invalid world file")?;
-    let traffic =
-        TrafficTargets::from_json(&read(&paths.traffic)?).context("invalid traffic file")?;
+    let (world, traffic) = paths.model()?;
     let mut sources = Vec::new();
     let entries =
         fs::read_dir(&args.osm).with_context(|| format!("cannot list {}", args.osm.display()))?;
@@ -341,7 +346,11 @@ fn observed(args: &ObservedArgs) -> Result<()> {
         File::open(&args.airlines)
             .with_context(|| format!("cannot open {}", args.airlines.display()))?,
     ))?;
-    let mut aggregator = Aggregator::new(&world, args.year);
+    let closed = read_closed_airports(BufReader::new(
+        File::open(&args.airports)
+            .with_context(|| format!("cannot open {}", args.airports.display()))?,
+    ))?;
+    let mut aggregator = Aggregator::new(&world, args.year).with_closed(&closed);
     for path in &args.flights {
         let file = File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
         aggregator
@@ -427,8 +436,8 @@ mod tests {
     #[test]
     fn test_ground_paths_and_source_names() {
         let paths = GroundPaths::new(Path::new("assets"));
-        assert_eq!(paths.world, Path::new("assets/world/germany.world.json"));
-        assert_eq!(paths.traffic, Path::new("assets/traffic/germany.json"));
+        assert_eq!(paths.world, Path::new("assets/world/world.bin"));
+        assert_eq!(paths.observed, Path::new("assets/traffic/observed.bin"));
         assert_eq!(paths.ground, Path::new("assets/ground/germany.ground.json"));
         assert_eq!(
             source_airport(Path::new("dl/EDDF.json")).map(|a| a.to_string()),
@@ -440,11 +449,19 @@ mod tests {
 
     #[test]
     fn test_query_lines_are_tab_separated() -> Result<()> {
-        let world = World::from_json(include_str!("../../../assets/world/germany.world.json"))?;
-        let traffic =
-            TrafficTargets::from_json(include_str!("../../../assets/traffic/germany.json"))?;
+        let (world, traffic) = world_model(
+            include_bytes!("../../../assets/world/world.bin"),
+            include_str!("../../../assets/aircraft/types.json"),
+            include_bytes!("../../../assets/traffic/observed.bin"),
+        )?;
         let lines = query_lines(&world, &traffic)?;
-        assert_eq!(lines.lines().count(), 24);
+        // Germany's airports with scheduled service, until ground goes
+        // worldwide (plan M5 PR 3).
+        assert!(
+            (30..50).contains(&lines.lines().count()),
+            "{}",
+            lines.lines().count()
+        );
         let first = lines.lines().next().context("a line")?;
         let (ident, query) = first.split_once('\t').context("a tab")?;
         assert_eq!(ident.len(), 4);

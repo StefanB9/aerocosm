@@ -16,6 +16,8 @@ pub(super) struct AirportRecord {
     pub(super) scheduled_service: String,
     pub(super) icao_code: Option<String>,
     pub(super) iata_code: Option<String>,
+    #[serde(default)]
+    pub(super) keywords: Option<String>,
 }
 
 /// A row of `runways.csv`; `le` is the lower-numbered end, `he` the higher.

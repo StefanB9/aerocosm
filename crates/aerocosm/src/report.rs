@@ -105,13 +105,29 @@ pub(crate) fn airport_reports(
 
 #[cfg(test)]
 mod tests {
-    use aerocosm_core::traffic::TrafficTargets;
+    use aerocosm_core::{
+        time::Zone,
+        traffic::{AirportTarget, TrafficDefinition, TrafficTargets},
+    };
     use anyhow::{Context, Result};
 
     use super::*;
 
     fn targets() -> Result<TrafficTargets> {
-        TrafficTargets::from_json(include_str!("../../../assets/traffic/germany.json"))
+        TrafficTargets::from_definition(TrafficDefinition {
+            source: "test fixture".to_owned(),
+            weekday_factors: [1.03, 0.97, 0.98, 1.02, 1.06, 0.88, 1.06],
+            airports: vec![AirportTarget {
+                airport: "EDDF".parse()?,
+                movements_per_year: 502_634,
+                zone: Zone::new("Europe/Berlin")?,
+                curfew: None,
+                banks: Vec::new(),
+                cargo_share: None,
+                capacity: None,
+                runway_modes: Vec::new(),
+            }],
+        })
     }
 
     #[test]

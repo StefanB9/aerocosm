@@ -104,22 +104,9 @@ impl Operations {
         shared: bool,
     ) -> Option<Id<Stand>> {
         let (near, from) = near;
-        if let Some((at, stand)) = self.parked[index]
-            && at == airport
-        {
-            return Some(stand);
-        }
-        self.release_stand(index);
         let layout = scenario.ground().airport(airport)?;
-        let request = StandRequest {
-            airline,
-            wingspan: self.wingspans[index],
-            near,
-        };
-        let areas = scenario.stand_areas().areas(airport);
-        let book = &self.stands;
         // One-way taxiways split some networks: only stands it can get to.
-        let reach = from.map(|node| layout.reachable_from(node));
+        let reach = from.map(|node| layout.reachable_from(node, self.wingspans[index]));
         let reachable = |stand: Id<Stand>| {
             reach.as_ref().is_none_or(|reach| {
                 layout
@@ -128,6 +115,20 @@ impl Operations {
                     .is_some_and(|s| reach.get(s.node().as_usize()).copied().unwrap_or(false))
             })
         };
+        if let Some((at, stand)) = self.parked[index]
+            && at == airport
+            && reachable(stand)
+        {
+            return Some(stand);
+        }
+        self.release_stand(index);
+        let request = StandRequest {
+            airline,
+            wingspan: self.wingspans[index],
+            near,
+        };
+        let areas = scenario.stand_areas().areas(airport);
+        let book = &self.stands;
         let stand = layout
             .choose_stand(areas, &request, |stand| {
                 book.is_free(airport, stand) && reachable(stand)
@@ -135,6 +136,14 @@ impl Operations {
             .or_else(|| {
                 shared
                     .then(|| layout.choose_stand(areas, &request, reachable))
+                    .flatten()
+            })
+            .or_else(|| {
+                // Every stand that fits lies in other airlines' exclusive
+                // areas (curated for the airlines of 2025, plan M4 D68): one
+                // of them rather than waiting all day.
+                shared
+                    .then(|| layout.choose_stand(&[], &request, reachable))
                     .flatten()
             })
             .or_else(|| {

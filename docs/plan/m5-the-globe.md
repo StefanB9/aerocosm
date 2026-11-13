@@ -70,6 +70,22 @@ Continues from M4 (D53–D94).
 - **Tests:** rules on fixtures; the schedule on the shipped world (volume, every scheduled
   airport served, determinism); German validation (D105).
 
+#### PR 2 design (agreed 2026-11-13)
+
+Findings on the shipped data: 1,351 of 3,846 scheduled airports are observed (China 12 of
+253); country coverage scales FRA +10 %, HAM +24 %, DUS −7 % against 2019; the catalog's 23
+types cover 70 % of typed flights; gravity over all scheduled pairs is 7.4 M routes.
+
+| # | Decision |
+|---|----------|
+| D109 | **Targets.** Airline-callsign flights only. An airport in a country with coverage ≥ 0.3 and ≥ 365 observed airline flights has the target of its observed departures scaled by the flights its own receivers saw over those seen whole ((complete + partial) ÷ complete, counted per airport; *refined in PR 2*: the country's coverage scaled Hamburg 27 % too high). Every other scheduled airport gets the model: a power law in catchment and country GDP per capita (Natural Earth admin-0, added to the world asset by the importer), longest runway, runway count and airport size, fitted on the observed airports. The world total is then scaled to 2019 (ICAO, about 105,000 departures a day). Traffic observed at an airport now closed counts, when the flight lists are aggregated, at the nearest open scheduled airport within 50 km (Tegel to BER) |
+| D110 | **Airlines.** An observed prefix is dropped when most of its typed flights are on types outside the airliner catalog (business jets, pistons: NetJets). It is cargo when at least 40 % of its flights are on freighter-only types (A300-600F, 777F, MD-11F; *refined in PR 2*: 757s and 767s fly as both, so they count as passenger types that cargo airlines may fly) or its OpenFlights name says Cargo, Freight, Parcel or Logistics (*refined*: "Express" also names passenger airlines). Its stations are the airports where it departs, weighted by its share of the airport's departures; an unobserved airport inherits the airlines of the nearest observed airports in its country. Hubs: airports with ≥ 8 % of the airline's departures where it flies ≥ 25 % of the airport's; an airline with a hub is a hub carrier. Fleet: observed types mapped to the catalog (exact, else the catalog type of the same family and size). Colour from the code. Cargo share per airport follows from the cargo airlines' departures |
+| D111 | **Catalog** grows by about 20 common types (737-700/900, E175, CRJ-200/700, 777-200, A330-200, 747-400, 787-8, E145, E170, 717, MD-11, A318, …) to cover about 95 % of typed flights (D100) |
+| D112 | **Demand at world scale.** Gravity pairs pruned to each airport's 150 strongest partners (union), proportional fitting on adjacency lists |
+| D113 | **Runways by rule.** Ends within 90° of the prevailing wind are in use; the flow runs along the parallel group that handles most movements within 60° of the wind (*refined in PR 2*: Schiphol's three parallels lie 50° off its prevailing wind; the best-aligned runway alone gave 40 an hour). Parallels ≥ 1,035 m apart run independently; closer ones pair up as one lane, segregated (arrivals on one, departures on the other); of crossing runways the best aligned runs mixed. Capacity per hour: 40 for a lane of one runway, 60 for a lane of two, lanes added up (*refined in PR 2*: Frankfurt's 518 m pair works segregated; it gives FRA 100, MUC 80, ATL 160), 10-minute windows at a sixth. An airport is coordinated (D54) where its generated peak hour exceeds 80 % of its capacity. Banks for hub carriers at their hubs, evenly between 06:00 and 22:00 local, their number from the carrier's daily departures there. Weekday factors stay one global pattern |
+| D114 | **Validation (D105)** against ADV 2019: each German airport within ±25 %, Germany's total within ±10 %, FRA and MUC under their published capacities |
+| D115 | **Tests** run on the full world (no subset). *As built:* nextest runs each test in its own process, so nothing is shared; instead the dev profile optimises `aerocosm-core` and `ruzstd` (opt-level 2): deriving the model takes a fraction of a second, generating the week's schedule a few seconds, and the core suite about 20 minutes |
+
 ### PR 3 — Ground at world scale (data + core)
 
 - Regional Overpass imports, resumable; binary ground per region; generic stand choice

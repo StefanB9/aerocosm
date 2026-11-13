@@ -7,10 +7,9 @@ use std::{
 
 use aerocosm_core::{
     AircraftCatalog, Scenario, SimConfig, SimTime, Simulation, TICK, WallClock, WallInstant,
-    airline::AirlineCatalog,
     ground::{GroundDefinition, StandAreasDefinition},
     ops::{AirportStats, StartMode},
-    traffic::TrafficTargets,
+    traffic::{model::derive, observed::ObservedTraffic},
     world::World,
 };
 use anyhow::{Context, Result};
@@ -61,24 +60,39 @@ fn read(mut reader: impl Read, what: &str) -> Result<String> {
     Ok(text)
 }
 
-/// Reads and validates a world file.
-pub(crate) fn load_world(reader: impl Read) -> Result<World> {
-    World::from_json(&read(reader, "world")?)
+fn read_bytes(mut reader: impl Read, what: &str) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    reader
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("cannot read {what} file"))?;
+    Ok(bytes)
 }
 
-/// Reads the traffic inputs and checks them against `world`.
+/// Reads and validates a world: a binary asset (plan M5 D104) or JSON.
+pub(crate) fn load_world(reader: impl Read) -> Result<World> {
+    let bytes = read_bytes(reader, "world")?;
+    if bytes.starts_with(b"AERO") {
+        World::from_asset(&bytes)
+    } else {
+        World::from_json(std::str::from_utf8(&bytes).context("world file is not UTF-8")?)
+    }
+}
+
+/// Reads the aircraft catalog and the observed traffic and derives the
+/// world model for `world` (plan M5).
 pub(crate) fn load_scenario(
     world: World,
     aircraft: impl Read,
-    airlines: impl Read,
-    traffic: impl Read,
+    observed: impl Read,
 ) -> Result<Scenario> {
-    Scenario::with_traffic(
-        world,
-        AircraftCatalog::from_json(&read(aircraft, "aircraft")?).context("aircraft catalog")?,
-        AirlineCatalog::from_json(&read(airlines, "airline")?).context("airline catalog")?,
-        TrafficTargets::from_json(&read(traffic, "traffic")?).context("traffic targets")?,
-    )
+    let aircraft =
+        AircraftCatalog::from_json(&read(aircraft, "aircraft")?).context("aircraft catalog")?;
+    let observed = ObservedTraffic::from_asset(&read_bytes(observed, "observed traffic")?)
+        .context("observed traffic")?;
+    let (targets, airlines) = derive(&world, &observed, &aircraft)
+        .context("cannot derive the world model")?
+        .into_parts();
+    Scenario::with_traffic(world, aircraft, airlines, targets)
 }
 
 /// Adds airport ground layouts and stand areas (plan M4) to `scenario`.
@@ -201,8 +215,7 @@ mod tests {
             duration,
             world: None,
             aircraft: "assets/aircraft/types.json".into(),
-            airlines: "assets/airlines/airlines.json".into(),
-            traffic: "assets/traffic/germany.json".into(),
+            observed: "assets/traffic/observed.bin".into(),
             no_traffic: false,
             cold_start: false,
             ground: "assets/ground/germany.ground.json".into(),
@@ -213,10 +226,9 @@ mod tests {
 
     fn germany() -> Result<Scenario> {
         load_scenario(
-            load_world(include_str!("../../../assets/world/germany.world.json").as_bytes())?,
+            load_world(&include_bytes!("../../../assets/world/world.bin")[..])?,
             include_str!("../../../assets/aircraft/types.json").as_bytes(),
-            include_str!("../../../assets/airlines/airlines.json").as_bytes(),
-            include_str!("../../../assets/traffic/germany.json").as_bytes(),
+            &include_bytes!("../../../assets/traffic/observed.bin")[..],
         )
     }
 
@@ -308,7 +320,8 @@ mod tests {
             .context("EDDF")?;
         assert!(frankfurt.actual > 0 && frankfurt.expected > 20.0);
         assert!(frankfurt.stats.busiest_hour() > 0);
-        assert_eq!(frankfurt.capacity.map(|c| c.per_hour), Some(104));
+        // Two lanes by rule (plan M5 D113).
+        assert_eq!(frankfurt.capacity.map(|c| c.per_hour), Some(100));
         let network = summary.network.context("network statistics")?;
         assert!(network.departures() > 50, "{}", network.departures());
         Ok(())
@@ -328,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_load_scenario_rejects_bad_catalogs() {
-        let result = load_scenario(World::empty(), &b"{}"[..], &b"{}"[..], &b"{}"[..]);
+        let result = load_scenario(World::empty(), &b"{}"[..], &b"{}"[..]);
         assert!(result.is_err());
     }
 

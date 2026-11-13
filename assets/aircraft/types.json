@@ -1,5 +1,5 @@
 {
-  "format_version": 2,
+  "format_version": 3,
   "types": [
     {
       "code": "A319",
@@ -104,6 +104,11 @@
       "range": 3550.0,
       "min_runway_length": 2400.0,
       "wingspan": 35.9,
+      "aliases": [
+        "B39M",
+        "B37M",
+        "B3XM"
+      ],
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -119,6 +124,9 @@
       "range": 3450.0,
       "min_runway_length": 1900.0,
       "wingspan": 35.1,
+      "aliases": [
+        "BCS1"
+      ],
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -134,6 +142,17 @@
       "range": 2450.0,
       "min_runway_length": 2050.0,
       "wingspan": 28.7,
+      "aliases": [
+        "E290",
+        "SU95",
+        "RJ85",
+        "RJ1H",
+        "RJ70",
+        "B461",
+        "B462",
+        "B463",
+        "A148"
+      ],
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -149,6 +168,9 @@
       "range": 2300.0,
       "min_runway_length": 2200.0,
       "wingspan": 28.7,
+      "aliases": [
+        "E295"
+      ],
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -164,6 +186,10 @@
       "range": 1550.0,
       "min_runway_length": 1950.0,
       "wingspan": 24.9,
+      "aliases": [
+        "CRJX",
+        "AJ27"
+      ],
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -179,6 +205,20 @@
       "range": 825.0,
       "min_runway_length": 1400.0,
       "wingspan": 27.1,
+      "aliases": [
+        "AT75",
+        "AT72",
+        "AT73",
+        "AT45",
+        "AT43",
+        "AT46",
+        "SF34",
+        "SB20",
+        "D328",
+        "E120",
+        "JS41",
+        "F50"
+      ],
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -209,6 +249,13 @@
       "range": 6350.0,
       "min_runway_length": 2770.0,
       "wingspan": 60.3,
+      "aliases": [
+        "A339",
+        "A342",
+        "A343",
+        "A345",
+        "A346"
+      ],
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -224,6 +271,9 @@
       "range": 8100.0,
       "min_runway_length": 2600.0,
       "wingspan": 64.8,
+      "aliases": [
+        "A35K"
+      ],
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -239,6 +289,9 @@
       "range": 7530.0,
       "min_runway_length": 2900.0,
       "wingspan": 60.1,
+      "aliases": [
+        "B78X"
+      ],
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -254,6 +307,9 @@
       "range": 7370.0,
       "min_runway_length": 3100.0,
       "wingspan": 64.8,
+      "aliases": [
+        "B773"
+      ],
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -300,13 +356,17 @@
       "min_runway_length": 2400.0,
       "wingspan": 44.8,
       "freighter": true,
+      "aliases": [
+        "A30B",
+        "A310"
+      ],
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
       "code": "B752",
-      "name": "Boeing 757-200PF",
+      "name": "Boeing 757-200",
       "wake": "medium",
-      "seats": 0,
+      "seats": 200,
       "cruise_speed": 460.0,
       "cruise_altitude": 38000.0,
       "climb_rate": 2500.0,
@@ -315,14 +375,16 @@
       "range": 2900.0,
       "min_runway_length": 2100.0,
       "wingspan": 38.1,
-      "freighter": true,
+      "aliases": [
+        "B753"
+      ],
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
       "code": "B763",
-      "name": "Boeing 767-300F",
+      "name": "Boeing 767-300ER",
       "wake": "heavy",
-      "seats": 0,
+      "seats": 260,
       "cruise_speed": 460.0,
       "cruise_altitude": 39000.0,
       "climb_rate": 2200.0,
@@ -331,7 +393,10 @@
       "range": 3250.0,
       "min_runway_length": 2600.0,
       "wingspan": 47.6,
-      "freighter": true,
+      "aliases": [
+        "B762",
+        "B764"
+      ],
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -348,6 +413,331 @@
       "min_runway_length": 2800.0,
       "wingspan": 64.8,
       "freighter": true,
+      "aliases": [
+        "B77F"
+      ],
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "A318",
+      "name": "Airbus A318-100",
+      "wake": "medium",
+      "seats": 107,
+      "cruise_speed": 450.0,
+      "cruise_altitude": 37000.0,
+      "climb_rate": 2500.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 125.0,
+      "range": 3100.0,
+      "min_runway_length": 1800.0,
+      "wingspan": 34.1,
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "B737",
+      "name": "Boeing 737-700",
+      "wake": "medium",
+      "seats": 140,
+      "cruise_speed": 450.0,
+      "cruise_altitude": 37000.0,
+      "climb_rate": 2500.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 130.0,
+      "range": 3000.0,
+      "min_runway_length": 2000.0,
+      "wingspan": 35.8,
+      "aliases": [
+        "B736",
+        "B733",
+        "B734",
+        "B735",
+        "B732"
+      ],
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "B739",
+      "name": "Boeing 737-900ER",
+      "wake": "medium",
+      "seats": 180,
+      "cruise_speed": 455.0,
+      "cruise_altitude": 37000.0,
+      "climb_rate": 2300.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 145.0,
+      "range": 2950.0,
+      "min_runway_length": 2500.0,
+      "wingspan": 35.9,
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "E75L",
+      "name": "Embraer E175",
+      "wake": "medium",
+      "seats": 76,
+      "cruise_speed": 440.0,
+      "cruise_altitude": 37000.0,
+      "climb_rate": 2400.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 125.0,
+      "range": 2000.0,
+      "min_runway_length": 2250.0,
+      "wingspan": 28.7,
+      "aliases": [
+        "E75S",
+        "E170"
+      ],
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "CRJ2",
+      "name": "Bombardier CRJ200",
+      "wake": "medium",
+      "seats": 50,
+      "cruise_speed": 430.0,
+      "cruise_altitude": 35000.0,
+      "climb_rate": 2300.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 135.0,
+      "range": 1700.0,
+      "min_runway_length": 1920.0,
+      "wingspan": 21.2,
+      "aliases": [
+        "CRJ1"
+      ],
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "CRJ7",
+      "name": "Bombardier CRJ700",
+      "wake": "medium",
+      "seats": 70,
+      "cruise_speed": 445.0,
+      "cruise_altitude": 37000.0,
+      "climb_rate": 2400.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 135.0,
+      "range": 1400.0,
+      "min_runway_length": 1600.0,
+      "wingspan": 23.2,
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "E145",
+      "name": "Embraer ERJ 145",
+      "wake": "medium",
+      "seats": 50,
+      "cruise_speed": 430.0,
+      "cruise_altitude": 37000.0,
+      "climb_rate": 2300.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 130.0,
+      "range": 1550.0,
+      "min_runway_length": 2270.0,
+      "wingspan": 20.0,
+      "aliases": [
+        "E45X",
+        "E140",
+        "E135"
+      ],
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "B712",
+      "name": "Boeing 717-200",
+      "wake": "medium",
+      "seats": 110,
+      "cruise_speed": 440.0,
+      "cruise_altitude": 35000.0,
+      "climb_rate": 2500.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 130.0,
+      "range": 2000.0,
+      "min_runway_length": 1950.0,
+      "wingspan": 28.4,
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "MD88",
+      "name": "McDonnell Douglas MD-88",
+      "wake": "medium",
+      "seats": 150,
+      "cruise_speed": 440.0,
+      "cruise_altitude": 33000.0,
+      "climb_rate": 2200.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 135.0,
+      "range": 2000.0,
+      "min_runway_length": 2200.0,
+      "wingspan": 32.9,
+      "aliases": [
+        "MD81",
+        "MD82",
+        "MD83",
+        "MD87",
+        "MD90"
+      ],
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "A332",
+      "name": "Airbus A330-200",
+      "wake": "heavy",
+      "seats": 250,
+      "cruise_speed": 470.0,
+      "cruise_altitude": 39000.0,
+      "climb_rate": 2000.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 135.0,
+      "range": 6900.0,
+      "min_runway_length": 2500.0,
+      "wingspan": 60.3,
+      "aliases": [
+        "A338"
+      ],
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "B772",
+      "name": "Boeing 777-200ER",
+      "wake": "heavy",
+      "seats": 300,
+      "cruise_speed": 490.0,
+      "cruise_altitude": 39000.0,
+      "climb_rate": 2000.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 140.0,
+      "range": 7000.0,
+      "min_runway_length": 3100.0,
+      "wingspan": 60.9,
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "B788",
+      "name": "Boeing 787-8",
+      "wake": "heavy",
+      "seats": 240,
+      "cruise_speed": 488.0,
+      "cruise_altitude": 41000.0,
+      "climb_rate": 2200.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 140.0,
+      "range": 7350.0,
+      "min_runway_length": 2600.0,
+      "wingspan": 60.1,
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "B744",
+      "name": "Boeing 747-400",
+      "wake": "heavy",
+      "seats": 400,
+      "cruise_speed": 490.0,
+      "cruise_altitude": 35000.0,
+      "climb_rate": 1800.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 150.0,
+      "range": 7200.0,
+      "min_runway_length": 3000.0,
+      "wingspan": 64.4,
+      "aliases": [
+        "B742",
+        "B743",
+        "B74S",
+        "B74R"
+      ],
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "MD11",
+      "name": "McDonnell Douglas MD-11F",
+      "wake": "heavy",
+      "seats": 0,
+      "cruise_speed": 480.0,
+      "cruise_altitude": 35000.0,
+      "climb_rate": 1800.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 155.0,
+      "range": 3600.0,
+      "min_runway_length": 3100.0,
+      "wingspan": 51.7,
+      "freighter": true,
+      "aliases": [
+        "DC10"
+      ],
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "C208",
+      "name": "Cessna 208B Grand Caravan",
+      "wake": "light",
+      "seats": 12,
+      "cruise_speed": 175.0,
+      "cruise_altitude": 12000.0,
+      "climb_rate": 900.0,
+      "descent_rate": 800.0,
+      "approach_speed": 80.0,
+      "range": 900.0,
+      "min_runway_length": 700.0,
+      "wingspan": 15.9,
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "DHC6",
+      "name": "de Havilland Canada DHC-6 Twin Otter",
+      "wake": "light",
+      "seats": 19,
+      "cruise_speed": 170.0,
+      "cruise_altitude": 10000.0,
+      "climb_rate": 1600.0,
+      "descent_rate": 1000.0,
+      "approach_speed": 80.0,
+      "range": 750.0,
+      "min_runway_length": 400.0,
+      "wingspan": 19.8,
+      "aliases": [
+        "BN2P",
+        "BN2T"
+      ],
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "B190",
+      "name": "Beechcraft 1900D",
+      "wake": "medium",
+      "seats": 19,
+      "cruise_speed": 280.0,
+      "cruise_altitude": 25000.0,
+      "climb_rate": 2600.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 110.0,
+      "range": 700.0,
+      "min_runway_length": 1100.0,
+      "wingspan": 17.7,
+      "aliases": [
+        "JS31",
+        "JS32",
+        "SW4"
+      ],
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "DH8A",
+      "name": "de Havilland Canada Dash 8-100",
+      "wake": "medium",
+      "seats": 37,
+      "cruise_speed": 270.0,
+      "cruise_altitude": 25000.0,
+      "climb_rate": 1500.0,
+      "descent_rate": 1500.0,
+      "approach_speed": 100.0,
+      "range": 1000.0,
+      "min_runway_length": 950.0,
+      "wingspan": 25.9,
+      "aliases": [
+        "DH8B",
+        "DH8C"
+      ],
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     }
   ]

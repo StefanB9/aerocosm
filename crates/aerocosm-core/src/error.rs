@@ -156,6 +156,15 @@ pub enum CoreError {
         file: &'static str,
     },
 
+    /// A country's figures are unusable.
+    #[error("invalid country {code}: {reason}")]
+    InvalidCountry {
+        /// ISO code of the rejected country.
+        code: String,
+        /// What is wrong.
+        reason: &'static str,
+    },
+
     /// A time zone name is not in the IANA database.
     #[error("unknown time zone {name:?}")]
     UnknownTimeZone {
@@ -252,6 +261,15 @@ pub enum CoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_invalid_country_display() {
+        let error = CoreError::InvalidCountry {
+            code: "DE".to_owned(),
+            reason: "listed twice",
+        };
+        assert_eq!(error.to_string(), "invalid country DE: listed twice");
+    }
 
     #[test]
     fn test_core_error_id_overflow_display() {

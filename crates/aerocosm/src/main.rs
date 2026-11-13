@@ -61,13 +61,8 @@ fn load(args: &RunArgs) -> Result<Scenario> {
     if args.no_traffic {
         return Ok(Scenario::new(world));
     }
-    let scenario = run::load_scenario(
-        world,
-        open(&args.aircraft)?,
-        open(&args.airlines)?,
-        open(&args.traffic)?,
-    )
-    .context("cannot load the traffic inputs")?;
+    let scenario = run::load_scenario(world, open(&args.aircraft)?, open(&args.observed)?)
+        .context("cannot load the traffic inputs")?;
     if args.no_ground {
         return Ok(scenario);
     }

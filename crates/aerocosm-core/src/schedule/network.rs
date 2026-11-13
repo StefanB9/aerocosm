@@ -1,22 +1,22 @@
 //! From calibrated demand to services: which airline flies which route how
 //! often.
 
+use std::collections::HashMap;
+
 use anyhow::{Context, Result};
 
 use super::{
     FlightKind,
     demand::{DemandParams, Node, Route, fit, gravity},
-    overflight::crosses,
+    trips::{RANGE_MARGIN, RUNWAY_MARGIN},
 };
 use crate::{
-    Id,
+    AircraftCatalog, Id,
     airline::{Airline, AirlineCatalog, AirlineKind},
     traffic::TrafficTargets,
-    world::{Airport, AirportKind, World},
+    world::{Airport, World},
 };
 
-/// Gravity mass for an airport without a catchment figure.
-const FALLBACK_MASS: f64 = 100_000.0;
 /// Days per year, to turn yearly movement targets into daily departures.
 const DAYS_PER_YEAR: f64 = 365.0;
 
@@ -35,13 +35,8 @@ pub(crate) struct Service {
 struct Layer {
     airports: Vec<Id<Airport>>,
     nodes: Vec<Node>,
-    edge: Vec<bool>,
-}
-
-impl Layer {
-    fn index(&self, airport: Id<Airport>) -> Option<usize> {
-        self.airports.iter().position(|a| *a == airport)
-    }
+    /// Each airport's longest runway, m.
+    runways: Vec<f64>,
 }
 
 /// An airline at one of its bases that belongs to the layer.
@@ -49,19 +44,29 @@ struct Candidate {
     airline: Id<Airline>,
     base: usize,
     weight: f64,
+    /// What its fleet's types can do: the longest sector each flies and the
+    /// runway each needs, m.
+    fleet: std::rc::Rc<[(f64, f64)]>,
 }
 
-fn mass(airport: &Airport) -> f64 {
-    airport.catchment().map_or(FALLBACK_MASS, f64::from)
+impl Candidate {
+    /// Whether a type of its fleet flies `distance` between runways at
+    /// least `runway` long.
+    fn flies(&self, distance: f64, runway: f64) -> bool {
+        self.fleet
+            .iter()
+            .any(|&(reach, needs)| reach >= distance && needs <= runway)
+    }
 }
 
-/// Calibrated airports with their share of traffic for `kind`, plus every edge
-/// airport.
+/// Airports with a share of traffic for `kind`, their targets as departures
+/// a day; a node's gravity mass is its target, so that big airports pair
+/// with big airports.
 fn layer(world: &World, traffic: &TrafficTargets, kind: AirlineKind) -> Result<Layer> {
     let mut layer = Layer {
         airports: Vec::new(),
         nodes: Vec::new(),
-        edge: Vec::new(),
+        runways: Vec::new(),
     };
     for target in traffic.airports() {
         let share = match kind {
@@ -75,49 +80,55 @@ fn layer(world: &World, traffic: &TrafficTargets, kind: AirlineKind) -> Result<L
             .airport_by_ident(target.airport())
             .with_context(|| format!("target airport {} not in the world", target.airport()))?;
         let airport = world.airport(id).context("airport id out of range")?;
+        let departures = f64::from(target.movements_per_year()) / DAYS_PER_YEAR * share / 2.0;
         layer.airports.push(id);
         layer.nodes.push(Node {
             location: airport.location(),
-            mass: mass(airport),
-            target: Some(f64::from(target.movements_per_year()) / DAYS_PER_YEAR * share / 2.0),
+            mass: departures,
+            target: Some(departures),
         });
-        layer.edge.push(false);
-    }
-    for (id, airport) in world.airports() {
-        if airport.kind() == AirportKind::Edge {
-            layer.airports.push(id);
-            layer.nodes.push(Node {
-                location: airport.location(),
-                mass: mass(airport),
-                target: None,
-            });
-            layer.edge.push(true);
-        }
+        layer.runways.push(
+            world
+                .runways_of(id)
+                .iter()
+                .map(|r| r.length().value())
+                .fold(0.0, f64::max),
+        );
     }
     Ok(layer)
 }
 
+/// The airlines of `kind` at each node of the layer, by node.
 fn candidates(
     world: &World,
+    aircraft: &AircraftCatalog,
     airlines: &AirlineCatalog,
     layer: &Layer,
     kind: AirlineKind,
-) -> Result<Vec<Candidate>> {
-    let mut out = Vec::new();
-    for (index, airline) in airlines.iter().enumerate() {
+) -> Result<Vec<Vec<Candidate>>> {
+    let index: HashMap<Id<Airport>, usize> = layer
+        .airports
+        .iter()
+        .enumerate()
+        .map(|(i, a)| (*a, i))
+        .collect();
+    let mut out: Vec<Vec<Candidate>> = (0..layer.nodes.len()).map(|_| Vec::new()).collect();
+    for (number, airline) in airlines.iter().enumerate() {
         if airline.kind() != kind {
             continue;
         }
-        let id = Id::from_usize(index).context("airline index")?;
+        let id = Id::from_usize(number).context("airline index")?;
+        let fleet = capabilities(aircraft, airline);
         for base in airline.bases() {
             let node = world
                 .airport_by_ident(base.airport)
-                .and_then(|airport| layer.index(airport));
-            if let Some(base_node) = node {
-                out.push(Candidate {
+                .and_then(|airport| index.get(&airport).copied());
+            if let Some(node) = node {
+                out[node].push(Candidate {
                     airline: id,
-                    base: base_node,
+                    base: node,
                     weight: base.weight,
+                    fleet: fleet.clone(),
                 });
             }
         }
@@ -125,144 +136,112 @@ fn candidates(
     Ok(out)
 }
 
-/// Network rules: a carrier based at an edge airport only flies to German
-/// airports, except on overflights, which are edge to edge; a carrier based in
-/// Germany may fly anywhere.
-fn may_serve(layer: &Layer, base: usize, other: usize, overflight: bool) -> bool {
-    match (overflight, layer.edge[base], layer.edge[other]) {
-        (true, base_edge, other_edge) => base_edge && other_edge,
-        (false, true, other_edge) => !other_edge,
-        (false, false, _) => base != other,
-    }
-}
-
-/// Splits a route's daily round trips between the airlines that may fly it, in
-/// proportion to their market share at their base end.
-fn split(
-    layer: &Layer,
-    candidates: &[Candidate],
-    route: Route,
-    kind: FlightKind,
-    out: &mut Vec<Service>,
-) {
-    let overflight = kind == FlightKind::Overflight;
-    let eligible = || {
-        candidates.iter().filter_map(move |c| {
-            let other = if c.base == route.from {
-                route.to
-            } else if c.base == route.to {
-                route.from
-            } else {
-                return None;
-            };
-            may_serve(layer, c.base, other, overflight).then_some((c, other))
+/// For each type of `airline`'s fleet, the longest sector it flies and the
+/// runway it needs, m, with the margins schedule building applies.
+fn capabilities(aircraft: &AircraftCatalog, airline: &Airline) -> std::rc::Rc<[(f64, f64)]> {
+    airline
+        .fleet()
+        .iter()
+        .filter_map(|share| aircraft.get(aircraft.by_code(share.aircraft)?))
+        .map(|a| {
+            (
+                a.range().to_meters().value() / RANGE_MARGIN,
+                a.min_runway_length().value() * RUNWAY_MARGIN,
+            )
         })
-    };
-    let total: f64 = eligible().map(|(c, _)| c.weight).sum();
-    if total <= 0.0 {
-        return;
-    }
-    for (candidate, other) in eligible() {
-        out.push(Service {
-            airline: candidate.airline,
-            base: layer.airports[candidate.base],
-            other: layer.airports[other],
-            daily: route.daily * candidate.weight / total,
-            kind,
-        });
-    }
+        .collect()
 }
 
-fn servable(layer: &Layer, candidates: &[Candidate], route: &Route, overflight: bool) -> bool {
-    candidates.iter().any(|c| {
-        (c.base == route.from && may_serve(layer, c.base, route.to, overflight))
-            || (c.base == route.to && may_serve(layer, c.base, route.from, overflight))
-    })
+/// The airlines at either end of `route` with a type that flies its
+/// `distance` between runways at least `runway` long, with the airport they
+/// fly to.
+fn eligible<'a>(
+    candidates: &'a [Vec<Candidate>],
+    route: &Route,
+    distance: f64,
+    runway: f64,
+) -> impl Iterator<Item = (&'a Candidate, usize)> {
+    candidates[route.from]
+        .iter()
+        .map(|c| (c, route.to))
+        .chain(candidates[route.to].iter().map(|c| (c, route.from)))
+        .filter(move |(c, _)| c.flies(distance, runway))
 }
 
 /// Passenger or cargo services fitted to the airports' targets.
 fn layer_services(
     world: &World,
+    aircraft: &AircraftCatalog,
     airlines: &AirlineCatalog,
     traffic: &TrafficTargets,
     kind: AirlineKind,
     out: &mut Vec<Service>,
 ) -> Result<()> {
-    let layer = layer(world, traffic, kind)?;
-    let candidates = candidates(world, airlines, &layer, kind)?;
+    let mut layer = layer(world, traffic, kind)?;
+    let candidates = candidates(world, aircraft, airlines, &layer, kind)?;
+    let locations: Vec<crate::LatLon> = layer.nodes.iter().map(|n| n.location).collect();
+    let runways = layer.runways.clone();
+    let shortest = |route: &Route| runways[route.from].min(runways[route.to]);
+    let distance = |route: &Route| {
+        locations[route.from]
+            .distance_to(locations[route.to])
+            .value()
+    };
     let mut routes = gravity(&layer.nodes, &DemandParams::default());
-    routes.retain(|route| servable(&layer, &candidates, route, false));
+    routes.retain(|route| {
+        eligible(&candidates, route, distance(route), shortest(route))
+            .next()
+            .is_some()
+    });
+    // A node left without a route cannot meet its target: it drops out.
+    let mut linked = vec![false; layer.nodes.len()];
+    for route in &routes {
+        linked[route.from] = true;
+        linked[route.to] = true;
+    }
+    for (node, linked) in layer.nodes.iter_mut().zip(linked) {
+        if !linked {
+            node.target = None;
+        }
+    }
     let routes = fit(&layer.nodes, routes).with_context(|| format!("{kind:?} demand"))?;
     let flight_kind = match kind {
         AirlineKind::Passenger => FlightKind::Passenger,
         AirlineKind::Cargo => FlightKind::Cargo,
     };
     for route in routes.into_iter().filter(|r| r.daily > 0.0) {
-        split(&layer, &candidates, route, flight_kind, out);
-    }
-    Ok(())
-}
-
-/// Edge-to-edge routes across the airspace, gravity-weighted and scaled to the
-/// target.
-fn overflight_services(
-    world: &World,
-    airlines: &AirlineCatalog,
-    traffic: &TrafficTargets,
-    out: &mut Vec<Service>,
-) -> Result<()> {
-    let layer = layer(world, traffic, AirlineKind::Passenger)?;
-    let candidates = candidates(world, airlines, &layer, AirlineKind::Passenger)?;
-    let params = DemandParams::default();
-    let mut routes = Vec::new();
-    for from in 0..layer.nodes.len() {
-        for to in from + 1..layer.nodes.len() {
-            if !(layer.edge[from] && layer.edge[to]) {
-                continue;
-            }
-            let (a, b) = (layer.nodes[from], layer.nodes[to]);
-            let route = Route {
-                from,
-                to,
-                daily: a.mass * b.mass
-                    / (a.location.distance_to(b.location).value() / 1000.0).powf(params.beta),
-            };
-            if servable(&layer, &candidates, &route, true)
-                && crosses(traffic.airspace(), a.location, b.location)
-            {
-                routes.push(route);
-            }
+        let (length, runway) = (distance(&route), shortest(&route));
+        let total: f64 = eligible(&candidates, &route, length, runway)
+            .map(|(c, _)| c.weight)
+            .sum();
+        if total <= 0.0 {
+            continue;
+        }
+        for (candidate, other) in eligible(&candidates, &route, length, runway) {
+            out.push(Service {
+                airline: candidate.airline,
+                base: layer.airports[candidate.base],
+                other: layer.airports[other],
+                daily: route.daily * candidate.weight / total,
+                kind: flight_kind,
+            });
         }
     }
-    let total: f64 = routes.iter().map(|r| 2.0 * r.daily).sum();
-    if total <= 0.0 {
-        return Ok(());
-    }
-    let scale = traffic.overflights_per_day() / total;
-    for mut route in routes {
-        route.daily *= scale;
-        split(&layer, &candidates, route, FlightKind::Overflight, out);
-    }
     Ok(())
 }
 
-/// Every service of the week template: passenger and cargo services meeting the
-/// airports' targets, and overflights meeting the overflight target.
+/// Every service of the week template: passenger and cargo services meeting
+/// the airports' targets.
 pub(crate) fn plan_services(
     world: &World,
+    aircraft: &AircraftCatalog,
     airlines: &AirlineCatalog,
     traffic: &TrafficTargets,
 ) -> Result<Vec<Service>> {
     let mut services = Vec::new();
-    layer_services(
-        world,
-        airlines,
-        traffic,
-        AirlineKind::Passenger,
-        &mut services,
-    )?;
-    layer_services(world, airlines, traffic, AirlineKind::Cargo, &mut services)?;
-    overflight_services(world, airlines, traffic, &mut services)?;
+    for kind in [AirlineKind::Passenger, AirlineKind::Cargo] {
+        layer_services(world, aircraft, airlines, traffic, kind, &mut services)?;
+    }
     Ok(services)
 }
 
@@ -276,11 +255,10 @@ mod tests {
     use crate::{
         airline::AirlineKind,
         test_data::{Data, data},
-        world::AirportKind,
     };
 
     fn services(data: &Data) -> Result<Vec<Service>> {
-        plan_services(&data.world, &data.airlines, &data.traffic)
+        plan_services(&data.world, &data.aircraft, &data.airlines, &data.traffic)
     }
 
     /// Average daily departures per airport implied by services of `kind`.
@@ -293,77 +271,63 @@ mod tests {
         out
     }
 
-    #[test]
-    fn test_passenger_services_meet_departure_targets() -> Result<()> {
-        let data = data()?;
-        let services = services(&data)?;
-        let departures = departures(&services, FlightKind::Passenger);
+    /// Airports with routes meet their targets in `kind`'s layer; those no
+    /// airline can reach (too short a runway for every type flying near)
+    /// drop out, but few and with little traffic.
+    fn meets_targets(data: &Data, kind: FlightKind) -> Result<()> {
+        let services = services(data)?;
+        let departures = departures(&services, kind);
+        let (mut wanted_total, mut got_total, mut missing, mut count) = (0.0, 0.0, 0, 0);
         for target in data.traffic.airports() {
             let id = data
                 .world
                 .airport_by_ident(target.airport())
                 .context("airport")?;
-            let wanted =
-                f64::from(target.movements_per_year()) / 365.0 * (1.0 - target.cargo_share()) / 2.0;
+            let share = match kind {
+                FlightKind::Passenger => 1.0 - target.cargo_share(),
+                FlightKind::Cargo => target.cargo_share(),
+            };
+            let wanted = f64::from(target.movements_per_year()) / 365.0 * share / 2.0;
+            if wanted <= 0.0 {
+                continue;
+            }
+            count += 1;
+            wanted_total += wanted;
             let got = departures.get(&id).copied().unwrap_or(0.0);
+            got_total += got;
+            if got == 0.0 {
+                missing += 1;
+                continue;
+            }
             assert!(
                 (got - wanted).abs() / wanted < 0.01,
                 "{}: {got:.1} vs {wanted:.1}",
                 target.airport()
             );
         }
+        assert!(missing * 50 < count, "{missing} of {count} without routes");
+        assert!(
+            got_total >= wanted_total * 0.98,
+            "{got_total:.0} of {wanted_total:.0}"
+        );
         Ok(())
+    }
+
+    #[test]
+    fn test_passenger_services_meet_departure_targets() -> Result<()> {
+        meets_targets(&data()?, FlightKind::Passenger)
     }
 
     #[test]
     fn test_cargo_services_meet_cargo_targets_with_cargo_airlines() -> Result<()> {
         let data = data()?;
-        let services = services(&data)?;
-        let departures = departures(&services, FlightKind::Cargo);
-        for target in data.traffic.airports().filter(|t| t.cargo_share() > 0.0) {
-            let id = data
-                .world
-                .airport_by_ident(target.airport())
-                .context("airport")?;
-            let wanted =
-                f64::from(target.movements_per_year()) / 365.0 * target.cargo_share() / 2.0;
-            let got = departures.get(&id).copied().unwrap_or(0.0);
-            assert!(
-                (got - wanted).abs() / wanted < 0.01,
-                "{}: {got:.1} vs {wanted:.1}",
-                target.airport()
-            );
-        }
-        for service in services.iter().filter(|s| s.kind == FlightKind::Cargo) {
+        meets_targets(&data, FlightKind::Cargo)?;
+        for service in services(&data)?
+            .iter()
+            .filter(|s| s.kind == FlightKind::Cargo)
+        {
             let airline = data.airlines.get(service.airline).context("airline")?;
             assert_eq!(airline.kind(), AirlineKind::Cargo, "{}", airline.icao());
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn test_overflights_meet_target_between_edges_crossing_germany() -> Result<()> {
-        let data = data()?;
-        let services = services(&data)?;
-        let overflights: Vec<&Service> = services
-            .iter()
-            .filter(|s| s.kind == FlightKind::Overflight)
-            .collect();
-        let per_day: f64 = overflights.iter().map(|s| 2.0 * s.daily).sum();
-        let wanted = data.traffic.overflights_per_day();
-        assert!(
-            (per_day - wanted).abs() / wanted < 0.01,
-            "{per_day:.0} vs {wanted:.0}"
-        );
-        for service in overflights {
-            let [a, b] = [service.base, service.other].map(|id| data.world.airport(id));
-            let (a, b) = (a.context("a")?, b.context("b")?);
-            assert_eq!((a.kind(), b.kind()), (AirportKind::Edge, AirportKind::Edge));
-            assert!(super::super::overflight::crosses(
-                data.traffic.airspace(),
-                a.location(),
-                b.location()
-            ));
         }
         Ok(())
     }
@@ -382,16 +346,7 @@ mod tests {
                 base.ident()
             );
             assert!(service.daily > 0.0);
-            if service.kind != FlightKind::Overflight && base.kind() == AirportKind::Edge {
-                assert_ne!(
-                    other.kind(),
-                    AirportKind::Edge,
-                    "{} flies {}-{}",
-                    airline.icao(),
-                    base.ident(),
-                    other.ident()
-                );
-            }
+            assert_ne!(base.ident(), other.ident());
             assert_eq!(
                 airline.kind() == AirlineKind::Cargo,
                 service.kind == FlightKind::Cargo

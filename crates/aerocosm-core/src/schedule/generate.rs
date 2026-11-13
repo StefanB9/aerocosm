@@ -14,8 +14,13 @@ use crate::{Id, SimDuration, StreamId};
 /// same schedule.
 pub fn generate(inputs: &ScheduleInputs<'_>, config: ScheduleConfig) -> Result<Schedule> {
     let mut rng = config.seed().stream(StreamId::Scheduling);
-    let services = plan_services(inputs.world, inputs.airlines, inputs.traffic)
-        .context("cannot plan services")?;
+    let services = plan_services(
+        inputs.world,
+        inputs.aircraft,
+        inputs.airlines,
+        inputs.traffic,
+    )
+    .context("cannot plan services")?;
     let ctx = TripContext::new(
         inputs.world,
         inputs.aircraft,

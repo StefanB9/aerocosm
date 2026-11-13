@@ -38,6 +38,9 @@ pub(crate) struct DemandParams {
     pub(crate) beta: f64,
     /// Pairs closer than this get no direct flights (rail and road win).
     pub(crate) min_distance: Meters,
+    /// Each node keeps its strongest partners only (plan M5 D112); a pair
+    /// stays when either end keeps the other.
+    pub(crate) partners: usize,
 }
 
 impl Default for DemandParams {
@@ -45,32 +48,67 @@ impl Default for DemandParams {
         Self {
             beta: 1.2,
             min_distance: Meters::from_raw(180_000.0),
+            partners: 150,
         }
     }
 }
 
+/// Mean Earth radius, m, as in the great-circle maths.
+const EARTH_RADIUS: f64 = 6_371_008.8;
+
 /// Unscaled gravity weights `m_i · m_j / d^β` for every pair with at least one
-/// calibrated end, at least `min_distance` apart.
+/// calibrated end, at least `min_distance` apart, among each node's
+/// `partners` strongest.
 pub(crate) fn gravity(nodes: &[Node], params: &DemandParams) -> Vec<Route> {
-    let mut routes = Vec::with_capacity(nodes.len() * nodes.len() / 2);
+    // Unit vectors: the chord between two points gives their great-circle
+    // distance without trigonometry per pair.
+    let points: Vec<[f64; 3]> = nodes
+        .iter()
+        .map(|n| {
+            let (lat, lon) = (
+                n.location.latitude().value().to_radians(),
+                n.location.longitude().value().to_radians(),
+            );
+            [lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin()]
+        })
+        .collect();
+    let min_kilometres = params.min_distance.value() / 1000.0;
+    let mut row: Vec<(usize, f64)> = Vec::with_capacity(nodes.len());
+    let mut pairs: Vec<(usize, usize, f64)> =
+        Vec::with_capacity(nodes.len() * params.partners.min(nodes.len()));
     for (from, a) in nodes.iter().enumerate() {
-        for (offset, b) in nodes[from + 1..].iter().enumerate() {
-            if a.target.is_none() && b.target.is_none() {
+        row.clear();
+        for (to, b) in nodes.iter().enumerate() {
+            if to == from || (a.target.is_none() && b.target.is_none()) {
                 continue;
             }
-            let distance = a.location.distance_to(b.location).value();
-            if distance < params.min_distance.value() {
+            let chord = points[from]
+                .iter()
+                .zip(&points[to])
+                .map(|(p, q)| (p - q).powi(2))
+                .sum::<f64>()
+                .sqrt();
+            let kilometres = 2.0 * EARTH_RADIUS * (chord / 2.0).min(1.0).asin() / 1000.0;
+            if kilometres < min_kilometres {
                 continue;
             }
-            let kilometres = distance / 1000.0;
-            routes.push(Route {
-                from,
-                to: from + 1 + offset,
-                daily: a.mass * b.mass / kilometres.powf(params.beta),
-            });
+            row.push((to, a.mass * b.mass / kilometres.powf(params.beta)));
         }
+        if params.partners > 0 && row.len() > params.partners {
+            row.select_nth_unstable_by(params.partners - 1, |p, q| q.1.total_cmp(&p.1));
+            row.truncate(params.partners);
+        }
+        pairs.extend(
+            row.iter()
+                .map(|&(to, daily)| (from.min(to), from.max(to), daily)),
+        );
     }
-    routes
+    pairs.sort_unstable_by_key(|p| (p.0, p.1));
+    pairs.dedup_by_key(|p| (p.0, p.1));
+    pairs
+        .into_iter()
+        .map(|(from, to, daily)| Route { from, to, daily })
+        .collect()
 }
 
 /// Scales gravity weights so every calibrated node's departures (the sum of its
@@ -78,6 +116,11 @@ pub(crate) fn gravity(nodes: &[Node], params: &DemandParams) -> Vec<Route> {
 /// nodes keep 1, and a route's demand is `a_i · a_j · w_ij` (symmetric
 /// proportional fitting).
 pub(crate) fn fit(nodes: &[Node], mut routes: Vec<Route>) -> Result<Vec<Route>> {
+    let mut adjacency: Vec<Vec<(usize, f64)>> = vec![Vec::new(); nodes.len()];
+    for route in &routes {
+        adjacency[route.from].push((route.to, route.daily));
+        adjacency[route.to].push((route.from, route.daily));
+    }
     let mut factor = vec![1.0_f64; nodes.len()];
     for _ in 0..MAX_ITERATIONS {
         let mut worst = 0.0_f64;
@@ -85,13 +128,9 @@ pub(crate) fn fit(nodes: &[Node], mut routes: Vec<Route>) -> Result<Vec<Route>> 
             let Some(target) = node.target else {
                 continue;
             };
-            let reach: f64 = routes
+            let reach: f64 = adjacency[index]
                 .iter()
-                .filter_map(|r| match (r.from == index, r.to == index) {
-                    (true, _) => Some(factor[r.to] * r.daily),
-                    (_, true) => Some(factor[r.from] * r.daily),
-                    _ => None,
-                })
+                .map(|&(other, weight)| factor[other] * weight)
                 .sum();
             if reach <= 0.0 {
                 return Err(CoreError::ScheduleFailed {
@@ -148,12 +187,41 @@ mod tests {
         let routes = gravity(&nodes, &DemandParams::default());
         let pairs: Vec<(usize, usize)> = routes.iter().map(|r| (r.from, r.to)).collect();
         assert!(!pairs.contains(&(0, 1)), "too close");
+        let distance = nodes[0].location.distance_to(nodes[2].location).value() / 1000.0;
+        let weight = routes
+            .iter()
+            .find(|r| (r.from, r.to) == (0, 2))
+            .map_or(0.0, |r| r.daily);
+        assert!((weight - 5e6 * 10e6 / distance.powf(1.2)).abs() / weight < 1e-6);
         assert!(
             !pairs.contains(&(2, 3)),
             "edge to edge is not German traffic"
         );
         assert!(pairs.contains(&(0, 2)) && pairs.contains(&(0, 3)) && pairs.contains(&(1, 2)));
         assert!(routes.iter().all(|r| r.from < r.to && r.daily > 0.0));
+        Ok(())
+    }
+
+    #[test]
+    fn test_gravity_keeps_the_strongest_partners() -> Result<()> {
+        // A big node and five small ones in a row east of it; with two
+        // partners each, the far small ones only pair with their own
+        // neighbours or the big node.
+        let mut nodes = vec![node(50.0, 0.0, 1e7, Some(100.0))?];
+        for k in 1..=5 {
+            nodes.push(node(50.0, 3.0 * f64::from(k), 1e5, Some(10.0))?);
+        }
+        let params = DemandParams {
+            partners: 2,
+            ..DemandParams::default()
+        };
+        let routes = gravity(&nodes, &params);
+        let pairs: Vec<(usize, usize)> = routes.iter().map(|r| (r.from, r.to)).collect();
+        assert!(pairs.contains(&(0, 1)) && pairs.contains(&(0, 2)));
+        assert!(!pairs.contains(&(1, 5)), "weak pair dropped: {pairs:?}");
+        let mut sorted = pairs.clone();
+        sorted.dedup();
+        assert_eq!(sorted, pairs, "each pair once");
         Ok(())
     }
 

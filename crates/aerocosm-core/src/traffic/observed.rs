@@ -14,7 +14,7 @@ use crate::{
 const OBSERVED_ASSET: AssetKind = AssetKind {
     tag: *b"OBSV",
     name: "observed traffic asset",
-    version: 1,
+    version: 2,
 };
 
 /// The traffic of one year as the `OpenSky` Network saw it.
@@ -39,6 +39,9 @@ pub struct ObservedAirport {
     pub departures: u32,
     /// Arrivals seen.
     pub arrivals: u32,
+    /// Flights seen at the airport whose other end was not seen (version 2):
+    /// with the complete ones, how many flights the airport's receivers saw.
+    pub partial: u32,
 }
 
 /// An airline seen in the year: who it is and where and with what it flew.
@@ -105,6 +108,7 @@ mod tests {
                 airport: "EDDF".parse()?,
                 departures: 230_000,
                 arrivals: 229_000,
+                partial: 140_000,
             }],
             airlines: vec![ObservedAirline {
                 icao: "DLH".parse()?,
@@ -167,6 +171,14 @@ mod tests {
             (120_000..200_000).contains(&frankfurt.departures),
             "{frankfurt:?}"
         );
+        assert!(frankfurt.partial > 50_000, "{frankfurt:?}");
+        // Tegel's traffic, closed since, counts at BER.
+        let berlin = observed
+            .airports
+            .iter()
+            .find(|a| a.airport.as_str() == "EDDB")
+            .context("BER")?;
+        assert!(berlin.departures > 80_000, "{berlin:?}");
         let lufthansa = observed
             .airlines
             .iter()

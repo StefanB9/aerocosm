@@ -71,7 +71,6 @@ pub(crate) fn prune_stands(
 mod tests {
     use aerocosm_core::{
         ground::{EdgeDefinition, EdgeKind, GroundDefinition, StandDefinition},
-        traffic::TrafficTargets,
         units::Degrees,
     };
     use anyhow::{Context, Result};
@@ -83,8 +82,7 @@ mod tests {
     fn test_prune_drops_stands_that_cannot_taxi_out() -> Result<()> {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets");
         let read = |path: &str| std::fs::read_to_string(format!("{root}/{path}"));
-        let world = World::from_json(&read("world/germany.world.json")?)?;
-        let traffic = TrafficTargets::from_json(&read("traffic/germany.json")?)?;
+        let (world, traffic) = crate::shipped_model()?;
         let mut definition = GroundDefinition::from_json(&read("ground/germany.ground.json")?)?
             .airports
             .into_iter()

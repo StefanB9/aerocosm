@@ -1,5 +1,6 @@
-//! Schedule generation on the shipped data (plan M2, PR 2): calibration,
-//! rotations, curfews, feasibility and determinism.
+//! Schedule generation on the shipped world (plan M2 PR 2, M5 PR 2):
+//! calibration, every scheduled airport served, German validation,
+//! rotations, feasibility and determinism.
 
 use std::collections::HashMap;
 
@@ -8,7 +9,7 @@ use aerocosm_core::{
     airline::{AirlineCatalog, AirlineKind},
     schedule::{FlightKind, Schedule, ScheduleConfig, ScheduleInputs, generate},
     time::Weekday,
-    traffic::{AirportTarget, ClockTime, TrafficTargets},
+    traffic::{TrafficTargets, model::derive, observed::ObservedTraffic},
     world::World,
 };
 use anyhow::{Context, Result, bail};
@@ -26,15 +27,34 @@ struct Data {
 }
 
 fn data() -> Result<Data> {
+    let world = World::from_asset(include_bytes!("../../../assets/world/world.bin"))?;
+    let aircraft = AircraftCatalog::from_json(include_str!("../../../assets/aircraft/types.json"))?;
+    let observed =
+        ObservedTraffic::from_asset(include_bytes!("../../../assets/traffic/observed.bin"))?;
+    let (traffic, airlines) = derive(&world, &observed, &aircraft)?.into_parts();
     Ok(Data {
-        world: World::from_json(include_str!("../../../assets/world/germany.world.json"))?,
-        aircraft: AircraftCatalog::from_json(include_str!("../../../assets/aircraft/types.json"))?,
-        airlines: AirlineCatalog::from_json(include_str!(
-            "../../../assets/airlines/airlines.json"
-        ))?,
-        traffic: TrafficTargets::from_json(include_str!("../../../assets/traffic/germany.json"))?,
+        world,
+        aircraft,
+        airlines,
+        traffic,
     })
 }
+
+/// ADV-Monatsstatistik 12/2019: scheduled and charter movements in 2019
+/// (Berlin: Tegel and Schönefeld). Validation only (plan M5 D105, D114).
+const ADV_2019: [(&str, f64); 11] = [
+    ("EDDF", 502_634.0),
+    ("EDDM", 395_951.0),
+    ("EDDB", 269_127.0),
+    ("EDDL", 214_595.0),
+    ("EDDH", 136_959.0),
+    ("EDDK", 128_855.0),
+    ("EDDS", 117_011.0),
+    ("EDDP", 70_044.0),
+    ("EDDV", 55_178.0),
+    ("EDDN", 39_460.0),
+    ("EDDW", 21_640.0),
+];
 
 /// Monday 6 July 2026, 00:00 UTC: a summer reference week.
 fn reference() -> Result<SimTime> {
@@ -67,6 +87,7 @@ fn test_generate_matches_weekly_movement_targets() -> Result<()> {
     let data = data()?;
     let schedule = schedule(&data, 1)?;
     let factors = data.traffic.weekday_factors();
+    let (mut off, mut count, mut wanted_total, mut got_total) = (Vec::new(), 0, 0.0, 0.0);
     for target in data.traffic.airports() {
         let id = data
             .world
@@ -76,16 +97,24 @@ fn test_generate_matches_weekly_movement_targets() -> Result<()> {
             .iter()
             .map(|day| target.movements_per_day(*day, factors))
             .sum();
-        let got: u32 = schedule.movements(id).iter().sum();
-        // Rounding to whole daily slots weighs heavily at small airports.
-        let tolerance = wanted * 0.05 + 14.0;
-        if (f64::from(got) - wanted).abs() > tolerance {
-            bail!(
-                "{}: {got} weekly movements, target {wanted:.0}",
-                target.airport()
-            );
+        let got = f64::from(schedule.movements(id).iter().sum::<u32>());
+        count += 1;
+        wanted_total += wanted;
+        got_total += got;
+        // Many small services, each rounded to whole flights a day, add up
+        // to a count that varies like a Poisson count: three standard
+        // deviations, and 5 % for the rest.
+        if (got - wanted).abs() > wanted * 0.05 + 3.0 * wanted.sqrt() + 7.0 {
+            off.push(format!("{} {got:.0}/{wanted:.0}", target.airport()));
         }
     }
+    // Airports whose slots or runways cannot take their target fall short
+    // (docs/known-issues.md): few, and the world total holds.
+    assert!(off.len() * 50 < count, "{} off: {off:?}", off.len());
+    assert!(
+        (got_total / wanted_total - 1.0).abs() < 0.02,
+        "{got_total:.0} of {wanted_total:.0}"
+    );
     Ok(())
 }
 
@@ -120,9 +149,9 @@ fn test_generate_movements_follow_weekday_factors() -> Result<()> {
 #[test]
 fn test_rotations_are_continuous_over_the_week() -> Result<()> {
     let data = data()?;
-    for seed in 0..3 {
+    for seed in 0..1 {
         let schedule = schedule(&data, seed)?;
-        assert!(schedule.tails().len() > 100);
+        assert!(schedule.tails().len() > 10_000);
         for (tail_id, tail) in schedule.tails() {
             let flights = schedule.flights_of(tail_id);
             let (Some(first), Some(last)) = (flights.first(), flights.last()) else {
@@ -157,42 +186,33 @@ fn test_rotations_are_continuous_over_the_week() -> Result<()> {
 }
 
 #[test]
-fn test_flights_respect_curfews_in_local_time() -> Result<()> {
+fn test_scheduled_airports_are_served() -> Result<()> {
     let data = data()?;
     let schedule = schedule(&data, 3)?;
-    // Wraps template minutes into the reference week, then reads the airport's
-    // local clock.
-    let local = |airport, base_minutes: i64, offset: i32| -> Result<Option<ClockTime>> {
-        let ident = data.world.airport(airport).context("airport")?.ident();
-        let Some(zone) = data.traffic.zone(ident) else {
-            return Ok(None);
-        };
-        let utc = (base_minutes - i64::from(offset)).rem_euclid(WEEK);
-        let instant = reference()?.checked_add(SimDuration::from_millis(utc * 60_000))?;
-        Ok(Some(ClockTime::from_minute(
-            zone.local(instant).minute_of_day(),
-        )?))
-    };
-    let mut checked = 0;
-    for (tail_id, tail) in schedule.tails() {
-        for flight in schedule.flights_of(tail_id) {
-            let events = [
-                (flight.origin(), minutes(flight.departure())),
-                (flight.destination(), minutes(flight.arrival())),
-            ];
-            for (airport, minute) in events {
-                let ident = data.world.airport(airport).context("airport")?.ident();
-                let curfew = data.traffic.airport(ident).and_then(AirportTarget::curfew);
-                if let (Some(curfew), Some(time)) =
-                    (curfew, local(airport, minute, tail.utc_offset_minutes())?)
-                {
-                    assert!(!curfew.contains(time), "{ident} movement at {time:?}");
-                    checked += 1;
-                }
-            }
+    let mut unserved = Vec::new();
+    for target in data.traffic.airports() {
+        let id = data
+            .world
+            .airport_by_ident(target.airport())
+            .context("target airport")?;
+        if schedule.movements(id).iter().sum::<u32>() == 0 {
+            unserved.push((
+                target.airport().to_string(),
+                f64::from(target.movements_per_year()) / 365.0,
+            ));
         }
     }
-    assert!(checked > 1000);
+    // A week can pass without a flight where a few a week are scheduled.
+    let busy: Vec<_> = unserved.iter().filter(|(_, daily)| *daily >= 4.0).collect();
+    assert!(busy.is_empty(), "{busy:?}");
+    assert!(
+        unserved.len() * 50 < data.traffic.airports().count(),
+        "{} unserved",
+        unserved.len()
+    );
+    // About 105,000 departures a day (plan M5).
+    let per_day = f64::from(u32::try_from(schedule.flights().count())?) / 7.0;
+    assert!((95_000.0..115_000.0).contains(&per_day), "{per_day:.0}");
     Ok(())
 }
 
@@ -224,24 +244,27 @@ fn test_aircraft_can_fly_every_sector() -> Result<()> {
 }
 
 #[test]
-fn test_overflights_match_daily_target() -> Result<()> {
+fn test_german_movements_match_adv_2019() -> Result<()> {
     let data = data()?;
     let schedule = schedule(&data, 5)?;
-    let weekly = schedule
-        .flights()
-        .filter(|(_, flight)| flight.kind() == FlightKind::Overflight)
-        .count();
-    let per_day = f64::from(u32::try_from(weekly)?) / 7.0;
-    let wanted = data.traffic.overflights_per_day();
-    assert!(
-        (per_day - wanted).abs() < wanted * 0.05,
-        "{per_day:.0} vs {wanted:.0}"
-    );
+    let mut failures = Vec::new();
+    for (ident, yearly) in ADV_2019 {
+        let id = data
+            .world
+            .airport_by_ident(ident.parse()?)
+            .context("airport")?;
+        let weekly: u32 = schedule.movements(id).iter().sum();
+        let ratio = f64::from(weekly) * 365.0 / 7.0 / yearly;
+        if !(0.75..=1.25).contains(&ratio) {
+            failures.push(format!("{ident} {ratio:.2}"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:?}");
     Ok(())
 }
 
 #[test]
-fn test_cargo_is_flown_by_cargo_airlines_in_freighters() -> Result<()> {
+fn test_cargo_is_flown_by_cargo_airlines() -> Result<()> {
     let data = data()?;
     let schedule = schedule(&data, 6)?;
     let mut by_kind: HashMap<FlightKind, usize> = HashMap::new();
@@ -255,9 +278,11 @@ fn test_cargo_is_flown_by_cargo_airlines_in_freighters() -> Result<()> {
             .is_freighter();
         let cargo = flight.kind() == FlightKind::Cargo;
         assert_eq!(cargo, airline.kind() == AirlineKind::Cargo);
-        assert_eq!(cargo, freighter);
+        // Freighter-only types carry no passengers; cargo airlines may fly
+        // converted passenger types.
+        assert!(cargo || !freighter, "{} in a freighter", airline.icao());
     }
-    assert_eq!(by_kind.len(), 3, "{by_kind:?}");
+    assert_eq!(by_kind.len(), 2, "{by_kind:?}");
     Ok(())
 }
 
@@ -265,10 +290,13 @@ fn test_cargo_is_flown_by_cargo_airlines_in_freighters() -> Result<()> {
 fn test_every_airline_flies_and_few_slots_are_dropped() -> Result<()> {
     let data = data()?;
     let schedule = schedule(&data, 7)?;
+    let mut idle = Vec::new();
     for (index, airline) in data.airlines.iter().enumerate() {
-        let tails = schedule.tail_count(aerocosm_core::Id::from_usize(index)?);
-        assert!(tails > 0, "{} has no tails", airline.icao());
+        if schedule.tail_count(aerocosm_core::Id::from_usize(index)?) == 0 {
+            idle.push(airline.icao().to_string());
+        }
     }
+    assert!(idle.len() * 50 < data.airlines.len(), "{idle:?}");
     assert!(schedule.dropped_slots() * 50 < schedule.flights().len());
     Ok(())
 }

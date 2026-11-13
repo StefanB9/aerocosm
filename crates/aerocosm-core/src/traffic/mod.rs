@@ -1,14 +1,14 @@
 //! Traffic calibration targets: what the generated schedules must reproduce
-//! (plan D28).
+//! (plan D28), derived for the world by [`model::derive`] (plan M5).
 
 mod clock;
+pub mod model;
 pub mod observed;
 mod operations;
 
 use std::collections::HashMap;
 
-use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use anyhow::Result;
 
 pub(crate) use self::operations::angle_between;
 pub use self::{
@@ -16,22 +16,18 @@ pub use self::{
     operations::{Capacity, RunwayMode, mode_for_wind},
 };
 use crate::{
-    CoreError, LatLon,
+    CoreError,
     time::{Weekday, Zone},
     world::{World, codes::AirportIdent},
 };
-
-/// Traffic targets file format version this build reads and writes.
-pub const TRAFFIC_FORMAT_VERSION: u32 = 2;
 
 /// Days per year used to turn annual statistics into daily targets.
 const DAYS_PER_YEAR: f64 = 365.0;
 /// Weekday factors must average 1 within this tolerance.
 const WEEKDAY_MEAN_TOLERANCE: f64 = 0.02;
 
-/// Calibration for one commercial airport.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// Calibration for one airport with scheduled service.
+#[derive(Debug, Clone, PartialEq)]
 pub struct AirportTarget {
     /// The airport.
     pub airport: AirportIdent,
@@ -40,22 +36,17 @@ pub struct AirportTarget {
     /// Local time zone.
     pub zone: Zone,
     /// Night window without scheduled movements, in local time.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub curfew: Option<Curfew>,
     /// Local centre times of hub connecting banks; empty for non-hubs.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub banks: Vec<ClockTime>,
     /// Fraction of the movements flown by cargo carriers (estimate, plan D41);
     /// absent means none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cargo_share: Option<f64>,
     /// Declared capacity of a coordinated airport (plan D54); absent means
     /// not coordinated.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capacity: Option<Capacity>,
     /// Runway operating modes by flow (plan D55); empty means the
     /// best-aligned runway in mixed mode.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub runway_modes: Vec<RunwayMode>,
 }
 
@@ -101,47 +92,15 @@ impl AirportTarget {
     }
 }
 
-/// The time zone of an edge airport.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct EdgeZone {
-    /// The airport.
-    pub airport: AirportIdent,
-    /// Its local time zone.
-    pub zone: Zone,
-    /// Runway operating modes by flow; empty means the best-aligned runway.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub runway_modes: Vec<RunwayMode>,
-}
-
-/// The contents of a traffic targets file.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// Unvalidated traffic targets.
+#[derive(Debug, Clone, PartialEq)]
 pub struct TrafficDefinition {
-    /// Must equal [`TRAFFIC_FORMAT_VERSION`].
-    pub format_version: u32,
     /// Where the figures come from.
     pub source: String,
     /// Relative traffic per weekday, Monday first, averaging 1.
     pub weekday_factors: [f64; 7],
-    /// Flights per day crossing the airspace without landing in it.
-    pub overflights_per_day: f64,
-    /// Coarse outline of the simulated airspace, a closed ring.
-    pub airspace: Vec<LatLon>,
-    /// Commercial airports with movement targets.
+    /// Airports with movement targets.
     pub airports: Vec<AirportTarget>,
-    /// Time zones of the edge airports.
-    pub edges: Vec<EdgeZone>,
-}
-
-impl TrafficDefinition {
-    /// Serialises as indented JSON with a trailing newline.
-    pub fn to_json_pretty(&self) -> Result<String> {
-        let mut json =
-            serde_json::to_string_pretty(self).context("cannot serialise traffic targets")?;
-        json.push('\n');
-        Ok(json)
-    }
 }
 
 /// Validated traffic targets with lookups.
@@ -154,16 +113,8 @@ pub struct TrafficTargets {
 }
 
 impl TrafficTargets {
-    /// Validates weekday factors, the airspace ring, airport targets and banks.
+    /// Validates weekday factors, airport targets and banks.
     pub fn from_definition(definition: TrafficDefinition) -> Result<Self> {
-        if definition.format_version != TRAFFIC_FORMAT_VERSION {
-            return Err(CoreError::UnsupportedFileFormat {
-                file: "traffic targets",
-                found: definition.format_version,
-                supported: TRAFFIC_FORMAT_VERSION,
-            }
-            .into());
-        }
         let invalid = |reason| CoreError::InvalidTraffic { reason };
         let factors = &definition.weekday_factors;
         let mean = factors.iter().sum::<f64>() / 7.0;
@@ -172,15 +123,8 @@ impl TrafficTargets {
         {
             return Err(invalid("weekday factors must be positive and average 1").into());
         }
-        if !definition.overflights_per_day.is_finite() || definition.overflights_per_day < 0.0 {
-            return Err(invalid("overflights per day must not be negative").into());
-        }
-        let ring = &definition.airspace;
-        if ring.len() < 4 || ring.first() != ring.last() {
-            return Err(invalid("airspace must be a closed ring of at least 4 points").into());
-        }
         let mut by_airport = HashMap::with_capacity(definition.airports.len());
-        let mut zones = HashMap::with_capacity(definition.airports.len() + definition.edges.len());
+        let mut zones = HashMap::with_capacity(definition.airports.len());
         for (index, target) in definition.airports.iter().enumerate() {
             if target.movements_per_year == 0 {
                 return Err(invalid("airport targets must be positive").into());
@@ -206,24 +150,10 @@ impl TrafficTargets {
                 return Err(invalid("each airport may appear only once").into());
             }
         }
-        for edge in &definition.edges {
-            for mode in &edge.runway_modes {
-                mode.validate()?;
-            }
-            if zones.insert(edge.airport, edge.zone.clone()).is_some() {
-                return Err(invalid("each airport may appear only once").into());
-            }
-        }
         let modes = definition
             .airports
             .iter()
             .map(|target| (target.airport, target.runway_modes.clone()))
-            .chain(
-                definition
-                    .edges
-                    .iter()
-                    .map(|edge| (edge.airport, edge.runway_modes.clone())),
-            )
             .filter(|(_, modes)| !modes.is_empty())
             .collect();
         Ok(Self {
@@ -234,12 +164,6 @@ impl TrafficTargets {
         })
     }
 
-    /// Parses and validates a traffic targets file.
-    pub fn from_json(text: &str) -> Result<Self> {
-        let definition = serde_json::from_str(text).context("malformed traffic targets")?;
-        Self::from_definition(definition).context("invalid traffic targets")
-    }
-
     /// The targets as a definition again.
     pub fn to_definition(&self) -> TrafficDefinition {
         self.definition.clone()
@@ -248,12 +172,7 @@ impl TrafficTargets {
     /// Checks that every listed airport exists in `world` and has the runway
     /// ends its modes name.
     pub fn check_references(&self, world: &World) -> Result<()> {
-        let listed = self
-            .definition
-            .airports
-            .iter()
-            .map(|t| t.airport)
-            .chain(self.definition.edges.iter().map(|e| e.airport));
+        let listed = self.definition.airports.iter().map(|t| t.airport);
         for ident in listed {
             let Some(id) = world.airport_by_ident(ident) else {
                 return Err(CoreError::UnknownAirport {
@@ -291,35 +210,24 @@ impl TrafficTargets {
         &self.definition.weekday_factors
     }
 
-    /// Flights per day crossing the airspace.
-    pub const fn overflights_per_day(&self) -> f64 {
-        self.definition.overflights_per_day
-    }
-
-    /// Coarse outline of the simulated airspace.
-    pub fn airspace(&self) -> &[LatLon] {
-        &self.definition.airspace
-    }
-
-    /// All airport targets in file order.
+    /// All airport targets in order.
     pub fn airports(&self) -> impl ExactSizeIterator<Item = &AirportTarget> {
         self.definition.airports.iter()
     }
 
-    /// The target for `airport`, if it is a calibrated commercial airport.
+    /// The target for `airport`, if it has scheduled service.
     pub fn airport(&self, airport: AirportIdent) -> Option<&AirportTarget> {
         self.by_airport
             .get(&airport)
             .map(|index| &self.definition.airports[*index])
     }
 
-    /// Runway operating modes of a calibrated or edge airport; empty if none
-    /// are curated.
+    /// Runway operating modes of an airport; empty without runways.
     pub fn runway_modes(&self, airport: AirportIdent) -> &[RunwayMode] {
         self.modes.get(&airport).map_or(&[], Vec::as_slice)
     }
 
-    /// The local time zone of a calibrated or edge airport.
+    /// The local time zone of an airport with a target.
     pub fn zone(&self, airport: AirportIdent) -> Option<&Zone> {
         self.zones.get(&airport)
     }
@@ -330,26 +238,12 @@ mod tests {
     use anyhow::{Context, Result};
 
     use super::*;
-    use crate::{CoreError, LatLon, time::Weekday, units::Degrees, world::World};
+    use crate::{CoreError, time::Weekday, units::Degrees, world::World};
 
     fn definition() -> Result<TrafficDefinition> {
-        let ring = [
-            (50.0, 6.0),
-            (50.0, 14.0),
-            (54.0, 14.0),
-            (54.0, 6.0),
-            (50.0, 6.0),
-        ];
-        let mut airspace = Vec::with_capacity(ring.len());
-        for (lat, lon) in ring {
-            airspace.push(LatLon::new(lat, lon)?);
-        }
         Ok(TrafficDefinition {
-            format_version: TRAFFIC_FORMAT_VERSION,
             source: "test fixture".to_owned(),
             weekday_factors: [1.0, 1.0, 1.0, 1.0, 1.2, 0.8, 1.0],
-            overflights_per_day: 3500.0,
-            airspace,
             airports: vec![AirportTarget {
                 airport: "EDDF".parse()?,
                 movements_per_year: 365_000,
@@ -369,15 +263,6 @@ mod tests {
                     flow: Degrees::new(250.0)?,
                     arrivals: vec!["25L".parse()?, "25C".parse()?],
                     departures: vec!["25C".parse()?, "18".parse()?],
-                }],
-            }],
-            edges: vec![EdgeZone {
-                airport: "LFPG".parse()?,
-                zone: Zone::new("Europe/Paris")?,
-                runway_modes: vec![RunwayMode {
-                    flow: Degrees::new(270.0)?,
-                    arrivals: vec!["27R".parse()?],
-                    departures: vec!["27L".parse()?],
                 }],
             }],
         })
@@ -414,20 +299,13 @@ mod tests {
         assert_eq!(frankfurt.cargo_share(), 0.1);
         assert_eq!(frankfurt.capacity().map(|c| c.per_hour), Some(104));
         assert_eq!(targets.runway_modes("EDDF".parse()?).len(), 1);
-        assert_eq!(targets.runway_modes("LFPG".parse()?).len(), 1);
         assert_eq!(targets.runway_modes("EGLL".parse()?).len(), 0);
         assert!(frankfurt.curfew().is_some());
-        assert_eq!(
-            targets.zone("LFPG".parse()?).map(Zone::name),
-            Some("Europe/Paris")
-        );
         assert_eq!(
             targets.zone("EDDF".parse()?).map(Zone::name),
             Some("Europe/Berlin")
         );
         assert!(targets.zone("EGLL".parse()?).is_none());
-        assert!((targets.overflights_per_day() - 3500.0).abs() < f64::EPSILON);
-        assert_eq!(targets.airspace().len(), 5);
         assert_eq!(targets.airports().count(), 1);
         Ok(())
     }
@@ -439,13 +317,6 @@ mod tests {
         assert_eq!(
             reason(factors)?,
             "weekday factors must be positive and average 1"
-        );
-
-        let mut open = definition()?;
-        open.airspace.pop();
-        assert_eq!(
-            reason(open)?,
-            "airspace must be a closed ring of at least 4 points"
         );
 
         let mut idle = definition()?;
@@ -472,68 +343,11 @@ mod tests {
         assert_eq!(reason(window)?, "capacity windows must divide the hour");
 
         let mut mode = definition()?;
-        mode.edges[0].runway_modes[0].arrivals.clear();
+        mode.airports[0].runway_modes[0].arrivals.clear();
         assert_eq!(
             reason(mode)?,
             "runway mode lists must be non-empty and distinct"
         );
-
-        let mut negative = definition()?;
-        negative.overflights_per_day = -1.0;
-        assert_eq!(
-            reason(negative)?,
-            "overflights per day must not be negative"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_targets_json_round_trip_and_version() -> Result<()> {
-        let json = definition()?.to_json_pretty()?;
-        assert!(json.contains("\"start\": \"23:00\""), "{json}");
-        let targets = TrafficTargets::from_json(&json)?;
-        assert_eq!(targets.to_definition(), definition()?);
-        let future = json.replacen("\"format_version\": 2", "\"format_version\": 5", 1);
-        let error = TrafficTargets::from_json(&future)
-            .err()
-            .context("must fail")?;
-        assert_eq!(
-            error.downcast_ref::<CoreError>(),
-            Some(&CoreError::UnsupportedFileFormat {
-                file: "traffic targets",
-                found: 5,
-                supported: 2
-            })
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_shipped_targets_are_valid_and_resolve() -> Result<()> {
-        let targets =
-            TrafficTargets::from_json(include_str!("../../../../assets/traffic/germany.json"))
-                .context("assets/traffic/germany.json")?;
-        let world = World::from_json(include_str!("../../../../assets/world/germany.world.json"))?;
-        targets.check_references(&world)?;
-        let frankfurt = targets.airport("EDDF".parse()?).context("EDDF")?;
-        assert_eq!(
-            frankfurt.movements_per_year(),
-            449_896,
-            "ADV 2025, Linien- und Charterverkehr"
-        );
-        assert!(targets.airports().count() >= 20);
-        assert_eq!(frankfurt.capacity().map(|c| c.per_hour), Some(104));
-        assert_eq!(targets.runway_modes("EDDF".parse()?).len(), 2);
-        for edge in world
-            .airports()
-            .filter(|(_, a)| a.kind() == crate::world::AirportKind::Edge)
-        {
-            assert!(
-                targets.zone(edge.1.ident()).is_some(),
-                "{} has no zone",
-                edge.1.ident()
-            );
-        }
         Ok(())
     }
 
@@ -555,7 +369,7 @@ mod tests {
 
     #[test]
     fn test_check_references_rejects_unknown_runways() -> Result<()> {
-        let world = World::from_json(include_str!("../../../../assets/world/germany.world.json"))?;
+        let world = World::from_asset(include_bytes!("../../../../assets/world/world.bin"))?;
         let mut wrong = definition()?;
         wrong.airports[0].runway_modes[0].departures = vec!["09".parse()?];
         let targets = TrafficTargets::from_definition(wrong)?;

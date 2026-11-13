@@ -12,6 +12,11 @@ use crate::CoreError;
 pub struct Colour([u8; 3]);
 
 impl Colour {
+    /// The colour with red, green and blue bytes `rgb`.
+    pub const fn from_rgb(rgb: [u8; 3]) -> Self {
+        Self(rgb)
+    }
+
     /// Red, green and blue bytes.
     pub const fn rgb(self) -> [u8; 3] {
         self.0

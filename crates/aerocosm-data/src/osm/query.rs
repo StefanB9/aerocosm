@@ -58,21 +58,20 @@ mod tests {
     use super::*;
 
     fn shipped() -> Result<(World, TrafficTargets)> {
-        Ok((
-            World::from_json(include_str!("../../../../assets/world/germany.world.json"))?,
-            TrafficTargets::from_json(include_str!("../../../../assets/traffic/germany.json"))?,
-        ))
+        crate::shipped_model()
     }
 
     #[test]
-    fn test_ground_airports_are_the_german_targets() -> Result<()> {
+    fn test_ground_airports_are_the_german_scheduled_airports() -> Result<()> {
         let (world, traffic) = shipped()?;
         let airports = ground_airports(&world, &traffic);
         let names: Vec<String> = airports.iter().map(ToString::to_string).collect();
         assert!(names.contains(&"EDDF".to_owned()) && names.contains(&"EDXW".to_owned()));
         assert!(!names.contains(&"EGLL".to_owned()));
         assert!(names.windows(2).all(|w| w[0] < w[1]));
-        assert_eq!(names.len(), 24);
+        // Every German airport with scheduled service (until PR 3 goes
+        // worldwide).
+        assert!((30..50).contains(&names.len()), "{}", names.len());
         Ok(())
     }
 

@@ -40,7 +40,7 @@ pub(super) fn convert_runway(
         .le_ident
         .as_deref()
         .zip(record.he_ident.as_deref())
-        .and_then(|(le, he)| Some((le.parse::<RunwayDesignator>().ok()?, he.parse().ok()?)));
+        .and_then(|(le, he)| Some((designator(le)?, designator(he)?)));
     let Some((low, high)) = designators else {
         return Ok(Err("unparseable designator"));
     };
@@ -174,6 +174,18 @@ impl Base<'_> {
     }
 }
 
+/// A runway designator as `OurAirports` writes it: American airports drop
+/// the leading zero (`6L` for `06L`).
+fn designator(text: &str) -> Option<RunwayDesignator> {
+    let single = text.bytes().next().is_some_and(|b| b.is_ascii_digit())
+        && !text.as_bytes().get(1).is_some_and(u8::is_ascii_digit);
+    if single {
+        format!("0{text}").parse().ok()
+    } else {
+        text.parse().ok()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use aerocosm_core::world::AirportKind;
@@ -197,6 +209,17 @@ mod tests {
             zone: None,
             wind: None,
         })
+    }
+
+    #[test]
+    fn test_designators_without_a_leading_zero() {
+        let name = |text: &str| designator(text).map(|d| d.to_string());
+        assert_eq!(name("6L").as_deref(), Some("06L"));
+        assert_eq!(name("7").as_deref(), Some("07"));
+        assert_eq!(name("24R").as_deref(), Some("24R"));
+        assert_eq!(name("09C").as_deref(), Some("09C"));
+        assert_eq!(name("H1"), None);
+        assert_eq!(name(""), None);
     }
 
     #[test]

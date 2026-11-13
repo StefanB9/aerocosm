@@ -30,7 +30,7 @@ pub(crate) struct TripContext<'a> {
     offsets: HashMap<Id<Airport>, i64>,
     curfews: HashMap<Id<Airport>, Curfew>,
     pub(super) banks: HashMap<Id<Airport>, Vec<ClockTime>>,
-    capacities: HashMap<Id<Airport>, Capacity>,
+    pub(super) capacities: HashMap<Id<Airport>, Capacity>,
     /// Typical taxi minutes at mapped airports (plan M4 D73).
     taxi: HashMap<Id<Airport>, (f64, f64)>,
 }

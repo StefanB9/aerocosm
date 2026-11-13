@@ -114,7 +114,7 @@ impl FlightView {
         self.aircraft
     }
 
-    /// Passenger, cargo or overflight.
+    /// Passenger or cargo.
     pub const fn kind(&self) -> FlightKind {
         self.kind
     }

@@ -228,7 +228,7 @@ impl GroundControl {
                 .traffic()
                 .map_or(&[][..], |t| t.targets().runway_modes(place.ident()));
             let mut runway_of = vec![None; layout.nodes().len()];
-            let mut active: Vec<usize> = active_runways_now(runways, modes)
+            let mut active: Vec<usize> = active_runways_now(place, runways, modes)
                 .iter()
                 .map(|a| a.runway)
                 .collect();
