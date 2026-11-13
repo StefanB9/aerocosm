@@ -134,6 +134,22 @@ impl Airport {
         self.definition.catchment
     }
 
+    /// Whether it has scheduled airline service (plan M5 D96).
+    pub const fn scheduled(&self) -> bool {
+        self.definition.scheduled
+    }
+
+    /// Its local time zone, where known (plan M5 D101).
+    pub const fn zone(&self) -> Option<&Zone> {
+        self.definition.zone.as_ref()
+    }
+
+    /// The direction the prevailing wind blows from, where known (plan M5
+    /// D102).
+    pub const fn wind(&self) -> Option<Degrees> {
+        self.definition.wind
+    }
+
     /// The definition this airport was built from, for writing world files.
     pub const fn definition(&self) -> &AirportDefinition {
         &self.definition

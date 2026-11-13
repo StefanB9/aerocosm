@@ -669,4 +669,21 @@ mod tests {
         assert!(basemap.state_borders().len() > 10);
         Ok(())
     }
+
+    #[test]
+    fn test_shipped_world_basemap_covers_the_globe() -> Result<()> {
+        let basemap = Basemap::from_asset(include_bytes!("../../../assets/basemap/world.bin"))?;
+        assert!(
+            basemap.countries().len() > 200,
+            "{}",
+            basemap.countries().len()
+        );
+        let (west, east) = (
+            basemap.bounds().south_west().longitude().value(),
+            basemap.bounds().north_east().longitude().value(),
+        );
+        assert!(west <= -179.0 && east >= 179.0, "{west} {east}");
+        assert_eq!(basemap.state_borders().len(), 0);
+        Ok(())
+    }
 }

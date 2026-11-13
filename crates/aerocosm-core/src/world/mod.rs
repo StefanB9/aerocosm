@@ -98,6 +98,11 @@ impl World {
         })
     }
 
+    /// Reads and validates a world asset (plan M5 D104).
+    pub fn from_asset(bytes: &[u8]) -> Result<Self> {
+        Self::from_definition(WorldDefinition::from_asset(bytes)?).context("invalid world asset")
+    }
+
     /// Parses and validates a world file.
     pub fn from_json(text: &str) -> Result<Self> {
         Self::from_definition(WorldDefinition::from_json(text)?).context("invalid world file")
@@ -465,6 +470,47 @@ mod tests {
             .filter(|(_, a)| a.kind() == AirportKind::Major)
             .count();
         assert!(majors >= 20, "{majors} major airports");
+        Ok(())
+    }
+
+    #[test]
+    fn test_shipped_globe_has_zones_and_winds() -> Result<()> {
+        let world = World::from_asset(include_bytes!("../../../../assets/world/world.bin"))?;
+        let scheduled: Vec<&Airport> = world
+            .airports()
+            .filter(|(_, a)| a.scheduled())
+            .map(|(_, a)| a)
+            .collect();
+        assert!(scheduled.len() > 3_500, "{}", scheduled.len());
+        let zoned = scheduled.iter().filter(|a| a.zone().is_some()).count();
+        assert!(zoned * 100 >= scheduled.len() * 99, "{zoned}");
+        assert!(scheduled.iter().all(|a| a.wind().is_some()));
+        let frankfurt = world
+            .airport_by_ident("EDDF".parse()?)
+            .and_then(|id| world.airport(id))
+            .context("Frankfurt")?;
+        assert_eq!(
+            frankfurt.zone().map(crate::time::Zone::name),
+            Some("Europe/Berlin")
+        );
+        let wind = frankfurt.wind().context("a wind")?.value();
+        assert!((180.0..=270.0).contains(&wind), "south-westerly: {wind}");
+        // Every inhabited continent has scheduled airports.
+        for (lat, lon) in [
+            (40.0, -100.0),
+            (-15.0, -60.0),
+            (0.0, 20.0),
+            (30.0, 100.0),
+            (-25.0, 135.0),
+        ] {
+            let here = LatLon::new(lat, lon)?;
+            assert!(
+                scheduled
+                    .iter()
+                    .any(|a| a.location().distance_to(here).value() < 2_000_000.0),
+                "near {lat}, {lon}"
+            );
+        }
         Ok(())
     }
 }
