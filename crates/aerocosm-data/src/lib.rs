@@ -55,8 +55,8 @@ pub struct GlobeSources<R> {
     pub airports: R,
     /// `OurAirports` `runways.csv`.
     pub runways: R,
-    /// Natural Earth populated places, for catchments.
-    pub places: R,
+    /// Natural Earth layers: the basemap, and places for catchments.
+    pub natural_earth: NaturalEarthSources<R>,
     /// The `airportsdata` table, for time zones.
     pub zones: R,
 }
@@ -66,6 +66,8 @@ pub struct GlobeSources<R> {
 pub struct GlobeOutput {
     /// The world.
     pub world: WorldDefinition,
+    /// The world's basemap.
+    pub basemap: aerocosm_basemap::Basemap,
     /// What the airport and runway import did.
     pub report: ImportReport,
     /// How the time zones were found.
@@ -80,7 +82,19 @@ pub fn import_globe<R: Read, S: BuildHasher>(
     sources: GlobeSources<R>,
     winds: &HashMap<AirportIdent, Degrees, S>,
 ) -> Result<GlobeOutput> {
-    let places = read_places(sources.places).context("cannot read Natural Earth places")?;
+    let layers = sources.natural_earth;
+    let natural_earth = NaturalEarthSources {
+        countries: buffer(layers.countries, "countries")?,
+        borders: buffer(layers.borders, "borders")?,
+        state_borders: buffer(layers.state_borders, "state borders")?,
+        lakes: buffer(layers.lakes, "lakes")?,
+        rivers: buffer(layers.rivers, "rivers")?,
+        places: buffer(layers.places, "places")?,
+    };
+    let places = read_places(natural_earth.places.get_ref().as_slice())
+        .context("cannot read Natural Earth places")?;
+    let basemap = import_basemap(natural_earth, &BasemapSettings::globe()?)
+        .context("Natural Earth import failed")?;
     let import = import_world(
         OurAirportsSources {
             airports: sources.airports,
@@ -98,6 +112,7 @@ pub fn import_globe<R: Read, S: BuildHasher>(
     let winds = assign_winds(&mut world.airports, winds);
     Ok(GlobeOutput {
         world,
+        basemap,
         report: import.report,
         zones,
         winds,
@@ -176,7 +191,14 @@ mod tests {
         let sources = GlobeSources {
             airports: Cursor::new(b"id,ident,type,name,latitude_deg,longitude_deg,elevation_ft,iso_country,scheduled_service,icao_code,iata_code\n1,EDDF,large_airport,Frankfurt,50.03,8.57,364,DE,yes,EDDF,FRA\n2,KJFK,large_airport,Kennedy,40.64,-73.78,13,US,yes,KJFK,JFK\n".to_vec()),
             runways: Cursor::new(b"airport_ident,length_ft,width_ft,surface,closed,le_ident,le_latitude_deg,le_longitude_deg,le_heading_degT,le_displaced_threshold_ft,he_ident,he_latitude_deg,he_longitude_deg,he_heading_degT,he_displaced_threshold_ft\nEDDF,13123,197,CON,0,07C,,,69.6,,25C,,,249.6,\nKJFK,14511,200,ASP,0,04L,,,31,,22R,,,211,\n".to_vec()),
-            places: empty_layer(),
+            natural_earth: natural_earth::NaturalEarthSources {
+                countries: empty_layer(),
+                borders: empty_layer(),
+                state_borders: empty_layer(),
+                lakes: empty_layer(),
+                rivers: empty_layer(),
+                places: empty_layer(),
+            },
             zones: Cursor::new(b"\"icao\",\"iata\",\"name\",\"city\",\"subd\",\"country\",\"elevation\",\"lat\",\"lon\",\"tz\",\"lid\"\n\"EDDF\",\"FRA\",\"F\",\"\",\"\",\"DE\",364,50.03,8.57,\"Europe/Berlin\",\"\"\n".to_vec()),
         };
         let mut winds = std::collections::HashMap::new();

@@ -249,19 +249,35 @@ fn globe(args: &GlobeArgs) -> Result<()> {
         GlobeSources {
             airports: open(&inputs.airports)?,
             runways: open(&inputs.runways)?,
-            places: open(&inputs.places)?,
+            natural_earth: NaturalEarthSources {
+                countries: open(&inputs.countries)?,
+                borders: open(&inputs.borders)?,
+                state_borders: open(&inputs.state_borders)?,
+                lakes: open(&inputs.lakes)?,
+                rivers: open(&inputs.rivers)?,
+                places: open(&inputs.places)?,
+            },
             zones: open(&args.zones)?,
         },
         &winds,
     )?;
-    let path = args.out.join("world").join("world.bin");
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("cannot create {}", parent.display()))?;
+    for (path, bytes) in [
+        (
+            args.out.join("world").join("world.bin"),
+            output.world.to_asset()?,
+        ),
+        (
+            args.out.join("basemap").join("world.bin"),
+            output.basemap.to_asset()?,
+        ),
+    ] {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("cannot create {}", parent.display()))?;
+        }
+        fs::write(&path, &bytes).with_context(|| format!("cannot write {}", path.display()))?;
+        info!(path = %path.display(), bytes = bytes.len(), "wrote asset");
     }
-    let bytes = output.world.to_asset()?;
-    fs::write(&path, &bytes).with_context(|| format!("cannot write {}", path.display()))?;
-    info!(path = %path.display(), bytes = bytes.len(), "wrote asset");
     let report = &output.report;
     let scheduled = output.world.airports.iter().filter(|a| a.scheduled).count();
     info!(
