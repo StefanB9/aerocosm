@@ -1,6 +1,6 @@
 # Plan: M5 The Globe
 
-Status: **draft** (2026-11-13), awaiting approval
+Status: **approved** (2026-11-13)
 
 ## Goal
 
