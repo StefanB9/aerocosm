@@ -9,6 +9,7 @@ aerocosm-core = { path = "../aerocosm-core" }
 anyhow = { workspace = true }
 clap = { workspace = true }
 csv = { workspace = true }
+flate2 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

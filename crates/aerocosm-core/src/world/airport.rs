@@ -4,7 +4,11 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use super::codes::{AirportIdent, CountryCode, IataCode, IcaoCode};
-use crate::{CoreError, LatLon, units::Feet};
+use crate::{
+    CoreError, LatLon,
+    time::Zone,
+    units::{Degrees, Feet},
+};
 
 /// The role an aerodrome plays in the simulation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -27,10 +31,10 @@ pub struct AirportDefinition {
     /// Unique identifier: the ICAO code where there is one.
     pub ident: AirportIdent,
     /// ICAO location indicator; equals `ident` when present.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub icao: Option<IcaoCode>,
     /// IATA code, if assigned.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub iata: Option<IataCode>,
     /// Human-readable name.
     pub name: String,
@@ -45,8 +49,18 @@ pub struct AirportDefinition {
     /// Population within reach of a commercial or edge airport
     /// (importer-computed, plan D37); drives the schedule gravity model. Absent
     /// for airfields.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub catchment: Option<u32>,
+    /// Whether it has scheduled airline service (plan M5 D96).
+    #[serde(default)]
+    pub scheduled: bool,
+    /// Its local time zone, where known (plan M5 D101).
+    #[serde(default)]
+    pub zone: Option<Zone>,
+    /// The direction the prevailing wind blows from, where known (plan M5
+    /// D102).
+    #[serde(default)]
+    pub wind: Option<Degrees>,
 }
 
 /// A validated aerodrome.
@@ -120,6 +134,22 @@ impl Airport {
         self.definition.catchment
     }
 
+    /// Whether it has scheduled airline service (plan M5 D96).
+    pub const fn scheduled(&self) -> bool {
+        self.definition.scheduled
+    }
+
+    /// Its local time zone, where known (plan M5 D101).
+    pub const fn zone(&self) -> Option<&Zone> {
+        self.definition.zone.as_ref()
+    }
+
+    /// The direction the prevailing wind blows from, where known (plan M5
+    /// D102).
+    pub const fn wind(&self) -> Option<Degrees> {
+        self.definition.wind
+    }
+
     /// The definition this airport was built from, for writing world files.
     pub const fn definition(&self) -> &AirportDefinition {
         &self.definition
@@ -144,6 +174,9 @@ pub(super) mod tests {
             kind: AirportKind::Major,
             country: "DE".parse()?,
             catchment: Some(5_600_000),
+            scheduled: false,
+            zone: None,
+            wind: None,
         })
     }
 
@@ -227,15 +260,21 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn test_airport_definition_omits_absent_codes() -> Result<()> {
+    fn test_airport_definition_writes_absent_codes_as_null() -> Result<()> {
+        // Every field is written, so that positional binary assets (plan M5
+        // D104) read back what was written; older files omitting them still
+        // load.
         let mut definition = frankfurt()?;
         definition.iata = None;
         definition.catchment = None;
         let json = serde_json::to_string(&definition).context("serialise")?;
-        assert!(!json.contains("iata"), "{json}");
-        assert!(!json.contains("catchment"), "{json}");
-        let back: AirportDefinition = serde_json::from_str(&json).context("deserialise")?;
-        assert_eq!(back.iata, None);
+        assert!(json.contains("\"iata\":null"), "{json}");
+        assert!(json.contains("\"catchment\":null"), "{json}");
+        let short = json
+            .replace(",\"iata\":null", "")
+            .replace(",\"catchment\":null", "");
+        let older: AirportDefinition = serde_json::from_str(&short).context("older file")?;
+        assert_eq!(older, definition);
         Ok(())
     }
 }

@@ -193,6 +193,9 @@ mod tests {
             kind: AirportKind::Airfield,
             country: "DE".parse()?,
             catchment: None,
+            scheduled: false,
+            zone: None,
+            wind: None,
         })
     }
 

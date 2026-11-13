@@ -4,6 +4,7 @@
 mod cli;
 
 use std::{
+    collections::HashMap,
     fs::{self, File},
     io::BufReader,
     path::{Path, PathBuf},
@@ -11,20 +12,26 @@ use std::{
 
 use aerocosm_core::{
     traffic::TrafficTargets,
-    world::{World, codes::AirportIdent},
+    units::Degrees,
+    world::{World, WorldDefinition, codes::AirportIdent},
 };
 use aerocosm_data::{
-    import_all,
+    GlobeSources, import_all, import_globe,
     natural_earth::NaturalEarthSources,
+    opensky::{Aggregator, read_openflights},
     osm::{OsmSource, StandSizes, ground_airports, import_ground, overpass_query},
     ourairports::OurAirportsSources,
+    wind::parse_wind,
 };
 use anyhow::{Context, Result};
 use clap::Parser;
+use flate2::read::GzDecoder;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use crate::cli::{Cli, Command, GroundArgs, ImportArgs, QueriesArgs};
+use crate::cli::{
+    Cli, Command, GlobeArgs, GroundArgs, ImportArgs, ObservedArgs, QueriesArgs, WindRequestsArgs,
+};
 
 /// Where each input dataset file is expected.
 struct InputPaths {
@@ -76,6 +83,9 @@ fn main() -> Result<()> {
         Command::Import(args) => import(&args),
         Command::Ground(args) => ground(&args),
         Command::Queries(args) => queries(&args),
+        Command::Globe(args) => globe(&args),
+        Command::WindRequests(args) => wind_requests(&args),
+        Command::Observed(args) => observed(&args),
     }
 }
 
@@ -220,6 +230,150 @@ fn import(args: &ImportArgs) -> Result<()> {
     }
     for (reason, count) in &report.fallbacks {
         info!(reason, count, "applied fallback");
+    }
+    Ok(())
+}
+
+/// Imports the globe's world asset (plan M5).
+fn globe(args: &GlobeArgs) -> Result<()> {
+    let inputs = InputPaths::new(&args.ourairports, &args.natural_earth);
+    let open = |path: &Path| -> Result<BufReader<File>> {
+        let file = File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
+        Ok(BufReader::new(file))
+    };
+    let winds = match &args.winds {
+        Some(dir) => read_winds(dir)?,
+        None => HashMap::new(),
+    };
+    let output = import_globe(
+        GlobeSources {
+            airports: open(&inputs.airports)?,
+            runways: open(&inputs.runways)?,
+            natural_earth: NaturalEarthSources {
+                countries: open(&inputs.countries)?,
+                borders: open(&inputs.borders)?,
+                state_borders: open(&inputs.state_borders)?,
+                lakes: open(&inputs.lakes)?,
+                rivers: open(&inputs.rivers)?,
+                places: open(&inputs.places)?,
+            },
+            zones: open(&args.zones)?,
+        },
+        &winds,
+    )?;
+    for (path, bytes) in [
+        (
+            args.out.join("world").join("world.bin"),
+            output.world.to_asset()?,
+        ),
+        (
+            args.out.join("basemap").join("world.bin"),
+            output.basemap.to_asset()?,
+        ),
+    ] {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("cannot create {}", parent.display()))?;
+        }
+        fs::write(&path, &bytes).with_context(|| format!("cannot write {}", path.display()))?;
+        info!(path = %path.display(), bytes = bytes.len(), "wrote asset");
+    }
+    let report = &output.report;
+    let scheduled = output.world.airports.iter().filter(|a| a.scheduled).count();
+    info!(
+        airports = report.airports,
+        scheduled,
+        surveyed_runways = report.surveyed_runways,
+        approximate_runways = report.approximate_runways,
+        zones_by_code = output.zones.by_code,
+        zones_by_neighbour = output.zones.by_neighbour,
+        zones_missing = output.zones.missing,
+        winds = output.winds,
+        "globe imported"
+    );
+    for (reason, count) in &report.skipped {
+        info!(reason, count, "skipped records");
+    }
+    for (reason, count) in &report.fallbacks {
+        info!(reason, count, "applied fallback");
+    }
+    Ok(())
+}
+
+/// The prevailing winds in a directory of POWER responses, `<IDENT>.json`.
+fn read_winds(dir: &Path) -> Result<HashMap<AirportIdent, Degrees>> {
+    let mut winds = HashMap::new();
+    for entry in fs::read_dir(dir).with_context(|| format!("cannot read {}", dir.display()))? {
+        let path = entry?.path();
+        let Some(ident) = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .and_then(|stem| stem.parse::<AirportIdent>().ok())
+        else {
+            continue;
+        };
+        let text =
+            fs::read_to_string(&path).with_context(|| format!("cannot read {}", path.display()))?;
+        if let Some(wind) = parse_wind(&text).with_context(|| format!("in {}", path.display()))? {
+            winds.insert(ident, wind);
+        }
+    }
+    Ok(winds)
+}
+
+/// Writes the NASA POWER requests for the globe's scheduled airports.
+fn wind_requests(args: &WindRequestsArgs) -> Result<()> {
+    let bytes =
+        fs::read(&args.world).with_context(|| format!("cannot read {}", args.world.display()))?;
+    let world = WorldDefinition::from_asset(&bytes)?;
+    let lines = aerocosm_data::wind::wind_requests(&world.airports);
+    fs::write(&args.out, &lines).with_context(|| format!("cannot write {}", args.out.display()))?;
+    info!(path = %args.out.display(), requests = lines.lines().count(), "wrote wind requests");
+    Ok(())
+}
+
+/// Aggregates the `OpenSky` flight lists into the observed traffic asset.
+fn observed(args: &ObservedArgs) -> Result<()> {
+    let bytes =
+        fs::read(&args.world).with_context(|| format!("cannot read {}", args.world.display()))?;
+    let world = WorldDefinition::from_asset(&bytes)?;
+    let airlines = read_openflights(BufReader::new(
+        File::open(&args.airlines)
+            .with_context(|| format!("cannot open {}", args.airlines.display()))?,
+    ))?;
+    let mut aggregator = Aggregator::new(&world, args.year);
+    for path in &args.flights {
+        let file = File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
+        aggregator
+            .add(BufReader::new(GzDecoder::new(BufReader::new(file))))
+            .with_context(|| format!("in {}", path.display()))?;
+        info!(path = %path.display(), "flight list counted");
+    }
+    let (observed, report) = aggregator.finish(&airlines, args.min_flights);
+    let path = args.out.join("traffic").join("observed.bin");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("cannot create {}", parent.display()))?;
+    }
+    let bytes = observed.to_asset()?;
+    fs::write(&path, &bytes).with_context(|| format!("cannot write {}", path.display()))?;
+    let flights: u64 = observed
+        .airports
+        .iter()
+        .map(|a| u64::from(a.departures))
+        .sum();
+    info!(
+        path = %path.display(),
+        bytes = bytes.len(),
+        read = report.flights,
+        counted = flights,
+        airports = observed.airports.len(),
+        airlines = observed.airlines.len(),
+        small_airlines = report.small_airlines,
+        "wrote observed traffic"
+    );
+    for (reason, count) in &report.rejected {
+        info!(reason, count, "rejected flights");
     }
     Ok(())
 }

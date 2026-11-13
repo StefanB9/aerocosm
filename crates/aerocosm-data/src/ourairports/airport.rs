@@ -12,11 +12,11 @@ use anyhow::Result;
 
 use super::{Fallbacks, records::AirportRecord};
 
-/// Converts a row, or `None` if it is not an aerodrome in `country` with valid
-/// data.
+/// Converts a row, or `None` if it is not an aerodrome in `country` (any
+/// country if `None`) with valid data.
 pub(super) fn convert_airport(
     record: &AirportRecord,
-    country: CountryCode,
+    country: Option<CountryCode>,
     edges: &[IcaoCode],
     fallbacks: &mut Fallbacks,
 ) -> Result<Option<AirportDefinition>> {
@@ -26,7 +26,8 @@ pub(super) fn convert_airport(
         .or(Some(record.ident.as_str()))
         .and_then(|code| code.parse::<IcaoCode>().ok())
         .is_some_and(|icao| edges.contains(&icao));
-    let kind = match (record.iso_country == country.as_str(), record.kind.as_str()) {
+    let inside = country.is_none_or(|country| record.iso_country == country.as_str());
+    let kind = match (inside, record.kind.as_str()) {
         (true, "large_airport") => AirportKind::Major,
         (true, "medium_airport") => AirportKind::Regional,
         (true, "small_airport") if record.scheduled_service == "yes" => AirportKind::Regional,
@@ -76,5 +77,8 @@ pub(super) fn convert_airport(
         kind,
         country,
         catchment: None,
+        scheduled: record.scheduled_service == "yes",
+        zone: None,
+        wind: None,
     }))
 }

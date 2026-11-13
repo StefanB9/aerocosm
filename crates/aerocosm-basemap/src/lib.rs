@@ -15,6 +15,13 @@ use serde::{Deserialize, Serialize};
 /// Basemap file format version this build reads and writes.
 pub const FORMAT_VERSION: u32 = 1;
 
+/// The basemap as a binary asset (plan M5 D104).
+const BASEMAP_ASSET: aerocosm_core::asset::AssetKind = aerocosm_core::asset::AssetKind {
+    tag: *b"BMAP",
+    name: "basemap asset",
+    version: FORMAT_VERSION,
+};
+
 /// Rounding slack when checking that clipped points lie within the bounds.
 const BOUNDS_TOLERANCE: f64 = 1e-9;
 
@@ -276,7 +283,7 @@ impl Place {
 }
 
 /// The layers of a basemap, before cross-layer validation.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BasemapLayers {
     /// Area covered; every point must lie within it.
     pub bounds: Bounds,
@@ -374,6 +381,18 @@ impl Basemap {
             places: file.places,
         })
         .context("invalid basemap file")
+    }
+
+    /// The basemap as a binary asset (plan M5 D104); its layers are
+    /// validated on reading as from JSON.
+    pub fn to_asset(&self) -> Result<Vec<u8>> {
+        aerocosm_core::asset::encode(BASEMAP_ASSET, &self.layers)
+    }
+
+    /// Reads and validates an asset written by [`Self::to_asset`].
+    pub fn from_asset(bytes: &[u8]) -> Result<Self> {
+        let layers: BasemapLayers = aerocosm_core::asset::decode(BASEMAP_ASSET, bytes)?;
+        Self::new(layers).context("invalid basemap asset")
     }
 
     /// Serialises as compact JSON with a trailing newline.
@@ -616,6 +635,13 @@ mod tests {
     }
 
     #[test]
+    fn test_basemap_binary_round_trip() -> Result<()> {
+        let basemap = sample()?;
+        assert_eq!(Basemap::from_asset(&basemap.to_asset()?)?, basemap);
+        Ok(())
+    }
+
+    #[test]
     fn test_basemap_from_json_rejects_bad_version_and_invalid_content() -> Result<()> {
         let json = sample()?.to_json()?;
         let future = json.replacen("\"format_version\":1", "\"format_version\":2", 1);
@@ -641,6 +667,23 @@ mod tests {
         assert!(basemap.countries().iter().any(|c| c.code.as_str() == "DE"));
         assert!(basemap.places().iter().any(|p| p.name() == "Berlin"));
         assert!(basemap.state_borders().len() > 10);
+        Ok(())
+    }
+
+    #[test]
+    fn test_shipped_world_basemap_covers_the_globe() -> Result<()> {
+        let basemap = Basemap::from_asset(include_bytes!("../../../assets/basemap/world.bin"))?;
+        assert!(
+            basemap.countries().len() > 200,
+            "{}",
+            basemap.countries().len()
+        );
+        let (west, east) = (
+            basemap.bounds().south_west().longitude().value(),
+            basemap.bounds().north_east().longitude().value(),
+        );
+        assert!(west <= -179.0 && east >= 179.0, "{west} {east}");
+        assert_eq!(basemap.state_borders().len(), 0);
         Ok(())
     }
 }

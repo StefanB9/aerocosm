@@ -1,6 +1,7 @@
 //! `OurAirports` CSV → world definition.
 
 mod airport;
+mod magnetic;
 mod records;
 mod runway;
 mod surface;
@@ -23,6 +24,7 @@ use serde::de::DeserializeOwned;
 
 use self::{
     airport::convert_airport,
+    magnetic::{DesignatorOffsets, offset_of},
     records::{AirportRecord, RunwayRecord},
     runway::convert_runway,
 };
@@ -41,12 +43,21 @@ pub struct OurAirportsSources<R> {
 /// headings.
 #[derive(Debug, Clone)]
 pub struct WorldSettings {
-    country: CountryCode,
+    /// The country, or `None` for the whole globe.
+    country: Option<CountryCode>,
     /// Foreign airports imported as edge airports.
     edges: Vec<IcaoCode>,
-    /// Magnetic declination, positive east, used when synthesising runway
-    /// headings.
-    declination: Degrees,
+    /// How synthesised runway headings follow from designators.
+    declination: Declination,
+}
+
+/// How a runway designator turns into a true heading.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Declination {
+    /// One magnetic declination everywhere, positive east.
+    Fixed(Degrees),
+    /// The offset learnt from the nearest surveyed runways (plan M5 D101).
+    Learnt,
 }
 
 /// Foreign airports imported as edge airports (plan D29): major European
@@ -72,11 +83,45 @@ impl WorldSettings {
             );
         }
         Ok(Self {
-            country: "DE".parse()?,
+            country: Some("DE".parse()?),
             edges,
-            declination: Degrees::new(4.0)?,
+            declination: Declination::Fixed(Degrees::new(4.0)?),
         })
     }
+
+    /// Every aerodrome on the globe (plan M5 D96); no edges, the world is
+    /// closed.
+    pub fn globe() -> Result<Self> {
+        Ok(Self {
+            country: None,
+            edges: Vec::new(),
+            declination: Declination::Learnt,
+        })
+    }
+}
+
+/// Designator offsets from every runway end with a surveyed true heading.
+fn learn_offsets(
+    records: &[RunwayRecord],
+    airports: &HashMap<String, (AirportDefinition, Fallbacks)>,
+) -> DesignatorOffsets {
+    let mut samples = Vec::with_capacity(records.len());
+    for record in records {
+        let Some((airport, _)) = airports.get(&record.airport_ident) else {
+            continue;
+        };
+        for (ident, heading) in [
+            (&record.le_ident, record.le_heading_degT),
+            (&record.he_ident, record.he_heading_degT),
+        ] {
+            if let (Some(ident), Some(heading)) = (ident.as_deref(), heading)
+                && let Some(offset) = offset_of(ident, heading)
+            {
+                samples.push((airport.location, offset));
+            }
+        }
+    }
+    DesignatorOffsets::new(samples)
 }
 
 /// Sum of the populations within [`CATCHMENT_RADIUS_METERS`] of `location`.
@@ -161,12 +206,24 @@ pub fn import_world<R: Read>(
         }
     }
 
+    let records = read_csv::<RunwayRecord>(sources.runways, "runways.csv")?;
+    let offsets = match settings.declination {
+        Declination::Fixed(_) => DesignatorOffsets::default(),
+        Declination::Learnt => learn_offsets(&records, &airports),
+    };
     let mut runways = Vec::new();
-    for record in read_csv::<RunwayRecord>(sources.runways, "runways.csv")? {
+    for record in &records {
         let Some((airport, _)) = airports.get(&record.airport_ident) else {
             continue;
         };
-        match convert_runway(&record, airport, settings.declination, &mut fallbacks)? {
+        let declination = match settings.declination {
+            Declination::Fixed(degrees) => degrees,
+            Declination::Learnt => offsets.at(airport.location).unwrap_or_else(|| {
+                fallbacks.count("no designator offset nearby");
+                Degrees::default()
+            }),
+        };
+        match convert_runway(record, airport, declination, &mut fallbacks)? {
             Ok(runway) => runways.push(runway),
             Err(reason) => *skipped.entry(reason).or_default() += 1,
         }
@@ -286,6 +343,64 @@ mod tests {
             runways: Cursor::new(runways().into_bytes()),
         };
         import_world(sources, &WorldSettings::germany()?, &places()?)
+    }
+
+    fn import_globe() -> Result<WorldImport> {
+        let sources = OurAirportsSources {
+            airports: Cursor::new(airports().into_bytes()),
+            runways: Cursor::new(runways().into_bytes()),
+        };
+        import_world(sources, &WorldSettings::globe()?, &places()?)
+    }
+
+    #[test]
+    fn test_the_globe_takes_every_country_without_edges() -> Result<()> {
+        let world = import_globe()?.definition;
+        let paris = world
+            .airports
+            .iter()
+            .find(|a| a.ident.as_str() == "LFPG")
+            .context("Paris")?;
+        assert_eq!(paris.kind, AirportKind::Major);
+        assert!(paris.scheduled);
+        assert!(paris.catchment.is_some());
+        assert!(world.airports.iter().all(|a| a.kind != AirportKind::Edge));
+        let egelsbach = world
+            .airports
+            .iter()
+            .find(|a| a.ident.as_str() == "EDFE")
+            .context("Egelsbach")?;
+        assert!(!egelsbach.scheduled);
+        // Germany alone takes Paris only as an edge.
+        let germany = import()?.definition;
+        let edge = germany
+            .airports
+            .iter()
+            .find(|a| a.ident.as_str() == "LFPG")
+            .context("Paris as an edge")?;
+        assert_eq!(edge.kind, AirportKind::Edge);
+        Ok(())
+    }
+
+    #[test]
+    fn test_the_globe_learns_how_designators_point() -> Result<()> {
+        let heading = |world: &WorldDefinition| -> Result<f64> {
+            let runway = world
+                .runways
+                .iter()
+                .find(|r| r.airport.as_str() == "EDFE")
+                .context("Egelsbach 09/27")?;
+            Ok(runway.ends[0].true_heading().value())
+        };
+        // Eight surveyed ends nearby run -0.4° (EDDF 07C/25C), 0° (EDDF
+        // 18/36) and +5° (LFPG, DE-0062) from their designators: +2.4° on
+        // average.
+        let learnt = heading(&import_globe()?.definition)?;
+        assert!((learnt - 92.4).abs() < 0.05, "{learnt}");
+        // Germany alone uses its fixed 4°.
+        let fixed = heading(&import()?.definition)?;
+        assert!((fixed - 94.0).abs() < 1e-9, "{fixed}");
+        Ok(())
     }
 
     /// One place 20 km from Frankfurt, one 150 km away.

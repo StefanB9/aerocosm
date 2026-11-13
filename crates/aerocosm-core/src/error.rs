@@ -149,6 +149,13 @@ pub enum CoreError {
         supported: u32,
     },
 
+    /// Bytes that are not an asset of the expected kind (plan M5 D104).
+    #[error("not a {file}")]
+    NotAnAsset {
+        /// Which kind of asset was expected.
+        file: &'static str,
+    },
+
     /// A time zone name is not in the IANA database.
     #[error("unknown time zone {name:?}")]
     UnknownTimeZone {
@@ -362,6 +369,14 @@ mod tests {
             ident: "EDDH".to_owned(),
         };
         assert_eq!(error.to_string(), "runway references unknown airport EDDH");
+    }
+
+    #[test]
+    fn test_core_error_not_an_asset_display() {
+        let error = CoreError::NotAnAsset {
+            file: "world asset",
+        };
+        assert_eq!(error.to_string(), "not a world asset");
     }
 
     #[test]

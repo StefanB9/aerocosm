@@ -61,8 +61,8 @@ pub struct BasemapSettings {
     bounds: Rect,
     /// Douglas–Peucker tolerance in degrees.
     tolerance: f64,
-    /// `ADM0_A3` code whose state borders are kept.
-    state_country: &'static str,
+    /// `ADM0_A3` code whose state borders are kept, if any.
+    state_country: Option<&'static str>,
 }
 
 impl BasemapSettings {
@@ -79,7 +79,22 @@ impl BasemapSettings {
             // ~150-220 m: invisible at country zoom, slightly coarse at airport
             // zoom, where OSM detail takes over in a later milestone.
             tolerance: 0.002,
-            state_country: "DEU",
+            state_country: Some("DEU"),
+        })
+    }
+
+    /// The whole globe within Web Mercator's limits (plan M5), simplified to
+    /// about a kilometre; no state borders, which would favour one country.
+    pub fn globe() -> Result<Self> {
+        Ok(Self {
+            bounds: Rect {
+                west: -180.0,
+                south: -85.0,
+                east: 180.0,
+                north: 85.0,
+            },
+            tolerance: 0.01,
+            state_country: None,
         })
     }
 
@@ -161,7 +176,9 @@ pub fn import_basemap<R: Read>(
 
     let mut state_borders = Vec::new();
     for feature in read_layer::<StateBorderProperties>(sources.state_borders, "state borders")? {
-        if feature.properties.country.as_deref() == Some(settings.state_country) {
+        if settings.state_country.is_some()
+            && feature.properties.country.as_deref() == settings.state_country
+        {
             let rank = feature.properties.rank;
             state_borders.extend(lines(feature.geometry.as_ref(), rank, settings)?);
         }
@@ -319,7 +336,7 @@ mod tests {
                 north: 56.5,
             },
             tolerance: 0.002,
-            state_country: "DEU",
+            state_country: Some("DEU"),
         }
     }
 
@@ -474,6 +491,19 @@ mod tests {
             .find(|p| (p.location.latitude().value() - 50.0).abs() < 1e-9)
             .context("Nowhere")?;
         assert_eq!(nowhere.population, 0, "negative populations become 0");
+        Ok(())
+    }
+
+    #[test]
+    fn test_the_globe_keeps_everything_but_state_borders() -> Result<()> {
+        let basemap = import_basemap(sources(), &BasemapSettings::globe()?)?;
+        let names: Vec<&str> = basemap
+            .countries()
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect();
+        assert!(names.contains(&"Far away"), "{names:?}");
+        assert_eq!(basemap.state_borders().len(), 0);
         Ok(())
     }
 }
