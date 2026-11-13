@@ -65,9 +65,9 @@ impl PartialOrd for Entry {
 }
 
 impl AirportGround {
-    /// Per node, whether a route from `from` leads there, respecting one-way
-    /// edges (any wingspan).
-    pub(crate) fn reachable_from(&self, from: Id<Node>) -> Vec<bool> {
+    /// Per node, whether a route from `from` leads there for an aircraft of
+    /// `wingspan`, respecting one-way edges and taxiway widths as routes do.
+    pub(crate) fn reachable_from(&self, from: Id<Node>, wingspan: Meters) -> Vec<bool> {
         let mut seen = vec![false; self.nodes().len()];
         let Some(first) = seen.get_mut(from.as_usize()) else {
             return seen;
@@ -80,7 +80,9 @@ impl AirportGround {
                     continue;
                 };
                 let forward = edge.from() == here;
-                if !forward && edge.oneway() {
+                if (!forward && edge.oneway())
+                    || edge.max_wingspan().is_some_and(|limit| limit < wingspan)
+                {
                     continue;
                 }
                 let next = if forward { edge.to() } else { edge.from() };
@@ -372,7 +374,12 @@ mod tests {
     #[test]
     fn test_reachable_from_follows_one_way_edges() -> Result<()> {
         let (_, mut ground) = square()?;
-        assert!(ground.reachable_from(Id::new(0)).iter().all(|&r| r));
+        assert!(
+            ground
+                .reachable_from(Id::new(0), span(36.0)?)
+                .iter()
+                .all(|&r| r)
+        );
         // A one-way spur 0→4 with no way back: from 4 only 5, 2, 3, 1 and 0
         // via the square, but nothing reaches 4 from 5.
         ground.edges[4].oneway = true;
@@ -382,10 +389,32 @@ mod tests {
             to: Id::new(4),
             ..ground.edges[5].clone()
         };
-        let from_four = ground.reachable_from(Id::new(4));
+        let from_four = ground.reachable_from(Id::new(4), span(36.0)?);
         assert_eq!(from_four, vec![false, false, false, false, true, false]);
-        assert!(ground.reachable_from(Id::new(5))[4]);
-        assert_eq!(ground.reachable_from(Id::new(99)), vec![false; 6]);
+        assert!(ground.reachable_from(Id::new(5), span(36.0)?)[4]);
+        assert_eq!(
+            ground.reachable_from(Id::new(99), span(36.0)?),
+            vec![false; 6]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_reachable_from_respects_wingspans() -> Result<()> {
+        let (_, mut ground) = square()?;
+        // Node 5 hangs off narrow taxiways only: where routes cannot go.
+        ground.edges[4].max_wingspan = Some(span(52.0)?);
+        ground.edges[5].max_wingspan = Some(span(52.0)?);
+        let wide = ground.reachable_from(Id::new(0), span(65.0)?);
+        let narrow = ground.reachable_from(Id::new(0), span(36.0)?);
+        assert!(narrow.iter().all(|&r| r));
+        for (node, reached) in wide.iter().enumerate() {
+            let routed = ground
+                .route(Id::new(0), Id::from_usize(node)?, span(65.0)?)
+                .is_some();
+            assert_eq!(*reached, routed, "node {node}");
+        }
+        assert!(!wide.iter().all(|&r| r));
         Ok(())
     }
 

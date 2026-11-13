@@ -170,10 +170,8 @@ impl Operations {
                 .get(&runway)
                 .copied()
                 .unwrap_or((i64::MIN, DEPARTURE_INTERVAL));
-            pace = learn_pace(
-                pace,
-                queued.then(|| ms(now) - last).filter(|_| last > i64::MIN),
-            );
+            // Only once a departure has gone before is there an interval.
+            pace = learn_pace(pace, (queued && last > i64::MIN).then(|| ms(now) - last));
             airside.pace.insert(runway, (ms(now), pace));
         }
     }
