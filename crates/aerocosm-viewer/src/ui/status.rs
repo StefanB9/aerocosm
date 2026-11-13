@@ -95,12 +95,11 @@ mod tests {
             .context("EDDF")?;
         let lines = status_lines(&simulation, frankfurt);
         assert_eq!(lines.len(), 4, "{lines:?}");
-        assert!(lines[0].starts_with("Landing 25"), "{}", lines[0]);
-        assert!(
-            lines[0].contains("take-off 25C 18") || lines[0].contains("take-off 18 25C"),
-            "{}",
-            lines[0]
-        );
+        // West flow by rule (plan M5 D113): two runways each way.
+        let (landing, take_off) = lines[0].split_once(" · take-off ").context("both")?;
+        let names = |text: &str| text.split(' ').filter(|n| n.starts_with("25")).count();
+        assert!(landing.starts_with("Landing 25"), "{}", lines[0]);
+        assert_eq!((names(landing), names(take_off)), (2, 2), "{}", lines[0]);
         assert!(lines[1].starts_with("Now: "), "{}", lines[1]);
         assert!(lines[2].contains("% on time"), "{}", lines[2]);
         assert!(lines[3].starts_with("Ground: "), "{}", lines[3]);

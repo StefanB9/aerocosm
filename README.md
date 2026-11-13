@@ -95,13 +95,13 @@ aircraft, airline and traffic files (the shipped assets by default), generates t
 from the seed and flies it:
 
 ```bash
-cargo run -p aerocosm -- run --world assets/world/germany.world.json --duration 24h
+cargo run -p aerocosm -- run --world assets/world/world.bin --duration 24h
 ```
 
 A full week in release, the M2 acceptance run (about 15 s):
 
 ```bash
-cargo run --release -p aerocosm -- run --world assets/world/germany.world.json --start 2026-07-06T00:00:00Z --duration 7d
+cargo run --release -p aerocosm -- run --world assets/world/world.bin --start 2026-07-06T00:00:00Z --duration 7d
 ```
 
 What to check:

@@ -36,8 +36,8 @@ pub(crate) struct RunArgs {
     #[arg(long, default_value = "24h")]
     pub(crate) duration: SimDuration,
 
-    /// World file to simulate, e.g. assets/world/germany.world.json. Without it
-    /// the world is empty.
+    /// World to simulate: the world asset, e.g. assets/world/world.bin, or a
+    /// world file in JSON. Without it the world is empty.
     #[arg(long)]
     pub(crate) world: Option<PathBuf>,
 
@@ -45,13 +45,10 @@ pub(crate) struct RunArgs {
     #[arg(long, default_value = "assets/aircraft/types.json")]
     pub(crate) aircraft: PathBuf,
 
-    /// Airline catalog, used with --world unless --no-traffic.
-    #[arg(long, default_value = "assets/airlines/airlines.json")]
-    pub(crate) airlines: PathBuf,
-
-    /// Traffic calibration targets, used with --world unless --no-traffic.
-    #[arg(long, default_value = "assets/traffic/germany.json")]
-    pub(crate) traffic: PathBuf,
+    /// Observed traffic the world model is derived from (plan M5), used with
+    /// --world unless --no-traffic.
+    #[arg(long, default_value = "assets/traffic/observed.bin")]
+    pub(crate) observed: PathBuf,
 
     /// Simulate the static world only, without schedules and flights.
     #[arg(long)]
@@ -100,12 +97,8 @@ mod tests {
             std::path::Path::new("assets/aircraft/types.json")
         );
         assert_eq!(
-            args.airlines,
-            std::path::Path::new("assets/airlines/airlines.json")
-        );
-        assert_eq!(
-            args.traffic,
-            std::path::Path::new("assets/traffic/germany.json")
+            args.observed,
+            std::path::Path::new("assets/traffic/observed.bin")
         );
         assert!(!args.no_traffic && !args.cold_start && !args.no_ground);
         assert_eq!(
@@ -127,11 +120,11 @@ mod tests {
             "run",
             "--cold-start",
             "--no-traffic",
-            "--traffic",
-            "other.json",
+            "--observed",
+            "other.bin",
         ])?;
         assert!(args.cold_start && args.no_traffic);
-        assert_eq!(args.traffic, std::path::Path::new("other.json"));
+        assert_eq!(args.observed, std::path::Path::new("other.bin"));
         Ok(())
     }
 
@@ -147,11 +140,11 @@ mod tests {
             "--duration",
             "1h30m",
             "--world",
-            "assets/world/germany.world.json",
+            "assets/world/world.bin",
         ])?;
         assert_eq!(
             args.world.as_deref(),
-            Some(std::path::Path::new("assets/world/germany.world.json"))
+            Some(std::path::Path::new("assets/world/world.bin"))
         );
         assert_eq!(args.seed, RngSeed::new(7));
         assert_eq!(args.start, "2026-11-05T06:00:00Z".parse::<SimTime>()?);

@@ -10,6 +10,12 @@ use crate::{
 /// south-westerly over Germany.
 pub(crate) const PREVAILING_WIND: Degrees = Degrees::from_raw(250.0);
 
+/// The wind `airport`'s runways are used for: its climatological prevailing
+/// wind (plan M5 D102), else the west wind of central Europe.
+pub(crate) fn prevailing_wind(airport: &crate::world::Airport) -> Degrees {
+    airport.wind().unwrap_or(PREVAILING_WIND)
+}
+
 /// A runway (index into the airport's runways) and the end aircraft use: they
 /// take off from and land at that end's threshold, heading along it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

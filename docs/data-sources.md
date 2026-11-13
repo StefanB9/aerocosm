@@ -23,8 +23,6 @@ overrides the baseline where it has data. Every feature works on the baseline al
 | `assets/world/germany.world.json` | [OurAirports](https://ourairports.com/data/) `airports.csv`, `runways.csv` | Public domain | Not required; credited here |
 | `assets/basemap/germany.basemap.json` | [Natural Earth](https://www.naturalearthdata.com/) 1:10m vector layers (`GeoJSON` from [nvkelso/natural-earth-vector](https://github.com/nvkelso/natural-earth-vector)) | Public domain | "Made with Natural Earth" (requested, not required) |
 | `assets/aircraft/types.json` | Hand-curated; see each entry's `source` field (wingspans: manufacturers' airport-planning documents). 37 types; aliases map close variants (ICAO designators) to them, so that 97 % of the typed flights in the 2019 OpenSky lists fly as a catalog type (plan M5 D111) | — | — |
-| `assets/airlines/airlines.json` | Hand-curated from carriers' published bases and fleets (2025); see each entry's `source` field | — | — |
-| `assets/traffic/germany.json` | [ADV-Monatsstatistik 12/2025](https://www.adv.aero/wp-content/uploads/2015/11/12.2025-ADV-Monatsstatistik.pdf) (movements), [DFS 2025 traffic](https://www.dfs.de/homepage/en/media/press/2026/05-01-2026-air-traffic-in-germany-2025-more-flights-good-punctuality-level/), [EUROCONTROL European Aviation Overview 2025](https://www.eurocontrol.int/sites/default/files/2026-01/eurocontrol-european-aviation-overview-20260123-2025-review.pdf) (overflights); capacities and runway modes: [Frankfurt noise commission 2025](https://www.flk-frankfurt.de/eigene_dateien/aktuell/2025-aktuelles/juni/top_3_-_flk-beschluss_zum_entwurf_eines_geaenderten_betriebskonzepts_fuer_den_flughafen_frankfurt__26.6.2025.pdf), [Lärmaktionsplan Flughafen München 2021](https://www.regierung.oberbayern.bayern.de/mam/dokumente/bereich5/pfb/laermaktionsplanung/lap_fh-muc/anlage_11.pdf), [airliners.de on hourly coordination parameters](https://www.airliners.de/stundeneckwert-motor-hub-flughaefen-apropos-10/38723), [Düsseldorf operating rules](https://www.dus.com/de-de/konzern/nachbarn/transparenz/flugbetrieb/betriebszeiten), [City of Frankfurt noise monitoring](https://frankfurt.de/fluglaermschutz/-/media/frankfurtde/microsites/microsite-fluglaermschutz/pdf/laerm-monitoring-2024/fluglaerm-q3_2024.pdf); estimates labelled in the file's `source` field | Statistics cited, figures transcribed | Sources cited here |
 | `assets/ground/germany.ground.json` | [OpenStreetMap](https://www.openstreetmap.org/) via the [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API): aeroway taxiways, taxilanes, runways, parking positions, holding positions, aprons, terminals and aerodrome outlines around each German target airport | [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/) (`assets/ground/LICENSE.txt`) | "© OpenStreetMap contributors", required wherever the layouts are shown |
 | `assets/ground/stand-areas.json` | Hand-curated: terminal use by airline at FRA and MUC; see its `source` field | — | — |
 | `assets/fonts/Inter-*.ttf` | [Inter 4.1](https://github.com/rsms/inter) (`extras/ttf`), Regular and SemiBold | SIL Open Font License 1.1 (`assets/fonts/Inter-LICENSE.txt`) | Licence file shipped alongside |
@@ -164,22 +162,25 @@ Downloaded 2026-11-13 (Natural Earth: the 2026-11-05 snapshot above).
 | `runways.csv` (OurAirports) | SHA-256 `e1026851f59e3714c2074432e469aeb9c3b83908315cfa547f353ae607f74a1d` |
 | `airportsdata.csv` (`airportsdata/airports.csv`, main) | SHA-256 `b218baf3b864af711bfc5c2d6de38f4cdfde873e0c60289fd9c5cc22afe57876` |
 | `airlines.dat` (OpenFlights, master) | SHA-256 `39be1a432e8b04ebc12860c29281c974a9cb52169c82b2456a835d66ab1548a1` |
-| NASA POWER responses, 3,846 files `<IDENT>.json` | SHA-256 of their contents concatenated in name order `61bf794d7f0a3bcbc74d5449d937f4132fb988f3afebd1cdb1c65b08d85910d5` |
+| NASA POWER responses, 3,909 files `<IDENT>.json` | SHA-256 of their contents concatenated in name order (`LC_ALL=C`) `71b296a45dccfb2fef1e13a40974b1a5264a879a1a19390367cdbcc49258c304` |
 | `flightlist_2019*.csv.gz`, twelve months | MD5 as published on Zenodo (the record lists them) |
 
-Import result: 26,109 aerodromes with a usable runway, 3,846 with scheduled service; time
-zones for 5,591 airports (5,333 by code, 258 from the nearest listed airport in the
-country, 1 without); prevailing winds for all 3,846 scheduled airports. `world.bin`
-2.8 MB, `basemap/world.bin` 3.8 MB. World format 4 adds 234 countries with population and
-GDP (the countries with a valid ISO code and both figures).
+Import result: 28,204 aerodromes with a usable runway, 3,909 with scheduled service; time
+zones for 5,686 airports (5,422 by code, 263 from the nearest listed airport in the
+country, 1 without); prevailing winds for all 3,909 scheduled airports. `world.bin`
+3.0 MB, `basemap/world.bin` 3.8 MB. World format 4 adds 234 countries with population and
+GDP (the countries with a valid ISO code and both figures). Runway designators written
+without a leading zero (`6L`, American style) are read as `06L` since M5 PR 2; before, 2,269
+such runways were skipped, Los Angeles among their airports.
 
-Observed traffic: of 30,989,481 flights in the 2019 lists, 11,599,572 are counted with both
-ends at known airports (5,183 airports); dropped: 3,582,212 without a known airport,
-1,329,637 to the same airport, 323 faster than any airliner. 489 airlines with at least 365
-departures and an OpenFlights name; 1,673 smaller callsign prefixes left out. Coverage (the
-share of departures seen with both ends) varies: Germany 0.57, United States 0.46,
-Australia 0.50, India 0.31, Brazil 0.26, Japan 0.27, China 0.07. `traffic/observed.bin`
-219 KB.
+Observed traffic (format 2, M5 PR 2): of 30,989,481 flights in the 2019 lists, 12,402,764
+are counted with both ends at known airports (5,402 airports), flights at airports closed
+since counted at the nearest open one with scheduled service within 50 km; dropped:
+3,250,827 without a known airport, 1,349,320 to the same airport, 373 faster than any
+airliner. 497 airlines with at least 365 departures and an OpenFlights name; 1,683 smaller
+callsign prefixes left out. Coverage (the share of departures seen with both ends) varies:
+Germany 0.64, United States 0.50, Australia 0.51, India 0.31, Brazil 0.29, Japan 0.27, China
+0.07. `traffic/observed.bin` 236 KB.
 
 ### Regenerating the globe
 
@@ -224,8 +225,23 @@ Then aggregate the twelve 2019 flight lists from Zenodo (2.7 GB compressed; they
 streamed through named pipes rather than stored):
 
 ```bash
-cargo run --release -p aerocosm-data -- observed --airlines /tmp/aerocosm-data/globe/airlines.dat /tmp/aerocosm-data/globe/flightlist_2019*.csv.gz
+cargo run --release -p aerocosm-data -- observed --airlines /tmp/aerocosm-data/globe/airlines.dat --airports /tmp/aerocosm-data/globe/airports.csv /tmp/aerocosm-data/globe/flightlist_2019*.csv.gz
 ```
+
+## The world model (plan M5 PR 2)
+
+Movement targets, airlines, runway use and banks are no longer files: the core derives them
+at start-up from `world.bin`, `observed.bin` and `types.json` by general rules
+(`crates/aerocosm-core/src/traffic/model/`, plan M5 D109–D113). The German statistics are
+validation only: `ADV-Monatsstatistik 12/2019`
+([PDF](https://www.adv.aero/wp-content/uploads/2016/02/12.2019-ADV-Monatsstatistik.pdf)),
+scheduled and charter movements per airport, are constants in the tests (plan M5 D114).
+
+- **Closed airports:** the flight lists name airports closed since (Tegel). When aggregating,
+  their flights count at the nearest open airport with scheduled service within 50 km; a
+  closed airport's old ICAO code comes from its OurAirports keywords.
+- **Coverage per airport:** each observed airport also records its flights whose other end was
+  not seen (`partial`, observed format 2).
 
 ## Processing notes
 

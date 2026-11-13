@@ -265,6 +265,40 @@ pub fn import_world<R: Read>(
     })
 }
 
+/// The closed airports in `airports.csv` by their codes, with their
+/// locations: flight lists still name airports closed since (plan M5 D109).
+/// A closed airport's old ICAO code often survives only among its keywords
+/// (Tegel: `TXL, EDDT, …`), so those that look like one count too.
+pub fn read_closed_airports(reader: impl Read) -> Result<Vec<(String, LatLon)>> {
+    let mut out = Vec::new();
+    for record in read_csv::<AirportRecord>(reader, "airports.csv")? {
+        if record.kind != "closed" {
+            continue;
+        }
+        let Ok(at) = LatLon::new(record.latitude_deg, record.longitude_deg) else {
+            continue;
+        };
+        if let Some(icao) = record
+            .icao_code
+            .filter(|c| !c.is_empty() && *c != record.ident)
+        {
+            out.push((icao, at));
+        }
+        let old = record
+            .keywords
+            .iter()
+            .flat_map(|k| k.split(','))
+            .map(str::trim);
+        for code in old.filter(|c| c.len() == 4 && c.bytes().all(|b| b.is_ascii_uppercase())) {
+            if code != record.ident {
+                out.push((code.to_owned(), at));
+            }
+        }
+        out.push((record.ident, at));
+    }
+    Ok(out)
+}
+
 fn read_csv<T: DeserializeOwned>(reader: impl Read, file: &str) -> Result<Vec<T>> {
     let mut rows = Vec::new();
     for (line, row) in csv::Reader::from_reader(reader)
@@ -288,6 +322,21 @@ mod tests {
 
     use super::*;
     use crate::natural_earth::PopulatedPlace;
+
+    #[test]
+    fn test_closed_airports_with_their_old_codes() -> Result<()> {
+        let locations = read_closed_airports(Cursor::new(
+            "id,ident,type,name,latitude_deg,longitude_deg,elevation_ft,iso_country,\
+             scheduled_service,icao_code,iata_code,keywords\n1,DE-0876,closed,Tegel,52.56,13.29,\
+             122,DE,no,,,\"TXL, EDDT, Otto \
+             Lilienthal\"\n2,K00A,closed,Old,40.0,-75.0,10,US,no,KXYZ,,\"KOLD\"\n3,KLAX,\
+             large_airport,Open,33.9,-118.4,125,US,yes,KLAX,LAX,\n4,BAD,closed,Broken,95.0,0.0,0,\
+             US,no,,,\n",
+        ))?;
+        let codes: Vec<&str> = locations.iter().map(|(c, _)| c.as_str()).collect();
+        assert_eq!(codes, ["EDDT", "DE-0876", "KXYZ", "KOLD", "K00A"]);
+        Ok(())
+    }
 
     const AIRPORTS_HEADER: &str = "id,ident,type,name,latitude_deg,longitude_deg,elevation_ft,\
                                    continent,iso_country,iso_region,municipality,\

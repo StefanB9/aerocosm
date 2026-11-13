@@ -191,8 +191,8 @@ mod tests {
     fn test_shipped_stand_sizes_match_mapped_stands() -> Result<()> {
         let sizes =
             StandSizes::from_json(include_str!("../../../../assets/ground/stand-sizes.json"))?;
-        let world = aerocosm_core::world::World::from_json(include_str!(
-            "../../../../assets/world/germany.world.json"
+        let world = aerocosm_core::world::World::from_asset(include_bytes!(
+            "../../../../assets/world/world.bin"
         ))?;
         let ground = aerocosm_core::ground::GroundNetwork::from_json(
             include_str!("../../../../assets/ground/germany.ground.json"),

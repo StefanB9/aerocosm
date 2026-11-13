@@ -56,10 +56,12 @@ pub(super) fn choose_aircraft(
             flies.then_some((id, aircraft, share.share))
         })
         .collect();
+    // Size rules are for passengers: freight goes in whatever flies it.
+    let passengers = service.kind == FlightKind::Passenger;
     let sized = |aircraft: &AircraftType| {
-        let wide = !aircraft.is_freighter()
-            && matches!(aircraft.wake(), WakeCategory::Heavy | WakeCategory::Super);
-        let regional = !aircraft.is_freighter() && aircraft.seats() <= 100;
+        let wide =
+            passengers && matches!(aircraft.wake(), WakeCategory::Heavy | WakeCategory::Super);
+        let regional = passengers && aircraft.seats() <= 100;
         let short_wide = wide && distance.value() < WIDE_BODY_MIN_METERS;
         let long_regional = regional && distance.value() > REGIONAL_MAX_METERS;
         !short_wide && !long_regional

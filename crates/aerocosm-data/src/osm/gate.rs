@@ -31,16 +31,15 @@ pub(crate) struct Requirements {
 }
 
 /// The requirements at `airport`: stands for its movement target and the
-/// runway ends in use with the prevailing wind: those of its curated mode, or
+/// runway ends in use with its prevailing wind: those of its mode by rule, or
 /// of its long runways facing that way.
 pub(crate) fn requirements(
     world: &World,
     airport: Id<Airport>,
     traffic: &TrafficTargets,
 ) -> Requirements {
-    let ident = world
-        .airport(airport)
-        .map(aerocosm_core::world::Airport::ident);
+    let place = world.airport(airport);
+    let ident = place.map(aerocosm_core::world::Airport::ident);
     let target = ident.and_then(|ident| traffic.airport(ident));
     let daily = target.map_or(0.0, |t| f64::from(t.movements_per_year()) / DAYS);
     // SAFETY: a small non-negative count, rounded up.
@@ -48,7 +47,7 @@ pub(crate) fn requirements(
     let min_stands = ((daily / MOVEMENTS_PER_STAND).ceil() as usize).max(1);
     let modes = ident.map_or(&[][..], |ident| traffic.runway_modes(ident));
     let runways = world.runways_of(airport);
-    let active = active_runways_now(runways, modes);
+    let active = place.map_or_else(Vec::new, |place| active_runways_now(place, runways, modes));
     let mut arrivals = Vec::new();
     let mut departures = Vec::new();
     if modes.is_empty() {
@@ -258,12 +257,18 @@ mod tests {
         let data = aerocosm_core_test_data()?;
         let frankfurt = data.0.airport_by_ident("EDDF".parse()?).context("EDDF")?;
         let needs = requirements(&data.0, frankfurt, &data.1);
-        // About 1,200 movements a day.
-        assert!((100..=150).contains(&needs.min_stands), "{needs:?}");
-        let names: Vec<String> = needs.departures.iter().map(ToString::to_string).collect();
-        assert!(names.contains(&"18".to_owned()), "{names:?}");
-        let arrivals: Vec<String> = needs.arrivals.iter().map(ToString::to_string).collect();
-        assert_eq!(arrivals, ["25L", "25R"]);
+        // About 1,400 movements a day.
+        assert!((100..=200).contains(&needs.min_stands), "{needs:?}");
+        // West flow by rule: arrivals and departures on the 25s (plan M5
+        // D113).
+        let names: Vec<String> = needs
+            .arrivals
+            .iter()
+            .chain(&needs.departures)
+            .map(ToString::to_string)
+            .collect();
+        assert!(names.iter().all(|n| n.starts_with("25")), "{names:?}");
+        assert_eq!((needs.arrivals.len(), needs.departures.len()), (2, 2));
         let airfield = data.0.airport_by_ident("EDFE".parse()?).context("EDFE")?;
         let small = requirements(&data.0, airfield, &data.1);
         assert_eq!(small.min_stands, 1);
@@ -273,13 +278,6 @@ mod tests {
     }
 
     fn aerocosm_core_test_data() -> Result<(World, TrafficTargets)> {
-        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets");
-        let world = World::from_json(&std::fs::read_to_string(format!(
-            "{root}/world/germany.world.json"
-        ))?)?;
-        let traffic = TrafficTargets::from_json(&std::fs::read_to_string(format!(
-            "{root}/traffic/germany.json"
-        ))?)?;
-        Ok((world, traffic))
+        crate::shipped_model()
     }
 }

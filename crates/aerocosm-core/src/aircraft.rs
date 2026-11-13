@@ -543,7 +543,7 @@ mod tests {
             "A319", "A320", "A20N", "A321", "A21N", "B738", "B38M", "BCS3", "E190", "E195", "CRJ9",
             "AT76", "DH8D", "A333", "A359", "B789", "B77W", "A388", "B748", "A306", "B752", "B763",
             "B77L", "A318", "B737", "B739", "E75L", "CRJ2", "CRJ7", "E145", "B712", "MD88", "A332",
-            "B772", "B788", "B744", "MD11",
+            "B772", "B788", "B744", "MD11", "C208", "DHC6", "B190", "DH8A",
         ];
         assert_eq!(catalog.len(), expected.len());
         for code in expected {

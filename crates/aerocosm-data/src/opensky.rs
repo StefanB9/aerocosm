@@ -21,6 +21,10 @@ use aerocosm_core::{
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
+/// Flights at an airport closed since count at the nearest airport with
+/// scheduled service within this distance (Tegel at BER), m.
+const MOVED_WITHIN: f64 = 50_000.0;
+
 /// No airliner covers ground faster than this, m/s (about 1,220 km/h, a jet
 /// in a strong jet stream); faster flights joined two tracks.
 const MAX_SPEED: f64 = 340.0;
@@ -97,7 +101,10 @@ pub struct AggregateReport {
 pub struct Aggregator {
     year: u16,
     airports: HashMap<String, (AirportIdent, LatLon, CountryCode)>,
-    flights: HashMap<AirportIdent, (u32, u32)>,
+    /// Codes of the airports with scheduled service.
+    scheduled: Vec<String>,
+    /// Departures, arrivals and flights whose other end was not seen.
+    flights: HashMap<AirportIdent, (u32, u32, u32)>,
     departures: HashMap<(AirlineIcao, AirportIdent), u32>,
     types: HashMap<(AirlineIcao, AircraftTypeCode), u32>,
     coverage: HashMap<CountryCode, (u32, u32)>,
@@ -138,15 +145,48 @@ impl Aggregator {
             .iter()
             .filter_map(|a| Some((a.icao?.to_string(), (a.ident, a.location, a.country))))
             .collect();
+        let scheduled = world
+            .airports
+            .iter()
+            .filter(|a| a.scheduled)
+            .filter_map(|a| Some(a.icao?.to_string()))
+            .collect();
         Self {
             year,
             airports,
+            scheduled,
             flights: HashMap::new(),
             departures: HashMap::new(),
             types: HashMap::new(),
             coverage: HashMap::new(),
             report: AggregateReport::default(),
         }
+    }
+
+    /// Counts flights at `closed` airports (codes not in the world, with
+    /// their locations) at the nearest airport with scheduled service within
+    /// [`MOVED_WITHIN`], so that traffic since moved is where it flies now.
+    #[must_use]
+    pub fn with_closed(mut self, closed: &[(String, LatLon)]) -> Self {
+        let scheduled: Vec<(AirportIdent, LatLon, CountryCode)> = self
+            .scheduled
+            .iter()
+            .filter_map(|code| self.airports.get(code).copied())
+            .collect();
+        for (code, at) in closed {
+            if self.airports.contains_key(code) {
+                continue;
+            }
+            let nearest = scheduled
+                .iter()
+                .map(|a| (a, a.1.distance_to(*at).value()))
+                .filter(|(_, d)| *d <= MOVED_WITHIN)
+                .min_by(|a, b| a.1.total_cmp(&b.1));
+            if let Some((airport, _)) = nearest {
+                self.airports.insert(code.clone(), *airport);
+            }
+        }
+        self
     }
 
     fn reject(&mut self, reason: &'static str) {
@@ -175,8 +215,9 @@ impl Aggregator {
         let origin = self.airports.get(&flight.origin).copied();
         let destination = self.airports.get(&flight.destination).copied();
         let (Some(origin), Some(destination)) = (origin, destination) else {
-            if let Some((_, _, country)) = origin.or(destination) {
+            if let Some((ident, _, country)) = origin.or(destination) {
                 self.coverage.entry(country).or_default().1 += 1;
+                self.flights.entry(ident).or_default().2 += 1;
             } else {
                 self.reject("no known airport");
             }
@@ -220,11 +261,15 @@ impl Aggregator {
         let mut airports: Vec<ObservedAirport> = self
             .flights
             .into_iter()
-            .map(|(airport, (departures, arrivals))| ObservedAirport {
-                airport,
-                departures,
-                arrivals,
-            })
+            .filter(|(_, (departures, arrivals, _))| departures + arrivals > 0)
+            .map(
+                |(airport, (departures, arrivals, partial))| ObservedAirport {
+                    airport,
+                    departures,
+                    arrivals,
+                    partial,
+                },
+            )
             .collect();
         airports.sort_by_key(|a| a.airport);
         let mut by_airline: BTreeMap<
@@ -318,6 +363,7 @@ mod tests {
                 airport("EDDF", 50.03, 8.57, "DE")?,
                 airport("EDDM", 48.35, 11.79, "DE")?,
                 airport("YMML", -37.67, 144.84, "AU")?,
+                airport("EDDB", 52.37, 13.52, "DE")?,
             ],
             runways: Vec::new(),
         })
@@ -353,6 +399,9 @@ mod tests {
             // A private registration, no airline.
             "DABCD,,g,C172,EDDM,EDDF,2019-03-02 10:00:00+00:00,2019-03-02 \
              11:30:00+00:00,2019-03-02 00:00:00+00:00,,,,,,",
+            // From Tegel, closed since: counts at BER.
+            "EWG8000,,i,A320,EDDT,EDDM,2019-03-03 10:00:00+00:00,2019-03-03 \
+             11:05:00+00:00,2019-03-03 00:00:00+00:00,,,,,,",
             // The previous year's last day, in January's file: not 2019.
             "DLH999,,h,,EDDF,EDDM,2018-12-31 22:00:00+00:00,2018-12-31 22:55:00+00:00,2018-12-31 \
              00:00:00+00:00,,,,,,",
@@ -367,7 +416,11 @@ mod tests {
                             flight\",\\N,\"-\",\"N/A\",\"\",\"\",\"Y\"\n";
 
     fn aggregate(min_flights: u32) -> Result<(ObservedTraffic, AggregateReport)> {
-        let mut aggregator = Aggregator::new(&world()?, 2019);
+        let closed = [
+            ("EDDT".to_owned(), LatLon::new(52.56, 13.29)?),
+            ("EDXX".to_owned(), LatLon::new(40.0, 0.0)?),
+        ];
+        let mut aggregator = Aggregator::new(&world()?, 2019).with_closed(&closed);
         aggregator.add(Cursor::new(flights()))?;
         let airlines = read_openflights(Cursor::new(AIRLINES))?;
         Ok(aggregator.finish(&airlines, min_flights))
@@ -381,17 +434,20 @@ mod tests {
                 .airports
                 .iter()
                 .find(|a| a.airport.as_str() == ident)
-                .map(|a| (a.departures, a.arrivals))
+                .map(|a| (a.departures, a.arrivals, a.partial))
         };
-        // The private flight counts at the airports, not for an airline.
-        assert_eq!(airport("EDDF"), Some((2, 2)));
-        assert_eq!(airport("EDDM"), Some((2, 2)));
+        // The private flight counts at the airports, not for an airline; the
+        // two flights from Frankfurt whose other end was not seen are
+        // partial there.
+        assert_eq!(airport("EDDF"), Some((2, 2, 2)));
+        assert_eq!(airport("EDDM"), Some((2, 3, 0)));
+        assert_eq!(airport("EDDB"), Some((1, 0, 0)), "Tegel moved to BER");
         assert_eq!(airport("YMML"), None);
         let dlh = observed.airlines.first().context("Lufthansa")?;
-        assert_eq!(observed.airlines.len(), 1);
         assert_eq!(dlh.name, "Lufthansa");
         assert_eq!(dlh.callsign.as_deref(), Some("LUFTHANSA"));
         assert_eq!(dlh.departures, [("EDDF".parse()?, 2), ("EDDM".parse()?, 1)]);
+        assert_eq!(observed.airlines.len(), 1, "Eurowings is not in the names");
         assert_eq!(dlh.types, [("A320".parse()?, 2)]);
         assert_eq!(report.rejected.get("faster than any airliner"), Some(&1));
         assert_eq!(report.rejected.get("same airport"), Some(&1));
@@ -407,8 +463,8 @@ mod tests {
             .iter()
             .find(|c| c.country.as_str() == "DE")
             .context("Germany")?;
-        // Four complete German departures; two seen without an arrival.
-        assert_eq!((germany.complete, germany.partial), (4, 2));
+        // Five complete German departures; two seen without an arrival.
+        assert_eq!((germany.complete, germany.partial), (5, 2));
         Ok(())
     }
 
@@ -416,7 +472,10 @@ mod tests {
     fn test_small_or_unnamed_operators_are_not_airlines() -> Result<()> {
         let (observed, report) = aggregate(4)?;
         assert_eq!(observed.airlines.len(), 0);
-        assert_eq!(report.small_airlines, 1);
+        assert_eq!(
+            report.small_airlines, 2,
+            "Lufthansa too small, Eurowings unnamed"
+        );
         Ok(())
     }
 

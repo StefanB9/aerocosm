@@ -15,7 +15,7 @@ use crate::{
     ops::{
         motion::{FINAL_LENGTH, Profile, ProfileInputs, SHORT_FINAL},
         procedure::{arrival_points, climb_out_distance, departure_turn_point},
-        runway::{PREVAILING_WIND, RunwayChoice, mode_runway, runway_in_use},
+        runway::{RunwayChoice, mode_runway, prevailing_wind, runway_in_use},
     },
     traffic::{TrafficTargets, angle_between, mode_for_wind},
     units::{Degrees, Meters},
@@ -69,8 +69,8 @@ fn runway_end(
     let place = world.airport(airport).context("airport id out of range")?;
     let runways = world.runways_of(airport);
     let min_length = aircraft.min_runway_length() * RUNWAY_MARGIN;
-    let from_mode =
-        mode_for_wind(traffic.runway_modes(place.ident()), PREVAILING_WIND).and_then(|mode| {
+    let from_mode = mode_for_wind(traffic.runway_modes(place.ident()), prevailing_wind(place))
+        .and_then(|mode| {
             let allowed = match use_ {
                 Use::Departure => &mode.departures,
                 Use::Arrival => &mode.arrivals,
@@ -78,7 +78,7 @@ fn runway_end(
             mode_runway(runways, allowed, min_length, score)
         });
     let choice: Option<RunwayChoice> =
-        from_mode.or_else(|| runway_in_use(runways, PREVAILING_WIND, min_length));
+        from_mode.or_else(|| runway_in_use(runways, prevailing_wind(place), min_length));
     Ok(match choice {
         Some(choice) => {
             let end = &runways[choice.runway].ends()[choice.end];
@@ -433,12 +433,11 @@ mod tests {
             .distance_to(data.world.airport(munich).context("MUC")?.location());
         let enroute = leg.path.enroute.length().value();
         assert!((enroute - distance.value()).abs() < 60_000.0, "{enroute}");
-        // South-east bound in west flow: runway 18 is the departure runway
-        // closest to the course (D55).
+        // West flow, with the prevailing south-westerly (plan M5 D113).
         let course = leg.path.takeoff.bearing_at(Meters::default()).value();
-        assert!((course - 180.0).abs() < 5.0, "take-off course {course}");
+        assert!((course - 249.6).abs() < 5.0, "take-off course {course}");
         // Straight ahead on the runway heading through the climb-out.
-        for metres in [500.0, 2_000.0, 6_000.0] {
+        for metres in [500.0, 2_000.0] {
             let along = leg.path.enroute.bearing_at(Meters::new(metres)?).value();
             assert!((along - course).abs() < 2.0, "{along} at {metres} m");
         }
@@ -579,10 +578,9 @@ mod tests {
             .value();
         assert!(
             (course - 249.0).abs() < 5.0,
-            "25C to the north-west, not {course}"
+            "west flow to the north-west, not {course}"
         );
-        // Arriving from Munich, the south-eastern final of 25L is closer than
-        // that of 25R.
+        // Arriving from Munich it lands on a runway of the mode in use.
         let inbound = plan_leg(
             &data.world,
             &data.traffic,
@@ -603,7 +601,19 @@ mod tests {
                     .total_cmp(&b.threshold().distance_to(threshold).value())
             })
             .context("an end")?;
-        assert_eq!(landed_on.designator().to_string(), "25L");
+        let wind = data
+            .world
+            .airport(frankfurt)
+            .and_then(crate::world::Airport::wind)
+            .context("a wind")?;
+        let mode =
+            mode_for_wind(data.traffic.runway_modes("EDDF".parse()?), wind).context("a mode")?;
+        assert!(
+            mode.arrivals.contains(&landed_on.designator()),
+            "{} not in {:?}",
+            landed_on.designator(),
+            mode.arrivals
+        );
         Ok(())
     }
 

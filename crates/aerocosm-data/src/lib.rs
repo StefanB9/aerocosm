@@ -124,6 +124,37 @@ pub fn import_globe<R: Read, S: BuildHasher>(
     })
 }
 
+/// The world and its traffic model (plan M5) from the asset bytes: the world
+/// asset, the aircraft catalog and the observed traffic.
+pub fn world_model(
+    world: &[u8],
+    aircraft: &str,
+    observed: &[u8],
+) -> Result<(
+    aerocosm_core::world::World,
+    aerocosm_core::traffic::TrafficTargets,
+)> {
+    let world = aerocosm_core::world::World::from_asset(world)?;
+    let aircraft = aerocosm_core::AircraftCatalog::from_json(aircraft)?;
+    let observed = aerocosm_core::traffic::observed::ObservedTraffic::from_asset(observed)?;
+    let (targets, _) =
+        aerocosm_core::traffic::model::derive(&world, &observed, &aircraft)?.into_parts();
+    Ok((world, targets))
+}
+
+/// The shipped world and its traffic model, for tests.
+#[cfg(test)]
+pub(crate) fn shipped_model() -> Result<(
+    aerocosm_core::world::World,
+    aerocosm_core::traffic::TrafficTargets,
+)> {
+    world_model(
+        include_bytes!("../../../assets/world/world.bin"),
+        include_str!("../../../assets/aircraft/types.json"),
+        include_bytes!("../../../assets/traffic/observed.bin"),
+    )
+}
+
 /// Imports Germany from both datasets and renders the asset files. Pure:
 /// callers own all file I/O.
 pub fn import_all<R: Read>(

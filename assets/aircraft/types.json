@@ -234,11 +234,6 @@
       "range": 1100.0,
       "min_runway_length": 1450.0,
       "wingspan": 28.4,
-      "aliases": [
-        "DH8C",
-        "DH8A",
-        "DH8B"
-      ],
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -369,9 +364,9 @@
     },
     {
       "code": "B752",
-      "name": "Boeing 757-200PF",
+      "name": "Boeing 757-200",
       "wake": "medium",
-      "seats": 0,
+      "seats": 200,
       "cruise_speed": 460.0,
       "cruise_altitude": 38000.0,
       "climb_rate": 2500.0,
@@ -380,7 +375,6 @@
       "range": 2900.0,
       "min_runway_length": 2100.0,
       "wingspan": 38.1,
-      "freighter": true,
       "aliases": [
         "B753"
       ],
@@ -388,9 +382,9 @@
     },
     {
       "code": "B763",
-      "name": "Boeing 767-300F",
+      "name": "Boeing 767-300ER",
       "wake": "heavy",
-      "seats": 0,
+      "seats": 260,
       "cruise_speed": 460.0,
       "cruise_altitude": 39000.0,
       "climb_rate": 2200.0,
@@ -399,7 +393,6 @@
       "range": 3250.0,
       "min_runway_length": 2600.0,
       "wingspan": 47.6,
-      "freighter": true,
       "aliases": [
         "B762",
         "B764"
@@ -420,6 +413,9 @@
       "min_runway_length": 2800.0,
       "wingspan": 64.8,
       "freighter": true,
+      "aliases": [
+        "B77F"
+      ],
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     },
     {
@@ -668,6 +664,79 @@
       "freighter": true,
       "aliases": [
         "DC10"
+      ],
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "C208",
+      "name": "Cessna 208B Grand Caravan",
+      "wake": "light",
+      "seats": 12,
+      "cruise_speed": 175.0,
+      "cruise_altitude": 12000.0,
+      "climb_rate": 900.0,
+      "descent_rate": 800.0,
+      "approach_speed": 80.0,
+      "range": 900.0,
+      "min_runway_length": 700.0,
+      "wingspan": 15.9,
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "DHC6",
+      "name": "de Havilland Canada DHC-6 Twin Otter",
+      "wake": "light",
+      "seats": 19,
+      "cruise_speed": 170.0,
+      "cruise_altitude": 10000.0,
+      "climb_rate": 1600.0,
+      "descent_rate": 1000.0,
+      "approach_speed": 80.0,
+      "range": 750.0,
+      "min_runway_length": 400.0,
+      "wingspan": 19.8,
+      "aliases": [
+        "BN2P",
+        "BN2T"
+      ],
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "B190",
+      "name": "Beechcraft 1900D",
+      "wake": "medium",
+      "seats": 19,
+      "cruise_speed": 280.0,
+      "cruise_altitude": 25000.0,
+      "climb_rate": 2600.0,
+      "descent_rate": 2000.0,
+      "approach_speed": 110.0,
+      "range": 700.0,
+      "min_runway_length": 1100.0,
+      "wingspan": 17.7,
+      "aliases": [
+        "JS31",
+        "JS32",
+        "SW4"
+      ],
+      "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
+    },
+    {
+      "code": "DH8A",
+      "name": "de Havilland Canada Dash 8-100",
+      "wake": "medium",
+      "seats": 37,
+      "cruise_speed": 270.0,
+      "cruise_altitude": 25000.0,
+      "climb_rate": 1500.0,
+      "descent_rate": 1500.0,
+      "approach_speed": 100.0,
+      "range": 1000.0,
+      "min_runway_length": 950.0,
+      "wingspan": 25.9,
+      "aliases": [
+        "DH8B",
+        "DH8C"
       ],
       "source": "Typical published figures, rounded: manufacturer airport-planning documents and the EUROCONTROL Aircraft Performance Database; cross-checked against OpenAP."
     }

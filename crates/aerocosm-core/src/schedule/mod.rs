@@ -16,7 +16,6 @@ use crate::{
 mod demand;
 mod generate;
 mod network;
-mod overflight;
 mod rotation;
 mod slots;
 mod timetable;
@@ -24,16 +23,15 @@ mod trips;
 
 pub use generate::generate;
 pub(crate) use timetable::min_turnaround;
+pub(crate) use trips::RUNWAY_MARGIN;
 
 /// What a scheduled flight carries and where it flies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FlightKind {
-    /// A passenger flight to or from a German airport.
+    /// A passenger flight.
     Passenger,
-    /// A cargo flight to or from a German airport.
+    /// A cargo flight.
     Cargo,
-    /// A flight between two edge airports that crosses the simulated airspace.
-    Overflight,
 }
 
 /// An airline's flight number, e.g. `400` in `LH400` / `DLH400`.
@@ -221,7 +219,7 @@ impl ScheduledFlight {
         SimDuration::from_millis(self.departure.as_millis() + self.block.as_millis())
     }
 
-    /// Passenger, cargo or overflight.
+    /// Passenger or cargo.
     pub const fn kind(&self) -> FlightKind {
         self.kind
     }

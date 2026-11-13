@@ -105,3 +105,12 @@ overflow-checks = true
 panic = "unwind"
 rpath = true
 strip = false
+
+# The core's tests simulate the whole world (plan M5): unoptimised, one test
+# takes minutes. Optimising the core and the decoder of its assets keeps
+# them to seconds; everything else stays fast to build.
+[profile.dev.package.aerocosm-core]
+opt-level = 2
+
+[profile.dev.package.ruzstd]
+opt-level = 2

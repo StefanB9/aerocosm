@@ -49,9 +49,10 @@ pub(crate) fn block_time(
     SimDuration::from_minutes(minutes as i32)
 }
 
-/// Shortest turnaround at the gate for `aircraft`.
-pub(crate) fn min_turnaround(aircraft: &AircraftType) -> SimDuration {
-    let minutes = if aircraft.is_freighter() {
+/// Shortest turnaround at the gate for `aircraft`, flying freight when
+/// `cargo` (a passenger type converted to a freighter turns like one).
+pub(crate) fn min_turnaround(aircraft: &AircraftType, cargo: bool) -> SimDuration {
+    let minutes = if cargo || aircraft.is_freighter() {
         60
     } else if matches!(aircraft.wake(), WakeCategory::Heavy | WakeCategory::Super) {
         90
@@ -192,12 +193,14 @@ mod tests {
     fn test_min_turnaround_by_size() -> Result<()> {
         let catalog = catalog()?;
         let minutes = |code: &str| -> Result<i64> {
-            Ok(min_turnaround(aircraft(&catalog, code)?).as_millis() / 60_000)
+            Ok(min_turnaround(aircraft(&catalog, code)?, false).as_millis() / 60_000)
         };
         assert_eq!(minutes("CRJ9")?, 25);
         assert_eq!(minutes("A320")?, 35);
         assert_eq!(minutes("A359")?, 90);
         assert_eq!(minutes("B77L")?, 60, "freighters");
+        let freight = min_turnaround(aircraft(&catalog, "B763")?, true);
+        assert_eq!(freight.as_millis() / 60_000, 60, "converted freighters");
         Ok(())
     }
 

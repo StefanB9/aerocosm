@@ -236,7 +236,7 @@ impl GroundNetwork {
             };
             let modes = traffic.map_or(&[][..], |t| t.runway_modes(place.ident()));
             let runways = world.runways_of(airport);
-            let active = active_runways_now(runways, modes);
+            let active = active_runways_now(place, runways, modes);
             let designator = |use_: &crate::ops::ActiveRunway| {
                 runways[use_.runway].ends()[use_.end].designator()
             };
@@ -351,7 +351,7 @@ mod tests {
             let place = world.airport(airport).context("airport")?;
             let runways = world.runways_of(airport);
             let modes = traffic.runway_modes(place.ident());
-            for active in crate::ops::active_runways_now(runways, modes) {
+            for active in crate::ops::active_runways_now(place, runways, modes) {
                 let end = &runways[active.runway].ends()[active.end];
                 let designator = end.designator();
                 let entry = layout.departure_entry(designator, end.threshold());

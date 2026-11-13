@@ -139,7 +139,11 @@ impl Simulation {
             .map_or(&[][..], |(place, traffic)| {
                 traffic.targets().runway_modes(place.ident())
             });
-        crate::ops::active_runways_now(self.world().runways_of(airport), modes)
+        self.world()
+            .airport(airport)
+            .map_or_else(Vec::new, |place| {
+                crate::ops::active_runways_now(place, self.world().runways_of(airport), modes)
+            })
     }
 
     /// Punctuality, delays, holding and movements since the start; `None`
@@ -385,8 +389,16 @@ mod tests {
         let name = |a: &ActiveRunway| runways[a.runway].ends()[a.end].designator().to_string();
         let landing: Vec<String> = active.iter().filter(|a| a.arrivals).map(name).collect();
         let departing: Vec<String> = active.iter().filter(|a| a.departures).map(name).collect();
-        assert_eq!(landing.len(), 2, "{landing:?}");
-        assert!(departing.contains(&"18".to_owned()), "{departing:?}");
+        // West flow: a segregated pair and an independent runway (plan M5
+        // D113).
+        assert_eq!((landing.len(), departing.len()), (2, 2), "{landing:?}");
+        assert!(
+            landing
+                .iter()
+                .chain(&departing)
+                .all(|n| n.starts_with("25")),
+            "{landing:?} {departing:?}"
+        );
         Ok(())
     }
 
