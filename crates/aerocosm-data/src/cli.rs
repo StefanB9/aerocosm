@@ -26,6 +26,31 @@ pub(crate) enum Command {
     Globe(GlobeArgs),
     /// Write the NASA POWER wind request of every scheduled airport.
     WindRequests(WindRequestsArgs),
+    /// Aggregate `OpenSky` flight lists into observed traffic (plan M5).
+    Observed(ObservedArgs),
+}
+
+/// Options for [`Command::Observed`].
+#[derive(Debug, Args)]
+pub(crate) struct ObservedArgs {
+    /// `OpenSky` flight lists, `.csv.gz` (one per month).
+    #[arg(required = true)]
+    pub(crate) flights: Vec<PathBuf>,
+    /// `OpenFlights` `airlines.dat`.
+    #[arg(long)]
+    pub(crate) airlines: PathBuf,
+    /// The globe's world asset.
+    #[arg(long, default_value = "assets/world/world.bin")]
+    pub(crate) world: PathBuf,
+    /// The reference year.
+    #[arg(long, default_value_t = 2019)]
+    pub(crate) year: u16,
+    /// Airlines need at least this many departures in the year.
+    #[arg(long, default_value_t = 365)]
+    pub(crate) min_flights: u32,
+    /// Asset directory to write `traffic/observed.bin` into.
+    #[arg(long, default_value = "assets")]
+    pub(crate) out: PathBuf,
 }
 
 /// Options for [`Command::Globe`].
@@ -181,6 +206,26 @@ mod tests {
         let Command::WindRequests(args) = cli.command else {
             anyhow::bail!("expected wind-requests");
         };
+        assert_eq!(args.world, Path::new("assets/world/world.bin"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_cli_observed_arguments() -> Result<()> {
+        let cli = Cli::try_parse_from([
+            "aerocosm-data",
+            "observed",
+            "--airlines",
+            "dl/airlines.dat",
+            "dl/flightlist_20190101_20190131.csv.gz",
+            "dl/flightlist_20190201_20190228.csv.gz",
+        ])?;
+        let Command::Observed(args) = cli.command else {
+            anyhow::bail!("expected observed");
+        };
+        assert_eq!(args.flights.len(), 2);
+        assert_eq!(args.year, 2019);
+        assert_eq!(args.min_flights, 365);
         assert_eq!(args.world, Path::new("assets/world/world.bin"));
         Ok(())
     }
