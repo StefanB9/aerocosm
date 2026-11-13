@@ -171,7 +171,7 @@ mod tests {
         let traffic = scenario
             .traffic()
             .ok_or_else(|| anyhow::anyhow!("traffic"))?;
-        assert_eq!(traffic.aircraft().len(), 23);
+        assert_eq!(traffic.aircraft().len(), 37);
         assert_eq!(traffic.airlines().len(), 23);
         assert!(traffic.targets().airports().len() > 20);
         assert!(scenario.schedule_inputs().is_some());

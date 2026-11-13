@@ -12,8 +12,9 @@ use crate::{
 };
 
 /// Aircraft catalog file format version this build reads and writes.
-/// Version 2 added the wingspan (plan M4 D68).
-pub const CATALOG_FORMAT_VERSION: u32 = 2;
+/// Version 2 added the wingspan (plan M4 D68), version 3 the aliases (plan M5
+/// D111).
+pub const CATALOG_FORMAT_VERSION: u32 = 3;
 
 /// ICAO wake turbulence category, which drives separation minima.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -60,6 +61,11 @@ pub struct AircraftTypeDefinition {
     /// A pure freighter: carries cargo and has no seats (D39).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub freighter: bool,
+    /// Designators of close variants this type stands in for, e.g. the
+    /// 737-600 for the 737-700 (plan M5 D111): observed flights on them fly
+    /// as this type.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<AircraftTypeCode>,
     /// Where the figures come from.
     pub source: String,
 }
@@ -198,10 +204,12 @@ impl AircraftCatalogDefinition {
 pub struct AircraftCatalog {
     types: Vec<AircraftType>,
     by_code: HashMap<AircraftTypeCode, Id<AircraftType>>,
+    /// Codes and aliases.
+    resolved: HashMap<AircraftTypeCode, Id<AircraftType>>,
 }
 
 impl AircraftCatalog {
-    /// Validates every type and rejects duplicate designators.
+    /// Validates every type and rejects designators and aliases used twice.
     pub fn from_definition(definition: AircraftCatalogDefinition) -> Result<Self> {
         if definition.format_version != CATALOG_FORMAT_VERSION {
             return Err(CoreError::UnsupportedFileFormat {
@@ -224,7 +232,23 @@ impl AircraftCatalog {
             }
             types.push(aircraft);
         }
-        Ok(Self { types, by_code })
+        let mut resolved = by_code.clone();
+        for (index, aircraft) in types.iter().enumerate() {
+            let id = Id::from_usize(index).context("too many aircraft types")?;
+            for alias in &aircraft.definition.aliases {
+                if resolved.insert(*alias, id).is_some() {
+                    return Err(CoreError::DuplicateAircraftType {
+                        code: alias.to_string(),
+                    }
+                    .into());
+                }
+            }
+        }
+        Ok(Self {
+            types,
+            by_code,
+            resolved,
+        })
     }
 
     /// Parses and validates a catalog file.
@@ -254,6 +278,12 @@ impl AircraftCatalog {
     /// Looks up a type by designator.
     pub fn by_code(&self, code: AircraftTypeCode) -> Option<Id<AircraftType>> {
         self.by_code.get(&code).copied()
+    }
+
+    /// The type flying as `code`: the type with that designator, else the one
+    /// that has it as an alias.
+    pub fn resolve(&self, code: AircraftTypeCode) -> Option<Id<AircraftType>> {
+        self.resolved.get(&code).copied()
     }
 
     /// The type with `id`, if it exists.
@@ -292,6 +322,7 @@ mod tests {
             min_runway_length: Meters::new(2100.0)?,
             wingspan: Meters::new(35.8)?,
             freighter: false,
+            aliases: Vec::new(),
             source: "test fixture".to_owned(),
         })
     }
@@ -395,6 +426,67 @@ mod tests {
     }
 
     #[test]
+    fn test_catalog_resolves_aliases() -> Result<()> {
+        let mut a320 = a320()?;
+        a320.aliases = vec!["A318".parse()?, "A20N".parse()?];
+        let catalog = AircraftCatalog::from_definition(AircraftCatalogDefinition {
+            format_version: CATALOG_FORMAT_VERSION,
+            types: vec![a320],
+        })?;
+        let id = catalog.by_code("A320".parse()?).context("A320")?;
+        assert_eq!(catalog.resolve("A320".parse()?), Some(id));
+        assert_eq!(catalog.resolve("A318".parse()?), Some(id));
+        assert_eq!(catalog.by_code("A318".parse()?), None, "codes only");
+        assert_eq!(catalog.resolve("C172".parse()?), None);
+        Ok(())
+    }
+
+    #[test]
+    fn test_catalog_rejects_an_alias_used_twice() -> Result<()> {
+        let mut a320 = a320()?;
+        a320.aliases = vec!["A318".parse()?];
+        let mut a319 = a320.clone();
+        a319.code = "A319".parse()?;
+        for types in [vec![a320.clone(), a319], {
+            let mut itself = a320.clone();
+            itself.aliases = vec!["A320".parse()?];
+            vec![itself]
+        }] {
+            let error = AircraftCatalog::from_definition(AircraftCatalogDefinition {
+                format_version: CATALOG_FORMAT_VERSION,
+                types,
+            })
+            .err()
+            .context("must be rejected")?;
+            assert!(
+                matches!(
+                    error.downcast_ref::<CoreError>(),
+                    Some(CoreError::DuplicateAircraftType { .. })
+                ),
+                "{error}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_shipped_catalog_covers_observed_flights() -> Result<()> {
+        let catalog = AircraftCatalog::from_json(CATALOG)?;
+        let observed = crate::traffic::observed::ObservedTraffic::from_asset(include_bytes!(
+            "../../../assets/traffic/observed.bin"
+        ))?;
+        let (mut covered, mut total) = (0_u64, 0_u64);
+        for (code, flights) in observed.airlines.iter().flat_map(|a| &a.types) {
+            total += u64::from(*flights);
+            if catalog.resolve(*code).is_some() {
+                covered += u64::from(*flights);
+            }
+        }
+        assert!(covered * 100 >= total * 95, "{covered} of {total}");
+        Ok(())
+    }
+
+    #[test]
     fn test_catalog_rejects_duplicate_code() -> Result<()> {
         let error = AircraftCatalog::from_definition(AircraftCatalogDefinition {
             format_version: CATALOG_FORMAT_VERSION,
@@ -421,7 +513,7 @@ mod tests {
             Some(&CoreError::UnsupportedFileFormat {
                 file: "aircraft catalog",
                 found: 7,
-                supported: 2
+                supported: CATALOG_FORMAT_VERSION
             })
         );
         Ok(())
@@ -450,7 +542,8 @@ mod tests {
         let expected = [
             "A319", "A320", "A20N", "A321", "A21N", "B738", "B38M", "BCS3", "E190", "E195", "CRJ9",
             "AT76", "DH8D", "A333", "A359", "B789", "B77W", "A388", "B748", "A306", "B752", "B763",
-            "B77L",
+            "B77L", "A318", "B737", "B739", "E75L", "CRJ2", "CRJ7", "E145", "B712", "MD88", "A332",
+            "B772", "B788", "B744", "MD11",
         ];
         assert_eq!(catalog.len(), expected.len());
         for code in expected {
