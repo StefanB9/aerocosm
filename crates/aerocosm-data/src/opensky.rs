@@ -313,6 +313,7 @@ mod tests {
     fn world() -> Result<WorldDefinition> {
         Ok(WorldDefinition {
             format_version: aerocosm_core::world::FORMAT_VERSION,
+            countries: Vec::new(),
             airports: vec![
                 airport("EDDF", 50.03, 8.57, "DE")?,
                 airport("EDDM", 48.35, 11.79, "DE")?,

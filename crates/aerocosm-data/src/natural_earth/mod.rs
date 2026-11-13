@@ -5,7 +5,7 @@ mod geojson;
 use std::{cmp::Reverse, io::Read};
 
 use aerocosm_basemap::{Basemap, BasemapLayers, Bounds, Country, Line, Path, Place, Polygon, Ring};
-use aerocosm_core::LatLon;
+use aerocosm_core::{LatLon, world::CountryDefinition};
 use anyhow::{Context, Result};
 use serde::{Deserialize, de::DeserializeOwned};
 
@@ -115,6 +115,16 @@ struct CountryProperties {
     code: String,
     #[serde(rename = "NAME")]
     name: String,
+}
+
+#[derive(Deserialize)]
+struct IncomeProperties {
+    #[serde(rename = "ISO_A2_EH")]
+    code: String,
+    #[serde(rename = "POP_EST")]
+    population: Option<f64>,
+    #[serde(rename = "GDP_MD")]
+    gdp: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -231,6 +241,39 @@ pub fn import_basemap<R: Read>(
         places,
     })
     .context("imported basemap is invalid")
+}
+
+/// Population and output per country from the admin-0 countries layer
+/// (plan M5 D109), ordered by code. Countries without a valid code or with
+/// figures missing are left out; a code listed twice keeps its first entry.
+pub fn read_countries(reader: impl Read) -> Result<Vec<CountryDefinition>> {
+    let mut countries: Vec<CountryDefinition> = Vec::new();
+    for feature in read_layer::<IncomeProperties>(reader, "countries")? {
+        let properties = feature.properties;
+        let (Ok(code), Some(population), Some(gdp)) = (
+            properties.code.parse(),
+            properties.population.and_then(whole),
+            properties.gdp.and_then(whole),
+        ) else {
+            continue;
+        };
+        if countries.iter().all(|c| c.code != code) {
+            countries.push(CountryDefinition {
+                code,
+                population,
+                gdp_musd: gdp,
+            });
+        }
+    }
+    countries.sort_by_key(|c| c.code);
+    Ok(countries)
+}
+
+/// A positive figure as a whole number.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn whole(value: f64) -> Option<u64> {
+    // SAFETY: only finite values from 1 up to 2^53 are cast, which fit u64.
+    (value.is_finite() && (1.0..9.0e15).contains(&value)).then(|| value.round() as u64)
 }
 
 fn read_layer<P: DeserializeOwned>(
@@ -389,6 +432,23 @@ mod tests {
                    {"properties": {"NAME": "Nowhere", "POP_MAX": -99, "SCALERANK": 9}, "geometry": {"type": "Point", "coordinates": [9.0,50.0]}}"#,
             ),
         }
+    }
+
+    #[test]
+    fn test_read_countries_keeps_valid_figures() -> Result<()> {
+        let countries = read_countries(collection(
+            r#"{"properties": {"ISO_A2_EH": "FR", "POP_EST": 67059887.0, "GDP_MD": 2715518}, "geometry": null},
+               {"properties": {"ISO_A2_EH": "DE", "POP_EST": 83132799.0, "GDP_MD": 3861123}, "geometry": null},
+               {"properties": {"ISO_A2_EH": "DE", "POP_EST": 1.0, "GDP_MD": 1}, "geometry": null},
+               {"properties": {"ISO_A2_EH": "-99", "POP_EST": 1000.0, "GDP_MD": 10}, "geometry": null},
+               {"properties": {"ISO_A2_EH": "AQ", "POP_EST": 0.0, "GDP_MD": 0}, "geometry": null},
+               {"properties": {"ISO_A2_EH": "XK", "POP_EST": null, "GDP_MD": 100}, "geometry": null}"#,
+        ))?;
+        let codes: Vec<_> = countries.iter().map(|c| c.code.as_str()).collect();
+        assert_eq!(codes, ["DE", "FR"]);
+        assert_eq!(countries[0].population, 83_132_799);
+        assert_eq!(countries[0].gdp_musd, 3_861_123);
+        Ok(())
     }
 
     #[test]

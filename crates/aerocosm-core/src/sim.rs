@@ -264,6 +264,7 @@ mod tests {
     fn test_simulation_owns_world() -> Result<()> {
         let json = WorldDefinition {
             format_version: FORMAT_VERSION,
+            countries: Vec::new(),
             airports: Vec::new(),
             runways: Vec::new(),
         }

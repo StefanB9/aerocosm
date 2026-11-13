@@ -257,6 +257,7 @@ pub fn import_world<R: Read>(
     Ok(WorldImport {
         definition: WorldDefinition {
             format_version: FORMAT_VERSION,
+            countries: Vec::new(),
             airports,
             runways,
         },

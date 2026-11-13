@@ -22,7 +22,9 @@ use aerocosm_core::{
 use anyhow::{Context, Result};
 
 use crate::{
-    natural_earth::{BasemapSettings, NaturalEarthSources, import_basemap, read_places},
+    natural_earth::{
+        BasemapSettings, NaturalEarthSources, import_basemap, read_countries, read_places,
+    },
     ourairports::{ImportReport, OurAirportsSources, WorldSettings, import_world},
     wind::assign_winds,
     zones::{ZoneReport, assign_zones, read_zones},
@@ -93,6 +95,8 @@ pub fn import_globe<R: Read, S: BuildHasher>(
     };
     let places = read_places(natural_earth.places.get_ref().as_slice())
         .context("cannot read Natural Earth places")?;
+    let countries = read_countries(natural_earth.countries.get_ref().as_slice())
+        .context("cannot read Natural Earth countries")?;
     let basemap = import_basemap(natural_earth, &BasemapSettings::globe()?)
         .context("Natural Earth import failed")?;
     let import = import_world(
@@ -105,6 +109,7 @@ pub fn import_globe<R: Read, S: BuildHasher>(
     )
     .context("OurAirports import failed")?;
     let mut world = import.definition;
+    world.countries = countries;
     let zones = assign_zones(
         &mut world.airports,
         &read_zones(sources.zones).context("cannot read the time zone table")?,
@@ -192,7 +197,7 @@ mod tests {
             airports: Cursor::new(b"id,ident,type,name,latitude_deg,longitude_deg,elevation_ft,iso_country,scheduled_service,icao_code,iata_code\n1,EDDF,large_airport,Frankfurt,50.03,8.57,364,DE,yes,EDDF,FRA\n2,KJFK,large_airport,Kennedy,40.64,-73.78,13,US,yes,KJFK,JFK\n".to_vec()),
             runways: Cursor::new(b"airport_ident,length_ft,width_ft,surface,closed,le_ident,le_latitude_deg,le_longitude_deg,le_heading_degT,le_displaced_threshold_ft,he_ident,he_latitude_deg,he_longitude_deg,he_heading_degT,he_displaced_threshold_ft\nEDDF,13123,197,CON,0,07C,,,69.6,,25C,,,249.6,\nKJFK,14511,200,ASP,0,04L,,,31,,22R,,,211,\n".to_vec()),
             natural_earth: natural_earth::NaturalEarthSources {
-                countries: empty_layer(),
+                countries: Cursor::new(br#"{"type": "FeatureCollection", "features": [{"properties": {"ISO_A2_EH": "DE", "NAME": "Germany", "POP_EST": 83132799.0, "GDP_MD": 3861123}, "geometry": null}]}"#.to_vec()),
                 borders: empty_layer(),
                 state_borders: empty_layer(),
                 lakes: empty_layer(),
@@ -212,6 +217,13 @@ mod tests {
                 .find(|a| a.ident.as_str() == ident)
                 .cloned()
         };
+        let codes: Vec<_> = output
+            .world
+            .countries
+            .iter()
+            .map(|c| c.code.as_str())
+            .collect();
+        assert_eq!(codes, ["DE"]);
         let frankfurt = airport("EDDF").context("Frankfurt")?;
         assert_eq!(
             frankfurt.zone.map(|z| z.name().to_owned()).as_deref(),

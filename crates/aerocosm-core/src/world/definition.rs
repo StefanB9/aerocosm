@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use super::{AirportDefinition, RunwayDefinition};
+use super::{AirportDefinition, CountryDefinition, RunwayDefinition};
 use crate::{
     CoreError,
     asset::{self, AssetKind},
@@ -11,10 +11,11 @@ use crate::{
 
 /// World file format version this build reads and writes.
 /// Version 2 added the optional airport `catchment`; version 3 the scheduled
-/// flag, time zone and prevailing wind (plan M5).
-pub const FORMAT_VERSION: u32 = 3;
+/// flag, time zone and prevailing wind (plan M5); version 4 the countries
+/// (plan M5 D109).
+pub const FORMAT_VERSION: u32 = 4;
 /// The oldest version this build still reads: version 2 files load with the
-/// fields of version 3 unset.
+/// fields of later versions unset.
 const OLDEST_VERSION: u32 = 2;
 
 /// The world as a binary asset (plan M5 D104).
@@ -36,6 +37,10 @@ pub struct WorldDefinition {
     pub airports: Vec<AirportDefinition>,
     /// All runways, referencing airports by ident.
     pub runways: Vec<RunwayDefinition>,
+    /// Countries with population and output (version 4); empty in older
+    /// files.
+    #[serde(default)]
+    pub countries: Vec<CountryDefinition>,
 }
 
 impl WorldDefinition {
@@ -89,6 +94,7 @@ mod tests {
     fn sample() -> Result<WorldDefinition> {
         Ok(WorldDefinition {
             format_version: FORMAT_VERSION,
+            countries: Vec::new(),
             airports: vec![frankfurt()?],
             runways: vec![frankfurt_07c("EDDF")?],
         })
@@ -98,7 +104,7 @@ mod tests {
     fn test_world_definition_json_round_trip() -> Result<()> {
         let definition = sample()?;
         let json = definition.to_json_pretty()?;
-        assert!(json.starts_with("{\n  \"format_version\": 3,"), "{json}");
+        assert!(json.starts_with("{\n  \"format_version\": 4,"), "{json}");
         assert!(json.ends_with('\n'), "files end with a newline");
         assert_eq!(WorldDefinition::from_json(&json)?, definition);
         Ok(())
@@ -108,7 +114,7 @@ mod tests {
     fn test_world_definition_rejects_unknown_version() -> Result<()> {
         let json = sample()?
             .to_json_pretty()?
-            .replace("\"format_version\": 3", "\"format_version\": 99");
+            .replace("\"format_version\": 4", "\"format_version\": 99");
         let error = WorldDefinition::from_json(&json)
             .err()
             .context("must be rejected")?;
@@ -127,7 +133,7 @@ mod tests {
     fn test_world_definition_rejects_version_1_files() -> Result<()> {
         let json = sample()?
             .to_json_pretty()?
-            .replace("\"format_version\": 3", "\"format_version\": 1");
+            .replace("\"format_version\": 4", "\"format_version\": 1");
         let error = WorldDefinition::from_json(&json)
             .err()
             .context("must be rejected")?;
@@ -136,7 +142,7 @@ mod tests {
             Some(&CoreError::UnsupportedFileFormat {
                 file: "world file",
                 found: 1,
-                supported: 3
+                supported: FORMAT_VERSION
             })
         );
         Ok(())
@@ -195,8 +201,8 @@ mod tests {
     #[test]
     fn test_world_definition_rejects_unknown_fields() -> Result<()> {
         let json = sample()?.to_json_pretty()?.replace(
-            "\"format_version\": 3,",
-            "\"format_version\": 3, \"extra\": 0,",
+            "\"format_version\": 4,",
+            "\"format_version\": 4, \"extra\": 0,",
         );
         assert!(WorldDefinition::from_json(&json).is_err());
         Ok(())

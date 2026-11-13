@@ -8,11 +8,13 @@ use crate::{CoreError, Id};
 
 mod airport;
 pub mod codes;
+mod country;
 mod definition;
 mod designator;
 mod runway;
 
 pub use airport::{Airport, AirportDefinition, AirportKind};
+pub use country::{Country, CountryDefinition};
 pub use definition::{FORMAT_VERSION, WorldDefinition};
 pub use designator::{RunwayDesignator, RunwaySide};
 pub use runway::{GeometrySource, Runway, RunwayDefinition, RunwayEnd, Surface};
@@ -28,6 +30,7 @@ pub struct World {
     runway_starts: Vec<usize>,
     by_ident: HashMap<codes::AirportIdent, Id<Airport>>,
     by_icao: HashMap<codes::IcaoCode, Id<Airport>>,
+    countries: HashMap<codes::CountryCode, Country>,
 }
 
 impl World {
@@ -39,6 +42,7 @@ impl World {
             runway_starts: vec![0],
             by_ident: HashMap::new(),
             by_icao: HashMap::new(),
+            countries: HashMap::new(),
         }
     }
 
@@ -61,6 +65,18 @@ impl World {
                 by_icao.insert(icao, id);
             }
             airports.push(airport);
+        }
+
+        let mut countries = HashMap::with_capacity(definition.countries.len());
+        for country in definition.countries {
+            let code = country.code;
+            if countries.insert(code, Country::new(country)?).is_some() {
+                return Err(CoreError::InvalidCountry {
+                    code: code.to_string(),
+                    reason: "listed twice",
+                }
+                .into());
+            }
         }
 
         let mut runways = Vec::with_capacity(definition.runways.len());
@@ -95,6 +111,7 @@ impl World {
             runway_starts,
             by_ident,
             by_icao,
+            countries,
         })
     }
 
@@ -122,8 +139,15 @@ impl World {
                 geometry: runway.geometry(),
             });
         }
+        let mut countries: Vec<CountryDefinition> = self
+            .countries
+            .values()
+            .map(|c| c.definition().clone())
+            .collect();
+        countries.sort_by_key(|c| c.code);
         WorldDefinition {
             format_version: FORMAT_VERSION,
+            countries,
             airports: self
                 .airports
                 .iter()
@@ -131,6 +155,11 @@ impl World {
                 .collect(),
             runways,
         }
+    }
+
+    /// The country with ISO code `code`, if the world lists it.
+    pub fn country(&self, code: codes::CountryCode) -> Option<&Country> {
+        self.countries.get(&code)
     }
 
     /// Number of airports.
@@ -230,6 +259,7 @@ mod tests {
     fn definition() -> Result<WorldDefinition> {
         Ok(WorldDefinition {
             format_version: FORMAT_VERSION,
+            countries: Vec::new(),
             airports: vec![frankfurt()?, munich()?, airfield("DE-0062")?],
             // Deliberately interleaved: runways need not be grouped in the
             // file.
@@ -254,6 +284,7 @@ mod tests {
     fn test_world_empty_equals_empty_definition() -> Result<()> {
         let empty = WorldDefinition {
             format_version: FORMAT_VERSION,
+            countries: Vec::new(),
             airports: Vec::new(),
             runways: Vec::new(),
         };
@@ -384,6 +415,7 @@ mod tests {
     fn generated(airports: usize, owners: &[usize], headings: &[f64]) -> Result<WorldDefinition> {
         let mut definition = WorldDefinition {
             format_version: FORMAT_VERSION,
+            countries: Vec::new(),
             airports: Vec::with_capacity(airports),
             runways: Vec::with_capacity(owners.len()),
         };
@@ -474,6 +506,20 @@ mod tests {
     }
 
     #[test]
+    fn test_world_looks_up_countries() -> Result<()> {
+        let mut definition = definition()?;
+        definition.countries = vec![country::tests::germany()?];
+        let world = World::from_definition(definition.clone())?;
+        let germany = world.country("DE".parse()?).context("Germany")?;
+        assert_eq!(germany.population(), 83_132_799);
+        assert!(world.country("FR".parse()?).is_none());
+        assert_eq!(world.to_definition().countries, definition.countries);
+        definition.countries.push(country::tests::germany()?);
+        assert!(World::from_definition(definition).is_err(), "duplicates");
+        Ok(())
+    }
+
+    #[test]
     fn test_shipped_globe_has_zones_and_winds() -> Result<()> {
         let world = World::from_asset(include_bytes!("../../../../assets/world/world.bin"))?;
         let scheduled: Vec<&Airport> = world
@@ -485,6 +531,13 @@ mod tests {
         let zoned = scheduled.iter().filter(|a| a.zone().is_some()).count();
         assert!(zoned * 100 >= scheduled.len() * 99, "{zoned}");
         assert!(scheduled.iter().all(|a| a.wind().is_some()));
+        let incomes = scheduled
+            .iter()
+            .filter(|a| world.country(a.country()).is_some())
+            .count();
+        assert!(incomes * 100 >= scheduled.len() * 98, "{incomes}");
+        let germany = world.country("DE".parse()?).context("Germany")?;
+        assert!((30_000.0..80_000.0).contains(&germany.gdp_per_capita()));
         let frankfurt = world
             .airport_by_ident("EDDF".parse()?)
             .and_then(|id| world.airport(id))

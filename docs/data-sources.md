@@ -147,7 +147,7 @@ version, then postcard-encoded data compressed with zstd.
 
 | Asset | Sources | Licence | Attribution |
 |-------|---------|---------|-------------|
-| `assets/world/world.bin` | OurAirports `airports.csv`, `runways.csv`; Natural Earth populated places (catchments); [`airportsdata`](https://github.com/mborsetti/airportsdata) `airports.csv` (time zones, from `TimeZoneDB`); [NASA POWER](https://power.larc.nasa.gov/) climatology `WD10M` (prevailing wind) | Public domain; public domain; MIT; CC BY 4.0 | "Wind data: NASA Langley Research Center POWER Project"; "Time zones: airportsdata (MIT), TimeZoneDB" |
+| `assets/world/world.bin` | OurAirports `airports.csv`, `runways.csv`; Natural Earth populated places (catchments) and admin-0 countries (`POP_EST`, `GDP_MD`: population and GDP per country, plan M5 D109); [`airportsdata`](https://github.com/mborsetti/airportsdata) `airports.csv` (time zones, from `TimeZoneDB`); [NASA POWER](https://power.larc.nasa.gov/) climatology `WD10M` (prevailing wind) | Public domain; public domain; MIT; CC BY 4.0 | "Wind data: NASA Langley Research Center POWER Project"; "Time zones: airportsdata (MIT), TimeZoneDB" |
 | `assets/basemap/world.bin` | Natural Earth 1:10m, as the German basemap | Public domain | Not required ("Made with Natural Earth" shown) |
 | `assets/traffic/observed.bin` | OpenSky Network flight lists 2019 ([Zenodo record 5764017](https://zenodo.org/records/5764017)); [OpenFlights](https://openflights.org/data.html) `airlines.dat` (names, callsigns) | CC BY 4.0; ODbL | "Flight data: The OpenSky Network, https://opensky-network.org"; "Airline names: OpenFlights (ODbL)" |
 
@@ -170,7 +170,8 @@ Downloaded 2026-11-13 (Natural Earth: the 2026-11-05 snapshot above).
 Import result: 26,109 aerodromes with a usable runway, 3,846 with scheduled service; time
 zones for 5,591 airports (5,333 by code, 258 from the nearest listed airport in the
 country, 1 without); prevailing winds for all 3,846 scheduled airports. `world.bin`
-2.8 MB, `basemap/world.bin` 3.8 MB.
+2.8 MB, `basemap/world.bin` 3.8 MB. World format 4 adds 234 countries with population and
+GDP (the countries with a valid ISO code and both figures).
 
 Observed traffic: of 30,989,481 flights in the 2019 lists, 11,599,572 are counted with both
 ends at known airports (5,183 airports); dropped: 3,582,212 without a known airport,
