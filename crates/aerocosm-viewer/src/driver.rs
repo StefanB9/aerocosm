@@ -6,8 +6,11 @@ use aerocosm_core::{Pacer, SimSpeed, SimTime, Simulation, TICK, WallClock, WallI
 use anyhow::{Context, Result};
 use bevy::ecs::{resource::Resource, schedule::SystemSet};
 
-/// At most this many ticks per frame; `Max` speed runs exactly this many.
+/// At most this many ticks per frame; `Max` speed runs exactly this many…
 const MAX_TICKS_PER_FRAME: u32 = 2000;
+/// …or as many as fit in this much wall time, ms, leaving the rest of a
+/// frame for drawing.
+pub(crate) const FRAME_BUDGET_MS: u64 = 25;
 
 /// Systems that advance the simulation; readers of its state run after.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -69,12 +72,28 @@ impl SimDriver {
         self.simulation.run_ticks(count)
     }
 
-    /// Runs the ticks due by `elapsed`, the real time since the app started.
-    pub(crate) fn advance(&mut self, elapsed: Duration) -> Result<()> {
-        let ticks = self.pacer.ticks_due(&FrameClock(elapsed));
-        self.simulation
-            .run_ticks(ticks)
-            .with_context(|| format!("simulation stopped at {}", self.simulation.time()))
+    /// Runs the ticks due by `elapsed`, the real time since the app started,
+    /// until they have taken [`FRAME_BUDGET_MS`] of wall time as `now`
+    /// measures it; the rest are dropped. On a machine too slow for the
+    /// chosen speed the simulation then runs slower, instead of each frame
+    /// owing more ticks than the last (seen in the browser with the world).
+    pub(crate) fn advance(
+        &mut self,
+        elapsed: Duration,
+        mut now: impl FnMut() -> Duration,
+    ) -> Result<()> {
+        let due = self.pacer.ticks_due(&FrameClock(elapsed));
+        let budget = Duration::from_millis(FRAME_BUDGET_MS);
+        let start = now();
+        for _ in 0..due {
+            self.simulation
+                .run_ticks(1)
+                .with_context(|| format!("simulation stopped at {}", self.simulation.time()))?;
+            if now().saturating_sub(start) >= budget {
+                break;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -116,12 +135,21 @@ mod tests {
         )?)
     }
 
+    /// A wall clock for measuring work that moves `step` on every reading.
+    fn ticking(step: Duration) -> impl FnMut() -> Duration {
+        let mut now = Duration::ZERO;
+        move || {
+            now += step;
+            now
+        }
+    }
+
     #[test]
     fn test_driver_runs_at_default_speed() -> Result<()> {
         let mut driver = driver()?;
         assert_eq!(driver.speed(), SimSpeed::X60);
-        driver.advance(Duration::ZERO)?;
-        driver.advance(Duration::from_secs(1))?;
+        driver.advance(Duration::ZERO, ticking(Duration::ZERO))?;
+        driver.advance(Duration::from_secs(1), ticking(Duration::ZERO))?;
         assert_eq!(driver.simulation().ticks(), 60);
         Ok(())
     }
@@ -129,13 +157,27 @@ mod tests {
     #[test]
     fn test_driver_pause_and_speed_change() -> Result<()> {
         let mut driver = driver()?;
-        driver.advance(Duration::ZERO)?;
+        driver.advance(Duration::ZERO, ticking(Duration::ZERO))?;
         driver.set_speed(SimSpeed::Paused);
-        driver.advance(Duration::from_secs(5))?;
+        driver.advance(Duration::from_secs(5), ticking(Duration::ZERO))?;
         assert_eq!(driver.simulation().ticks(), 0);
         driver.set_speed(SimSpeed::X10);
-        driver.advance(Duration::from_secs(6))?;
+        driver.advance(Duration::from_secs(6), ticking(Duration::ZERO))?;
         assert_eq!(driver.simulation().ticks(), 10);
+        Ok(())
+    }
+
+    #[test]
+    fn test_slow_ticks_stop_at_the_frame_budget() -> Result<()> {
+        let mut driver = driver()?;
+        driver.advance(Duration::ZERO, ticking(Duration::ZERO))?;
+        // 60 ticks are due, but each takes 10 ms: the frame stops once the
+        // budget is spent, and the rest are dropped, not owed.
+        driver.advance(Duration::from_secs(1), ticking(Duration::from_millis(10)))?;
+        let run = driver.simulation().ticks();
+        assert!(run >= 1 && run * 10 <= 10 + FRAME_BUDGET_MS, "{run}");
+        driver.advance(Duration::from_secs(2), ticking(Duration::ZERO))?;
+        assert_eq!(driver.simulation().ticks(), run + 60);
         Ok(())
     }
 

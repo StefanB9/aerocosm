@@ -38,6 +38,7 @@ use bevy::{
         system::{Res, ResMut},
     },
     log::error,
+    platform::time::Instant,
     time::{Real, Time},
     utils::default,
     window::{Window, WindowPlugin, WindowResolution},
@@ -125,7 +126,8 @@ fn main() -> Result<()> {
 
 /// Advances the simulation by the real time elapsed, at the selected speed.
 fn drive_simulation(time: Res<Time<Real>>, mut driver: ResMut<SimDriver>) {
-    if let Err(error) = driver.advance(time.elapsed()) {
+    let start = Instant::now();
+    if let Err(error) = driver.advance(time.elapsed(), || start.elapsed()) {
         error!("{error:#}");
         driver.set_speed(aerocosm_core::SimSpeed::Paused);
     }
