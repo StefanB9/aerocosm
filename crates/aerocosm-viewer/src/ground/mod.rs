@@ -1,13 +1,20 @@
-//! Airport grounds at airport zoom (plan M4 D87): aprons as one mesh built at
-//! start-up, taxiway centrelines and stands as retained gizmos per airport,
-//! switched on only below the zoom threshold and for airports in view.
+//! Airport grounds at airport zoom (plan M4 D87, M5 D132): aprons, taxiway
+//! centrelines, stands and their names, built per airport when it comes into
+//! view at airport zoom and dropped when it is far away (`stream`), each in
+//! its own frame.
 
 pub(crate) mod geometry;
 mod route;
+mod stream;
 
-use aerocosm_core::ground::{AirportGround, EdgeKind, GroundNetwork};
+use aerocosm_core::{
+    Id,
+    ground::{AirportGround, EdgeKind},
+    world::Airport,
+};
 use bevy::{
     camera::visibility::RenderLayers,
+    ecs::schedule::common_conditions::resource_added,
     gizmos::{
         GizmoAsset,
         config::{GizmoLineConfig, GizmoLineJoint},
@@ -15,50 +22,55 @@ use bevy::{
     },
     prelude::*,
 };
-use geometry::{NamedEdge, bounds, ground_visible, in_view, polyline_middle, stand_marker};
+use geometry::{NamedEdge, bounds, polyline_middle, stand_marker};
 
 use crate::{
+    anchor::{AnchorSet, MapAnchor},
     camera::{CameraRig, CameraSet, PointerState},
     data::OVERLAY_LAYER,
+    driver::{SimDriver, SimReady},
     projection::MapProjection,
     tessellate::fill_outlines,
     theme,
+    ui::labels::LabelSources,
 };
 
 /// Stand markers are this wide, m.
 const STAND_MARKER: f64 = 12.0;
 
-/// The mapped airports' ground layouts, as rendered.
-#[derive(Resource)]
-pub(crate) struct GroundView {
-    pub(crate) ground: GroundNetwork,
-}
+/// The asset stores a ground is drawn into.
+type DrawAssets<'w> = (
+    ResMut<'w, Assets<Mesh>>,
+    ResMut<'w, Assets<ColorMaterial>>,
+    ResMut<'w, Assets<GizmoAsset>>,
+);
 
-/// One airport's taxiway or stand lines, shown while it is in view at
-/// airport zoom.
-#[derive(Component)]
-struct GroundLines {
-    bounds: Rect,
-    gizmo: Gizmo,
-}
+/// Every mapped airport's frame and extent in it, for streaming.
+#[derive(Resource, Default)]
+struct GroundIndex(Vec<(Id<Airport>, MapProjection, Rect)>);
 
-/// The apron mesh.
+/// One airport's built ground: its meshes and lines (its names are label
+/// sources while it is built).
 #[derive(Component)]
-struct Aprons;
+struct BuiltGround {
+    index: usize,
+}
 
 /// Draws airport grounds.
 pub(crate) struct GroundPlugin;
 
 impl Plugin for GroundPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_ground).add_systems(
+        app.init_resource::<GroundIndex>().add_systems(
             Update,
             (
-                ground_level_of_detail.after(CameraSet),
+                index_ground.run_if(resource_added::<SimDriver>),
+                stream_ground.after(AnchorSet).after(index_ground),
                 route::draw_taxi_route
                     .after(CameraSet)
                     .after(crate::driver::SimSet),
-            ),
+            )
+                .in_set(SimReady),
         );
     }
 }
@@ -87,123 +99,153 @@ pub(crate) fn named_edges(layout: &AirportGround, projection: &MapProjection) ->
         .collect()
 }
 
-fn spawn_ground(
-    mut commands: Commands,
-    view: Res<GroundView>,
-    projection: Res<MapProjection>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    mut gizmos: ResMut<Assets<GizmoAsset>>,
-) {
-    let layer = RenderLayers::layer(OVERLAY_LAYER);
-    let outlines = view.ground.airports().iter().flat_map(|layout| {
-        layout
-            .aprons()
-            .iter()
-            .map(|ring| ring.iter().map(|p| projection.project(*p)).collect())
-    });
-    match fill_outlines(outlines) {
-        Ok(triangles) => {
-            commands.spawn((
-                Aprons,
-                Mesh2d(meshes.add(triangles.into_mesh())),
-                MeshMaterial2d(materials.add(theme::APRON)),
-                // Below the runways (z 5).
-                Transform::from_xyz(0.0, 0.0, 4.0),
-                Visibility::Hidden,
-                layer.clone(),
-            ));
-        }
-        Err(error) => error!("cannot tessellate aprons: {error:#}"),
-    }
-    let line_config = |width: f32| GizmoLineConfig {
-        width,
-        joints: GizmoLineJoint::Round(4),
-        ..default()
-    };
-    for layout in view.ground.airports() {
-        let project = |p: &aerocosm_core::LatLon| projection.project(*p);
-        let Some(area) = bounds(layout.nodes().iter().map(|n| project(&n.position()))) else {
-            continue;
-        };
-        let mut taxiways = GizmoAsset::new();
-        let mut stands = GizmoAsset::new();
-        for edge in layout.edges() {
-            let points = edge.points().iter().map(project);
-            match edge.kind() {
-                EdgeKind::Taxiway | EdgeKind::Taxilane => {
-                    taxiways.linestrip_2d(points, theme::TAXIWAY);
-                }
-                EdgeKind::LeadIn => stands.linestrip_2d(points, theme::STAND),
-                EdgeKind::Runway => {}
-            }
-        }
-        for stand in layout.stands() {
-            let position = layout.nodes()[stand.node().as_usize()].position();
-            // SAFETY: map units per metre near Germany are about 1.6.
-            #[allow(clippy::cast_possible_truncation)]
-            let size = (STAND_MARKER * MapProjection::units_per_meter(position)) as f32;
-            #[allow(clippy::cast_possible_truncation)]
-            let heading = stand.heading().value() as f32;
-            for [a, b] in stand_marker(projection.project(position), heading, size) {
-                stands.line_2d(a, b, theme::STAND);
-            }
-        }
-        for (asset, width) in [(taxiways, 1.2), (stands, 1.0)] {
-            commands.spawn((
-                GroundLines {
-                    bounds: area,
-                    gizmo: Gizmo {
-                        handle: gizmos.add(asset),
-                        line_config: line_config(width),
-                        ..default()
-                    },
-                },
-                Transform::default(),
-                layer.clone(),
-            ));
-        }
-    }
+fn index_ground(driver: Res<SimDriver>, mut index: ResMut<GroundIndex>) {
+    index.0 = driver
+        .simulation()
+        .scenario()
+        .ground()
+        .airports()
+        .iter()
+        .filter_map(|layout| {
+            let frame = MapProjection::new(layout.nodes().first()?.position());
+            let area = bounds(layout.nodes().iter().map(|n| frame.project(n.position())))?;
+            Some((layout.airport(), frame, area))
+        })
+        .collect();
 }
 
-/// Shows the ground below the zoom threshold, and each airport's lines only
-/// while it is in view. Retained gizmos ignore `Visibility`, so their
-/// `Gizmo` is added and removed (as for rivers).
-fn ground_level_of_detail(
+/// Builds the grounds coming into view and drops those far away.
+fn stream_ground(
     mut commands: Commands,
+    driver: Res<SimDriver>,
+    index: Res<GroundIndex>,
     rig: Option<Res<CameraRig>>,
     pointer: Res<PointerState>,
-    mut aprons: Query<&mut Visibility, With<Aprons>>,
-    lines: Query<(Entity, &GroundLines, Has<Gizmo>)>,
+    projection: Res<MapProjection>,
+    mut labels: ResMut<LabelSources>,
+    built: Query<(Entity, &BuiltGround)>,
+    mut assets: DrawAssets<'_>,
 ) {
     let Some(rig) = rig else {
         return;
     };
-    let visible = ground_visible(rig.state.scale());
-    for mut visibility in &mut aprons {
-        visibility.set_if_neq(if visible {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        });
-    }
+    let centre = rig.state.center();
     let view = Rect::from_corners(
         rig.state.screen_to_world(Vec2::ZERO, pointer.viewport),
         rig.state
             .screen_to_world(pointer.viewport, pointer.viewport),
     );
-    for (entity, ground, shown) in &lines {
-        let show = visible && in_view(ground.bounds, view);
-        if show && !shown {
-            commands.entity(entity).insert(ground.gizmo.clone());
-        } else if !show && shown {
-            commands.entity(entity).remove::<Gizmo>();
+    let areas = index.0.iter().enumerate().map(|(i, (_, frame, area))| {
+        let at = MapAnchor::new(*frame).place(&projection, centre);
+        (i, Rect::from_corners(area.min + at, area.max + at))
+    });
+    let is_built = |i: usize| built.iter().any(|(_, b)| b.index == i);
+    let plan = stream::plan(areas, view, rig.state.scale(), is_built);
+    for (entity, ground) in &built {
+        if plan.drop.contains(&ground.index) {
+            labels.remove_ground(ground.index);
+            commands.entity(entity).despawn();
         }
+    }
+    let ground = driver.simulation().scenario().ground();
+    for i in plan.build {
+        let Some((airport, frame, _)) = index.0.get(i) else {
+            continue;
+        };
+        let Some(layout) = ground.airport(*airport) else {
+            continue;
+        };
+        labels.add_ground(i, layout, frame, &projection);
+        spawn_layout(
+            &mut commands,
+            &mut assets,
+            layout,
+            *frame,
+            BuiltGround { index: i },
+        );
+    }
+}
+
+/// Spawns the aprons, taxiways and stands of `layout` in `frame`.
+fn spawn_layout(
+    commands: &mut Commands,
+    (meshes, materials, gizmos): &mut DrawAssets<'_>,
+    layout: &AirportGround,
+    frame: MapProjection,
+    built: BuiltGround,
+) {
+    let layer = RenderLayers::layer(OVERLAY_LAYER);
+    let line_config = |width: f32| GizmoLineConfig {
+        width,
+        joints: GizmoLineJoint::Round(4),
+        ..default()
+    };
+    let project = |p: &aerocosm_core::LatLon| frame.project(*p);
+    let parent = commands
+        .spawn((
+            built,
+            MapAnchor::new(frame),
+            Transform::default(),
+            Visibility::Inherited,
+        ))
+        .id();
+    let outlines = layout
+        .aprons()
+        .iter()
+        .map(|ring| ring.iter().map(project).collect());
+    match fill_outlines(outlines) {
+        Ok(triangles) => {
+            commands.spawn((
+                Mesh2d(meshes.add(triangles.into_mesh())),
+                MeshMaterial2d(materials.add(theme::APRON)),
+                // Below the runways (z 5).
+                Transform::from_xyz(0.0, 0.0, 4.0),
+                layer.clone(),
+                ChildOf(parent),
+            ));
+        }
+        Err(error) => error!("cannot tessellate aprons: {error:#}"),
+    }
+    let mut taxiways = GizmoAsset::new();
+    let mut stands = GizmoAsset::new();
+    for edge in layout.edges() {
+        let points = edge.points().iter().map(project);
+        match edge.kind() {
+            EdgeKind::Taxiway | EdgeKind::Taxilane => {
+                taxiways.linestrip_2d(points, theme::TAXIWAY);
+            }
+            EdgeKind::LeadIn => stands.linestrip_2d(points, theme::STAND),
+            EdgeKind::Runway => {}
+        }
+    }
+    for stand in layout.stands() {
+        let position = layout.nodes()[stand.node().as_usize()].position();
+        // SAFETY: map units per metre are a few at most below 80°.
+        #[allow(clippy::cast_possible_truncation)]
+        let size = (STAND_MARKER * MapProjection::units_per_meter(position)) as f32;
+        #[allow(clippy::cast_possible_truncation)]
+        let heading = stand.heading().value() as f32;
+        for [a, b] in stand_marker(frame.project(position), heading, size) {
+            stands.line_2d(a, b, theme::STAND);
+        }
+    }
+    for (asset, width) in [(taxiways, 1.2), (stands, 1.0)] {
+        commands.spawn((
+            Gizmo {
+                handle: gizmos.add(asset),
+                line_config: line_config(width),
+                ..default()
+            },
+            Transform::default(),
+            layer.clone(),
+            ChildOf(parent),
+        ));
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use aerocosm_core::LatLon;
     use anyhow::{Context, Result};
 
     use super::{bounds, geometry, named_edges};
@@ -211,11 +253,11 @@ mod tests {
 
     #[test]
     fn test_named_edges_give_frankfurt_its_taxiway_labels() -> Result<()> {
-        let (scenario, _) = data::load()?;
+        let (scenario, _) = data::load_with_ground(&['E'])?;
         let world = scenario.world();
         let frankfurt = world.airport_by_ident("EDDF".parse()?).context("EDDF")?;
         let layout = scenario.ground().airport(frankfurt).context("FRA layout")?;
-        let projection = MapProjection::germany()?;
+        let projection = MapProjection::new(LatLon::new(50.03, 8.57)?);
         let edges = named_edges(layout, &projection);
         assert!(edges.len() > 500, "{}", edges.len());
         let anchors = geometry::stretch_anchors(&edges);

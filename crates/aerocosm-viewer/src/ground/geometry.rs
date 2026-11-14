@@ -6,18 +6,10 @@ use std::collections::BTreeMap;
 use aerocosm_core::ground::GroundName;
 use bevy::math::{Rect, Vec2};
 
-/// Below this scale (map units per pixel) aprons, taxiways and stands are
-/// drawn: an airport like Frankfurt spans a few hundred pixels.
-const GROUND_SCALE: f32 = 30.0;
 /// Below this scale taxiway names are candidates for labels.
 const TAXIWAY_NAME_SCALE: f32 = 6.0;
 /// Below this scale stand names are candidates for labels.
 const STAND_NAME_SCALE: f32 = 1.8;
-
-/// Whether aprons, taxiways and stands are drawn at `scale`.
-pub(crate) fn ground_visible(scale: f32) -> bool {
-    scale < GROUND_SCALE
-}
 
 /// Whether taxiway names are labelled at `scale`.
 pub(crate) fn taxiway_names_visible(scale: f32) -> bool {
@@ -139,9 +131,7 @@ mod tests {
 
     #[test]
     fn test_ground_detail_appears_in_steps_when_zooming_in() {
-        assert!(!ground_visible(45.0));
-        assert!(ground_visible(20.0));
-        assert!(ground_visible(10.0) && !taxiway_names_visible(10.0));
+        assert!(!taxiway_names_visible(10.0));
         assert!(taxiway_names_visible(3.0) && !stand_names_visible(3.0));
         assert!(stand_names_visible(1.0));
     }

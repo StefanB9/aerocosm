@@ -21,8 +21,9 @@ use bevy::{
 
 use self::controller::{CameraLimits, CameraState};
 use crate::{
-    data::{MAP_LAYER, MapData, OVERLAY_LAYER},
-    projection::MapProjection,
+    data::{MAP_LAYER, OVERLAY_LAYER},
+    projection::{MapProjection, WORLD_WIDTH_F32, rebase_due},
+    start::StartView,
     theme,
 };
 
@@ -34,10 +35,6 @@ const WHEEL_ZOOM_PER_PIXEL: f32 = 0.003;
 const CLICK_SLOP: f32 = 4.0;
 /// Keyboard pan speed in pixels per second.
 const KEY_PAN_SPEED: f32 = 600.0;
-
-/// Germany's extent, for the initial view.
-const HOME_SOUTH_WEST: (f64, f64) = (47.2, 5.8);
-const HOME_NORTH_EAST: (f64, f64) = (55.1, 15.1);
 
 /// Systems that update the camera and pointer state; others read them
 /// afterwards.
@@ -54,6 +51,8 @@ pub(crate) struct CameraRig {
     pub(crate) state: CameraState,
     pub(crate) limits: CameraLimits,
     home: Rect,
+    /// Zoom of the opening view; the home view when absent.
+    start_scale: Option<f32>,
     initialised: bool,
     drag: Option<Drag>,
     pinch_distance: Option<f32>,
@@ -72,6 +71,7 @@ impl CameraRig {
             state,
             limits,
             home: limits.bounds,
+            start_scale: None,
             initialised: false,
             drag: None,
             pinch_distance: None,
@@ -109,35 +109,35 @@ impl Plugin for CameraPlugin {
             .add_systems(Startup, setup_cameras)
             .add_systems(
                 Update,
-                (track_pointer, handle_input, step_camera, apply_camera)
+                (
+                    track_pointer,
+                    handle_input,
+                    step_camera,
+                    rebase_origin,
+                    apply_camera,
+                )
                     .chain()
                     .in_set(CameraSet),
             );
     }
 }
 
-fn setup_cameras(mut commands: Commands, projection: Res<MapProjection>, map: Res<MapData>) {
-    let project = |(lat, lon): (f64, f64)| {
-        aerocosm_core::LatLon::new(lat, lon).map(|p| projection.project(p))
-    };
-    let (Ok(south_west), Ok(north_east)) = (project(HOME_SOUTH_WEST), project(HOME_NORTH_EAST))
-    else {
-        return;
-    };
-    let home = Rect::from_corners(south_west, north_east);
-    let bounds = map.basemap.bounds();
+fn setup_cameras(mut commands: Commands, start: Res<StartView>, projection: Res<MapProjection>) {
+    let world = WORLD_WIDTH_F32;
+    let centre = StartView::home().map_or(Vec2::ZERO, |home| projection.project(home.centre));
+    let home = Rect::from_center_size(centre, Vec2::new(world, world / 3.0));
     let limits = CameraLimits {
-        // The visible area stays on the basemap, so its edge is never seen.
-        bounds: Rect::from_corners(
-            projection.project(bounds.south_west()),
-            projection.project(bounds.north_east()),
-        ),
+        // East and west wrap (plan M5 D131); north and south end where Web
+        // Mercator becomes square.
+        bounds: Rect::new(f32::NEG_INFINITY, -world / 2.0, f32::INFINITY, world / 2.0),
         min_scale: 0.4,
-        max_scale: 2400.0,
+        max_scale: f32::INFINITY,
+        max_width: world,
     };
     commands.insert_resource(CameraRig {
         home,
-        ..CameraRig::new(CameraState::new(home.center(), limits.max_scale), limits)
+        start_scale: start.scale,
+        ..CameraRig::new(CameraState::new(home.center(), world / 1000.0), limits)
     });
     commands.spawn((
         Camera2d,
@@ -193,7 +193,15 @@ fn handle_input(
     }
     let rig = &mut *rig;
     if !rig.initialised {
-        rig.state = CameraState::fit(rig.home, viewport * 0.92, &rig.limits);
+        // The projection's origin is the opening view's centre.
+        rig.state = match rig.start_scale {
+            Some(scale) => {
+                let mut state = CameraState::new(Vec2::ZERO, scale);
+                state.zoom_about(viewport / 2.0, 1.0, viewport, &rig.limits);
+                state
+            }
+            None => CameraState::fit(rig.home, viewport * 0.92, &rig.limits),
+        };
         rig.initialised = true;
     }
     let dt = time.delta_secs();
@@ -293,6 +301,17 @@ fn step_camera(mut rig: ResMut<CameraRig>, pointer: Res<PointerState>, time: Res
     let rig = &mut *rig;
     rig.state
         .step(time.delta_secs(), pointer.viewport, &rig.limits);
+}
+
+/// Moves the floating origin to the camera once it is far from it (plan M5
+/// D130).
+fn rebase_origin(mut rig: ResMut<CameraRig>, mut projection: ResMut<MapProjection>) {
+    let centre = rig.state.center();
+    if rebase_due(centre, rig.state.scale()) {
+        projection.rebase(centre);
+        rig.state.shift(centre);
+        rig.home = Rect::from_center_size(rig.home.center() - centre, rig.home.size());
+    }
 }
 
 fn apply_camera(

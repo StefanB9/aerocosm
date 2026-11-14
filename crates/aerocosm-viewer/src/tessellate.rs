@@ -32,7 +32,12 @@ pub(crate) fn fill_polygons<'a>(
     for polygon in polygons {
         let mut builder = LyonPath::builder();
         for ring in polygon.rings() {
-            let mut points = ring.path().points().iter().map(|p| projection.project(*p));
+            // Natural Earth splits shapes at the antimeridian: unwrapped.
+            let mut points = ring
+                .path()
+                .points()
+                .iter()
+                .map(|p| projection.project_unwrapped(*p));
             let Some(first) = points.next() else {
                 continue;
             };
@@ -162,7 +167,7 @@ mod tests {
 
     #[test]
     fn test_fill_square_makes_two_triangles() -> Result<()> {
-        let projection = MapProjection::germany()?;
+        let projection = MapProjection::new(LatLon::new(51.163_4, 10.447_7)?);
         let square = Polygon::new(vec![ring(&[
             (50.0, 9.0),
             (50.0, 10.0),
@@ -177,7 +182,7 @@ mod tests {
 
     #[test]
     fn test_fill_respects_holes() -> Result<()> {
-        let projection = MapProjection::germany()?;
+        let projection = MapProjection::new(LatLon::new(51.163_4, 10.447_7)?);
         let outer = [(50.0, 9.0), (50.0, 11.0), (52.0, 11.0), (52.0, 9.0)];
         let hole = [(50.5, 9.5), (50.5, 10.5), (51.5, 10.5), (51.5, 9.5)];
         let solid = fill_polygons([&Polygon::new(vec![ring(&outer)?])?], &projection)?;
@@ -193,7 +198,7 @@ mod tests {
 
     #[test]
     fn test_fill_merges_polygons_with_offset_indices() -> Result<()> {
-        let projection = MapProjection::germany()?;
+        let projection = MapProjection::new(LatLon::new(51.163_4, 10.447_7)?);
         let a = Polygon::new(vec![ring(&[(50.0, 9.0), (50.0, 10.0), (51.0, 10.0)])?])?;
         let b = Polygon::new(vec![ring(&[(52.0, 9.0), (52.0, 10.0), (53.0, 10.0)])?])?;
         let triangles = fill_polygons([&a, &b], &projection)?;
@@ -226,7 +231,7 @@ mod tests {
 
     #[test]
     fn test_triangles_to_mesh_keeps_counts() -> Result<()> {
-        let projection = MapProjection::germany()?;
+        let projection = MapProjection::new(LatLon::new(51.163_4, 10.447_7)?);
         let square = Polygon::new(vec![ring(&[
             (50.0, 9.0),
             (50.0, 10.0),
@@ -251,7 +256,7 @@ mod tests {
             rotation in 0.0_f64..std::f64::consts::TAU,
         ) {
             let fail = |e: anyhow::Error| TestCaseError::fail(e.to_string());
-            let projection = MapProjection::germany().map_err(fail)?;
+            let projection = MapProjection::new(LatLon::new(51.163_4, 10.447_7).map_err(fail)?);
             #[allow(clippy::cast_precision_loss)]
             let points: Vec<(f64, f64)> = (0..sides)
                 .map(|i| {

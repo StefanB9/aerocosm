@@ -4,7 +4,6 @@
 use aerocosm_basemap::Basemap;
 use aerocosm_core::{
     AircraftCatalog, Scenario,
-    ground::GroundDefinition,
     traffic::{model::derive, observed::ObservedTraffic},
     world::World,
 };
@@ -21,13 +20,7 @@ use bevy::{
 const WORLD: &[u8] = include_bytes!("../../../assets/world/world.bin");
 const AIRCRAFT_JSON: &str = include_str!("../../../assets/aircraft/types.json");
 const OBSERVED: &[u8] = include_bytes!("../../../assets/traffic/observed.bin");
-/// The ground of northern and southern Europe (ICAO regions E and L) until
-/// PR 4 streams it per airport (plan M5 D124).
-const GROUND: [&[u8]; 2] = [
-    include_bytes!("../../../assets/ground/E.ground.bin"),
-    include_bytes!("../../../assets/ground/L.ground.bin"),
-];
-const BASEMAP_JSON: &str = include_str!("../../../assets/basemap/germany.basemap.json");
+const BASEMAP: &[u8] = include_bytes!("../../../assets/basemap/world.bin");
 const INTER_REGULAR: &[u8] = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
 const INTER_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf");
 
@@ -43,7 +36,7 @@ pub(crate) struct MapData {
 }
 
 /// Parses the embedded world and basemap and derives the world model
-/// (plan M5).
+/// (plan M5); the ground layouts are loaded at start (`loading`, D132).
 pub(crate) fn load() -> Result<(Scenario, MapData)> {
     let world = World::from_asset(WORLD).context("embedded world is invalid")?;
     let aircraft =
@@ -53,18 +46,29 @@ pub(crate) fn load() -> Result<(Scenario, MapData)> {
     let (targets, airlines) = derive(&world, &observed, &aircraft)
         .context("cannot derive the world model")?
         .into_parts();
-    let scenario = Scenario::with_traffic(world, aircraft, airlines, targets)?.with_ground(
-        GroundDefinition::combine(
-            GROUND
-                .iter()
-                .map(|bytes| GroundDefinition::from_asset(bytes))
-                .collect::<Result<Vec<_>>>()
-                .context("embedded ground is invalid")?,
-        )
-        .context("embedded ground is invalid")?,
-    )?;
-    let basemap = Basemap::from_json(BASEMAP_JSON).context("embedded basemap is invalid")?;
+    let scenario = Scenario::with_traffic(world, aircraft, airlines, targets)?;
+    let basemap = Basemap::from_asset(BASEMAP).context("embedded basemap is invalid")?;
     Ok((scenario, MapData { basemap }))
+}
+
+/// The embedded data with the ground of `regions`, read from
+/// `assets/ground` as the viewer loads it at start.
+#[cfg(test)]
+pub(crate) fn load_with_ground(regions: &[char]) -> Result<(Scenario, MapData)> {
+    let (scenario, map) = load()?;
+    let definitions = regions
+        .iter()
+        .map(|region| {
+            let path = format!(
+                "{}/../../assets/ground/{}",
+                env!("CARGO_MANIFEST_DIR"),
+                aerocosm_core::ground::ground_file(Some(*region))
+            );
+            let bytes = std::fs::read(&path).with_context(|| format!("cannot read {path}"))?;
+            aerocosm_core::ground::GroundDefinition::from_asset(&bytes)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok((crate::loading::with_regions(scenario, definitions)?, map))
 }
 
 /// The UI typefaces.
@@ -94,8 +98,7 @@ mod tests {
         assert!(scenario.world().airport_count() > 20_000);
         let traffic = scenario.traffic().context("embedded traffic")?;
         assert!(traffic.airlines().len() > 300);
-        assert!(scenario.ground().airports().len() > 20);
-        assert!(map.basemap.countries().len() > 10);
+        assert!(map.basemap.countries().len() > 200);
         Ok(())
     }
 }

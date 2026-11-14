@@ -5,7 +5,11 @@ use aerocosm_core::units::Meters;
 use bevy::{color::Alpha, ecs::system::Res, gizmos::gizmos::Gizmos, math::Vec2};
 
 use crate::{
-    camera::CameraRig, driver::SimDriver, projection::MapProjection, selection::Selection, theme,
+    camera::CameraRig,
+    driver::SimDriver,
+    projection::{MapProjection, wrap_near},
+    selection::Selection,
+    theme,
 };
 
 /// The clearance limit's marker radius, in pixels.
@@ -90,7 +94,7 @@ pub(super) fn draw_taxi_route(
     let points: Vec<Vec2> = route
         .points()
         .iter()
-        .map(|p| projection.project(*p))
+        .map(|p| wrap_near(projection.project(*p), rig.state.center()))
         .collect();
     let mut distances = Vec::with_capacity(points.len());
     let mut walked = 0.0_f64;
