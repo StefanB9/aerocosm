@@ -136,8 +136,12 @@ fn update_symbols(
         if symbol.position != position {
             symbol.position = position;
         }
-        transform.scale =
-            Vec3::splat(lod::glyph_radius(symbol.kind) * lod::symbol_factor(scale) * scale);
+        // Written only when it changes: rewriting it every frame would
+        // propagate every airport's transform every frame.
+        let size = Vec3::splat(lod::glyph_radius(symbol.kind) * lod::symbol_factor(scale) * scale);
+        if transform.scale != size {
+            transform.scale = size;
+        }
         visibility.set_if_neq(if lod::airport_visible(symbol.kind, scale) {
             Visibility::Inherited
         } else {

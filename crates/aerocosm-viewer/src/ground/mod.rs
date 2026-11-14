@@ -27,12 +27,12 @@ use geometry::{NamedEdge, bounds, polyline_middle, stand_marker};
 use crate::{
     anchor::{AnchorSet, MapAnchor},
     camera::{CameraRig, CameraSet, PointerState},
-    data::{Fonts, OVERLAY_LAYER},
+    data::OVERLAY_LAYER,
     driver::{SimDriver, SimReady},
     projection::MapProjection,
     tessellate::fill_outlines,
     theme,
-    ui::labels::{LabelOrder, LabelRoot, forget_labels, spawn_ground_labels},
+    ui::labels::LabelSources,
 };
 
 /// Stand markers are this wide, m.
@@ -49,11 +49,11 @@ type DrawAssets<'w> = (
 #[derive(Resource, Default)]
 struct GroundIndex(Vec<(Id<Airport>, MapProjection, Rect)>);
 
-/// One airport's built ground: its meshes, lines and labels.
+/// One airport's built ground: its meshes and lines (its names are label
+/// sources while it is built).
 #[derive(Component)]
 struct BuiltGround {
     index: usize,
-    labels: Vec<Entity>,
 }
 
 /// Draws airport grounds.
@@ -122,13 +122,11 @@ fn stream_ground(
     rig: Option<Res<CameraRig>>,
     pointer: Res<PointerState>,
     projection: Res<MapProjection>,
-    fonts: Res<Fonts>,
-    root: Option<Res<LabelRoot>>,
-    mut order: ResMut<LabelOrder>,
+    mut labels: ResMut<LabelSources>,
     built: Query<(Entity, &BuiltGround)>,
     mut assets: DrawAssets<'_>,
 ) {
-    let (Some(rig), Some(root)) = (rig, root) else {
+    let Some(rig) = rig else {
         return;
     };
     let centre = rig.state.center();
@@ -145,10 +143,7 @@ fn stream_ground(
     let plan = stream::plan(areas, view, rig.state.scale(), is_built);
     for (entity, ground) in &built {
         if plan.drop.contains(&ground.index) {
-            forget_labels(&mut order, &ground.labels);
-            for label in &ground.labels {
-                commands.entity(*label).despawn();
-            }
+            labels.remove_ground(ground.index);
             commands.entity(entity).despawn();
         }
     }
@@ -160,21 +155,13 @@ fn stream_ground(
         let Some(layout) = ground.airport(*airport) else {
             continue;
         };
-        let labels = spawn_ground_labels(
-            &mut commands,
-            &fonts,
-            &projection,
-            &root,
-            &mut order,
-            layout,
-            frame,
-        );
+        labels.add_ground(i, layout, frame, &projection);
         spawn_layout(
             &mut commands,
             &mut assets,
             layout,
             *frame,
-            BuiltGround { index: i, labels },
+            BuiltGround { index: i },
         );
     }
 }
