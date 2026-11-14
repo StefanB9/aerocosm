@@ -7,6 +7,7 @@
 
 mod aircraft;
 mod airports;
+mod anchor;
 mod camera;
 mod data;
 mod driver;
@@ -20,6 +21,7 @@ mod projection;
 mod runway_use;
 mod selection;
 mod silhouette;
+mod start;
 mod tessellate;
 mod theme;
 mod ui;
@@ -42,12 +44,14 @@ use bevy::{
 use crate::{
     aircraft::AircraftPlugin,
     airports::{AirportsPlugin, WorldView},
+    anchor::AnchorPlugin,
     camera::CameraPlugin,
     driver::{SimDriver, SimSet},
     ground::{GroundPlugin, GroundView},
     map::MapPlugin,
     projection::MapProjection,
     runway_use::RunwayUsePlugin,
+    start::StartView,
     ui::UiPlugin,
 };
 
@@ -56,6 +60,7 @@ use crate::{
 const START: &str = "2026-11-05T07:00:00Z";
 
 fn main() -> Result<()> {
+    let view = StartView::from_args(std::env::args().skip(1))?;
     let (scenario, map) = data::load()?;
     let start: SimTime = START.parse().context("invalid start time")?;
     // The viewer and the simulation each keep a copy of the static world; it is
@@ -78,7 +83,8 @@ fn main() -> Result<()> {
             }),
             ..default()
         }))
-        .insert_resource(MapProjection::germany()?)
+        .insert_resource(MapProjection::new(view.centre))
+        .insert_resource(view)
         .insert_resource(map)
         .insert_resource(WorldView { world })
         .insert_resource(GroundView { ground })
@@ -86,6 +92,7 @@ fn main() -> Result<()> {
         .add_systems(Startup, data::setup_fonts)
         .add_plugins((
             CameraPlugin,
+            AnchorPlugin,
             MapPlugin,
             AirportsPlugin,
             GroundPlugin,

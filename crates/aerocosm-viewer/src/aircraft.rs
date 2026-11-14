@@ -35,7 +35,7 @@ use crate::{
     flights::{
         PhaseBand, Pose, Trail, blend, display_length, flight_visible, rotation, trail_visible,
     },
-    projection::MapProjection,
+    projection::{MapProjection, wrap_near},
     selection::Selection,
     silhouette::{
         HALO_WIDTH, SizeClass, WIDE_HALO_WIDTH, halo, halo_width, outline, pixel_length,
@@ -110,6 +110,8 @@ pub(crate) struct Slot {
 pub(crate) struct TrafficView {
     slots: Vec<Slot>,
     ticks: Option<u64>,
+    /// The projection the positions were taken in.
+    frame: Option<MapProjection>,
 }
 
 impl TrafficView {
@@ -120,6 +122,21 @@ impl TrafficView {
 
     /// Records the simulation's flights if it has ticked since the last call.
     pub(crate) fn sample(&mut self, driver: &SimDriver, projection: &MapProjection) {
+        // The floating origin moved (plan M5 D130): shift what is cached.
+        if let Some(frame) = self.frame.replace(*projection)
+            && frame != *projection
+        {
+            let by = projection.offset_to(&frame);
+            for slot in &mut self.slots {
+                for pose in [&mut slot.previous, &mut slot.current]
+                    .into_iter()
+                    .flatten()
+                {
+                    pose.position += by;
+                }
+                slot.trail.shift(by);
+            }
+        }
         let simulation = driver.simulation();
         let ticks = simulation.ticks();
         if self.ticks == Some(ticks) && !self.slots.is_empty() {
@@ -152,7 +169,13 @@ impl TrafficView {
             }
             // Interpolate across exactly one tick; after a jump, start afresh.
             slot.previous = if single_step && !new_leg {
-                slot.current.or(Some(pose))
+                // Across the antimeridian, from the copy next to it.
+                slot.current
+                    .map(|previous| Pose {
+                        position: wrap_near(previous.position, pose.position),
+                        ..previous
+                    })
+                    .or(Some(pose))
             } else {
                 Some(pose)
             };
@@ -191,7 +214,7 @@ impl Plugin for AircraftPlugin {
             .add_systems(
                 Update,
                 (
-                    sample_traffic.after(SimSet),
+                    sample_traffic.after(SimSet).after(CameraSet),
                     draw_aircraft
                         .in_set(DrawSet)
                         .after(sample_traffic)
@@ -316,7 +339,6 @@ fn tick_fraction(driver: &SimDriver) -> f32 {
 fn draw_aircraft(
     rig: Option<Res<CameraRig>>,
     driver: Res<SimDriver>,
-    projection: Res<MapProjection>,
     traffic: Res<TrafficView>,
     selection: Res<Selection>,
     bands: Option<Res<BandMaterials>>,
@@ -332,9 +354,8 @@ fn draw_aircraft(
         return;
     };
     let scale = rig.state.scale();
-    // Map units per metre barely change over Germany; the origin's is used.
-    #[allow(clippy::cast_possible_truncation)]
-    let units_per_meter = MapProjection::units_per_meter(projection.origin()) as f32;
+    let centre = rig.state.center();
+    let symbol_factor = crate::lod::aircraft_symbol_factor(scale);
     let t = tick_fraction(&driver);
     for (mut sprite, mut look, mut transform, mut visibility, mut material) in &mut sprites {
         let shown = traffic
@@ -345,15 +366,19 @@ fn draw_aircraft(
             visibility.set_if_neq(Visibility::Hidden);
             continue;
         };
-        sprite.position = pose.position;
+        // Drawn at the copy nearest the camera (plan M5 D131).
+        let position = wrap_near(pose.position, centre);
+        sprite.position = position;
+        #[allow(clippy::cast_possible_truncation)]
+        let units_per_meter = MapProjection::units_per_meter(view.position()) as f32;
         let highlighted = selection.selected_flight() == Some(sprite.tail)
             || selection.hovered_flight() == Some(sprite.tail);
         let z = if highlighted { HIGHLIGHT_Z } else { AIRCRAFT_Z };
-        *transform = Transform::from_translation(pose.position.extend(z))
+        *transform = Transform::from_translation(position.extend(z))
             .with_rotation(Quat::from_rotation_z(rotation(pose.heading)))
             .with_scale({
                 let length = display_length(
-                    pixel_length(look.class),
+                    pixel_length(look.class) * symbol_factor,
                     real_length(look.class),
                     scale,
                     units_per_meter,
@@ -413,7 +438,12 @@ fn draw_trails(
             let points = slot
                 .trail
                 .points()
-                .map(|(position, age)| (position, base.with_alpha(TRAIL_ALPHA * (1.0 - age))))
+                .map(|(position, age)| {
+                    (
+                        wrap_near(position, sprite.position),
+                        base.with_alpha(TRAIL_ALPHA * (1.0 - age)),
+                    )
+                })
                 .chain(std::iter::once((
                     sprite.position,
                     base.with_alpha(TRAIL_ALPHA),
@@ -425,7 +455,7 @@ fn draw_trails(
         {
             let pattern = holding_pattern(hold.fix(), hold.inbound())
                 .into_iter()
-                .map(|point| projection.project(point));
+                .map(|point| wrap_near(projection.project(point), sprite.position));
             gizmos.linestrip_2d(pattern, PhaseBand::Holding.color().with_alpha(HOLD_ALPHA));
         }
         if selected || hovered {
@@ -458,7 +488,7 @@ mod tests {
     #[test]
     fn test_traffic_view_samples_flights_and_interpolates() -> Result<()> {
         let mut driver = driver()?;
-        let projection = MapProjection::germany()?;
+        let projection = MapProjection::new(aerocosm_core::LatLon::new(51.163_4, 10.447_7)?);
         let mut traffic = TrafficView::default();
         traffic.sample(&driver, &projection);
         let airborne = traffic
@@ -492,7 +522,7 @@ mod tests {
     #[test]
     fn test_traffic_view_resamples_only_after_ticks() -> Result<()> {
         let driver = driver()?;
-        let projection = MapProjection::germany()?;
+        let projection = MapProjection::new(aerocosm_core::LatLon::new(51.163_4, 10.447_7)?);
         let mut traffic = TrafficView::default();
         traffic.sample(&driver, &projection);
         let before = traffic.slots.clone();

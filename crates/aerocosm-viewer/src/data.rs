@@ -27,7 +27,7 @@ const GROUND: [&[u8]; 2] = [
     include_bytes!("../../../assets/ground/E.ground.bin"),
     include_bytes!("../../../assets/ground/L.ground.bin"),
 ];
-const BASEMAP_JSON: &str = include_str!("../../../assets/basemap/germany.basemap.json");
+const BASEMAP: &[u8] = include_bytes!("../../../assets/basemap/world.bin");
 const INTER_REGULAR: &[u8] = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
 const INTER_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf");
 
@@ -63,7 +63,7 @@ pub(crate) fn load() -> Result<(Scenario, MapData)> {
         )
         .context("embedded ground is invalid")?,
     )?;
-    let basemap = Basemap::from_json(BASEMAP_JSON).context("embedded basemap is invalid")?;
+    let basemap = Basemap::from_asset(BASEMAP).context("embedded basemap is invalid")?;
     Ok((scenario, MapData { basemap }))
 }
 
@@ -95,7 +95,7 @@ mod tests {
         let traffic = scenario.traffic().context("embedded traffic")?;
         assert!(traffic.airlines().len() > 300);
         assert!(scenario.ground().airports().len() > 20);
-        assert!(map.basemap.countries().len() > 10);
+        assert!(map.basemap.countries().len() > 200);
         Ok(())
     }
 }

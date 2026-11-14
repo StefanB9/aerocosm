@@ -159,7 +159,7 @@ fn spawn_top_bar(commands: &mut Commands, fonts: &Fonts) {
         ChildOf(bar),
         children![
             strong(fonts, "AEROCOSM", 15.0, theme::TEXT),
-            text(fonts, "Germany", 13.0, theme::TEXT_MUTED),
+            text(fonts, "World", 13.0, theme::TEXT_MUTED),
         ],
     ));
     commands.spawn((

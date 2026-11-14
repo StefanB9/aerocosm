@@ -2,7 +2,7 @@
 //! collisions.
 
 use aerocosm_core::{
-    Id,
+    Id, LatLon,
     ground::GroundNetwork,
     world::{Airport, AirportKind},
 };
@@ -23,7 +23,7 @@ use crate::{
     },
     labels::{LabelCandidate, place_labels},
     lod,
-    projection::MapProjection,
+    projection::{MapProjection, wrap_near},
     selection::Selection,
     theme,
     ui::MapCover,
@@ -43,6 +43,9 @@ enum Subject {
 #[derive(Component)]
 struct MapLabel {
     subject: Subject,
+    /// Where it is anchored…
+    location: LatLon,
+    /// …projected with the current origin (plan M5 D130).
     position: Vec2,
     /// Direction (map units, y up) in which the label is pushed away from its
     /// anchor; runway designators sit just beyond their threshold.
@@ -51,6 +54,9 @@ struct MapLabel {
 
 /// How far runway designators sit beyond their threshold, in pixels.
 const DESIGNATOR_OFFSET: f32 = 14.0;
+/// Anchors this far outside the window, in pixels, are still candidates
+/// (their labels may reach in).
+const OFF_SCREEN: f32 = 120.0;
 /// Extra space between a selected airport's ring and its label, in pixels.
 const SELECTED_GAP: f32 = 6.0;
 
@@ -65,7 +71,10 @@ impl Plugin for LabelsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LabelOrder>()
             .add_systems(Startup, spawn_labels.after(crate::data::setup_fonts))
-            .add_systems(Update, place.after(crate::camera::CameraSet));
+            .add_systems(
+                Update,
+                (reproject, place).chain().after(crate::camera::CameraSet),
+            );
     }
 }
 
@@ -111,14 +120,15 @@ fn spawn_labels(
         Vec::with_capacity(view.world.airport_count() + map.basemap.places().len());
     let mut spawn = |commands: &mut Commands,
                      subject: Subject,
-                     (position, outward): (Vec2, Vec2),
+                     (location, outward): (LatLon, Vec2),
                      text: String| {
         let (font, color) = style(subject, &fonts);
         let entity = commands
             .spawn((
                 MapLabel {
                     subject,
-                    position,
+                    location,
+                    position: projection.project(location),
                     outward,
                 },
                 Text::new(text),
@@ -146,7 +156,7 @@ fn spawn_labels(
         spawn(
             &mut commands,
             Subject::Airport(id, airport.kind()),
-            (projection.project(airport.location()), Vec2::ZERO),
+            (airport.location(), Vec2::ZERO),
             code,
         );
     }
@@ -155,25 +165,26 @@ fn spawn_labels(
         spawn(
             &mut commands,
             Subject::Place(place.rank()),
-            (projection.project(place.location()), Vec2::ZERO),
+            (place.location(), Vec2::ZERO),
             place.name().to_owned(),
         );
     }
     for (id, _) in view.world.airports() {
         for runway in view.world.runways_of(id) {
-            let [a, b] = runway.ends().map(|end| projection.project(end.threshold()));
+            let frame = MapProjection::new(runway.ends()[0].threshold());
+            let [a, b] = runway.ends().map(|end| frame.project(end.threshold()));
             for (end, here, other) in [(runway.ends()[0], a, b), (runway.ends()[1], b, a)] {
                 spawn(
                     &mut commands,
                     Subject::Runway,
-                    (here, (here - other).normalize_or_zero()),
+                    (end.threshold(), (here - other).normalize_or_zero()),
                     end.designator().to_string(),
                 );
             }
         }
     }
-    for (subject, position, text) in ground_labels(&ground.ground, &projection) {
-        spawn(&mut commands, subject, (position, Vec2::ZERO), text);
+    for (subject, location, text) in ground_labels(&ground.ground) {
+        spawn(&mut commands, subject, (location, Vec2::ZERO), text);
     }
     labels.sort_by_key(|(tier, index, _)| (*tier, *index));
     order.0 = labels.into_iter().map(|(_, _, entity)| entity).collect();
@@ -200,27 +211,45 @@ fn style(subject: Subject, fonts: &Fonts) -> (TextFont, Color) {
 
 /// Taxiway names, one per named stretch, and stand names at every mapped
 /// airport (plan M4 D87).
-fn ground_labels(
-    ground: &GroundNetwork,
-    projection: &MapProjection,
-) -> Vec<(Subject, Vec2, String)> {
+fn ground_labels(ground: &GroundNetwork) -> Vec<(Subject, LatLon, String)> {
     let mut labels = Vec::new();
     for layout in ground.airports() {
+        let Some(first) = layout.nodes().first() else {
+            continue;
+        };
+        // Anchors are found in the airport's own frame.
+        let frame = MapProjection::new(first.position());
         labels.extend(
-            stretch_anchors(&named_edges(layout, projection))
+            stretch_anchors(&named_edges(layout, &frame))
                 .into_iter()
-                .map(|(name, at)| (Subject::Taxiway, at, name.to_string())),
+                .filter_map(|(name, at)| {
+                    Some((
+                        Subject::Taxiway,
+                        frame.unproject(at).ok()?,
+                        name.to_string(),
+                    ))
+                }),
         );
         labels.extend(layout.stands().iter().map(|stand| {
             let position = layout.nodes()[stand.node().as_usize()].position();
-            (
-                Subject::Stand,
-                projection.project(position),
-                stand.name().to_string(),
-            )
+            (Subject::Stand, position, stand.name().to_string())
         }));
     }
     labels
+}
+
+/// Projects every label again once the floating origin has moved.
+fn reproject(
+    projection: Res<MapProjection>,
+    mut frame: Local<Option<MapProjection>>,
+    mut labels: Query<&mut MapLabel>,
+) {
+    if frame.replace(*projection) == Some(*projection) {
+        return;
+    }
+    for mut label in &mut labels {
+        label.position = projection.project(label.location);
+    }
 }
 
 /// Per-frame scratch buffers, reused to avoid allocating every frame.
@@ -246,6 +275,7 @@ fn place(
         return;
     };
     let scale = rig.state.scale();
+    let screen = Rect::from_corners(Vec2::ZERO, pointer.viewport).inflate(OFF_SCREEN);
     let scratch = &mut *scratch;
     scratch.candidates.clear();
     scratch.owners.clear();
@@ -290,8 +320,14 @@ fn place(
         } else {
             Vec2::new(60.0, 16.0)
         };
-        let anchor = rig.state.world_to_screen(label.position, pointer.viewport)
+        // At the copy nearest the camera (plan M5 D131); off-screen anchors
+        // are dropped before placement.
+        let position = wrap_near(label.position, rig.state.center());
+        let anchor = rig.state.world_to_screen(position, pointer.viewport)
             + Vec2::new(label.outward.x, -label.outward.y) * DESIGNATOR_OFFSET;
+        if !screen.contains(anchor) {
+            continue;
+        }
         scratch
             .candidates
             .push(LabelCandidate { anchor, size, gap });

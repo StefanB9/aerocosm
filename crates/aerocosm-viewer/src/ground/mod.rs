@@ -18,6 +18,7 @@ use bevy::{
 use geometry::{NamedEdge, bounds, ground_visible, in_view, polyline_middle, stand_marker};
 
 use crate::{
+    anchor::{AnchorSet, MapAnchor},
     camera::{CameraRig, CameraSet, PointerState},
     data::OVERLAY_LAYER,
     projection::MapProjection,
@@ -38,6 +39,7 @@ pub(crate) struct GroundView {
 /// airport zoom.
 #[derive(Component)]
 struct GroundLines {
+    /// Extent in the airport's frame.
     bounds: Rect,
     gizmo: Gizmo,
 }
@@ -54,7 +56,7 @@ impl Plugin for GroundPlugin {
         app.add_systems(Startup, spawn_ground).add_systems(
             Update,
             (
-                ground_level_of_detail.after(CameraSet),
+                ground_level_of_detail.after(AnchorSet),
                 route::draw_taxi_route
                     .after(CameraSet)
                     .after(crate::driver::SimSet),
@@ -90,42 +92,46 @@ pub(crate) fn named_edges(layout: &AirportGround, projection: &MapProjection) ->
 fn spawn_ground(
     mut commands: Commands,
     view: Res<GroundView>,
-    projection: Res<MapProjection>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut gizmos: ResMut<Assets<GizmoAsset>>,
 ) {
     let layer = RenderLayers::layer(OVERLAY_LAYER);
-    let outlines = view.ground.airports().iter().flat_map(|layout| {
-        layout
-            .aprons()
-            .iter()
-            .map(|ring| ring.iter().map(|p| projection.project(*p)).collect())
-    });
-    match fill_outlines(outlines) {
-        Ok(triangles) => {
-            commands.spawn((
-                Aprons,
-                Mesh2d(meshes.add(triangles.into_mesh())),
-                MeshMaterial2d(materials.add(theme::APRON)),
-                // Below the runways (z 5).
-                Transform::from_xyz(0.0, 0.0, 4.0),
-                Visibility::Hidden,
-                layer.clone(),
-            ));
-        }
-        Err(error) => error!("cannot tessellate aprons: {error:#}"),
-    }
+    let apron = materials.add(theme::APRON);
     let line_config = |width: f32| GizmoLineConfig {
         width,
         joints: GizmoLineJoint::Round(4),
         ..default()
     };
     for layout in view.ground.airports() {
-        let project = |p: &aerocosm_core::LatLon| projection.project(*p);
+        let Some(first) = layout.nodes().first() else {
+            continue;
+        };
+        // Each airport in its own frame (plan M5 D130).
+        let frame = MapProjection::new(first.position());
+        let project = |p: &aerocosm_core::LatLon| frame.project(*p);
         let Some(area) = bounds(layout.nodes().iter().map(|n| project(&n.position()))) else {
             continue;
         };
+        let outlines = layout
+            .aprons()
+            .iter()
+            .map(|ring| ring.iter().map(project).collect());
+        match fill_outlines(outlines) {
+            Ok(triangles) => {
+                commands.spawn((
+                    Aprons,
+                    MapAnchor::new(frame),
+                    Mesh2d(meshes.add(triangles.into_mesh())),
+                    MeshMaterial2d(apron.clone()),
+                    // Below the runways (z 5).
+                    Transform::from_xyz(0.0, 0.0, 4.0),
+                    Visibility::Hidden,
+                    layer.clone(),
+                ));
+            }
+            Err(error) => error!("cannot tessellate aprons: {error:#}"),
+        }
         let mut taxiways = GizmoAsset::new();
         let mut stands = GizmoAsset::new();
         for edge in layout.edges() {
@@ -140,12 +146,12 @@ fn spawn_ground(
         }
         for stand in layout.stands() {
             let position = layout.nodes()[stand.node().as_usize()].position();
-            // SAFETY: map units per metre near Germany are about 1.6.
+            // SAFETY: map units per metre are a few at most below 80°.
             #[allow(clippy::cast_possible_truncation)]
             let size = (STAND_MARKER * MapProjection::units_per_meter(position)) as f32;
             #[allow(clippy::cast_possible_truncation)]
             let heading = stand.heading().value() as f32;
-            for [a, b] in stand_marker(projection.project(position), heading, size) {
+            for [a, b] in stand_marker(frame.project(position), heading, size) {
                 stands.line_2d(a, b, theme::STAND);
             }
         }
@@ -159,6 +165,7 @@ fn spawn_ground(
                         ..default()
                     },
                 },
+                MapAnchor::new(frame),
                 Transform::default(),
                 layer.clone(),
             ));
@@ -174,7 +181,7 @@ fn ground_level_of_detail(
     rig: Option<Res<CameraRig>>,
     pointer: Res<PointerState>,
     mut aprons: Query<&mut Visibility, With<Aprons>>,
-    lines: Query<(Entity, &GroundLines, Has<Gizmo>)>,
+    lines: Query<(Entity, &GroundLines, &Transform, Has<Gizmo>)>,
 ) {
     let Some(rig) = rig else {
         return;
@@ -192,8 +199,10 @@ fn ground_level_of_detail(
         rig.state
             .screen_to_world(pointer.viewport, pointer.viewport),
     );
-    for (entity, ground, shown) in &lines {
-        let show = visible && in_view(ground.bounds, view);
+    for (entity, ground, transform, shown) in &lines {
+        let at = transform.translation.truncate();
+        let area = Rect::from_corners(ground.bounds.min + at, ground.bounds.max + at);
+        let show = visible && in_view(area, view);
         if show && !shown {
             commands.entity(entity).insert(ground.gizmo.clone());
         } else if !show && shown {
@@ -215,7 +224,7 @@ mod tests {
         let world = scenario.world();
         let frankfurt = world.airport_by_ident("EDDF".parse()?).context("EDDF")?;
         let layout = scenario.ground().airport(frankfurt).context("FRA layout")?;
-        let projection = MapProjection::germany()?;
+        let projection = MapProjection::new(aerocosm_core::LatLon::new(51.163_4, 10.447_7)?);
         let edges = named_edges(layout, &projection);
         assert!(edges.len() > 500, "{}", edges.len());
         let anchors = geometry::stretch_anchors(&edges);

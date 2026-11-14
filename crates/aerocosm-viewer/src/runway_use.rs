@@ -1,6 +1,7 @@
 //! Arrows on the runways in use (plan M3 PR 5): towards the landing threshold
 //! on arrival runways, away from the take-off threshold on departure ones.
 
+use aerocosm_core::LatLon;
 use bevy::{
     app::{App, Plugin, Startup, Update},
     ecs::{
@@ -17,7 +18,7 @@ use crate::{
     driver::SimDriver,
     flights::PhaseBand,
     lod,
-    projection::MapProjection,
+    projection::{MapProjection, wrap_near},
 };
 
 /// Arrow shaft length, metres.
@@ -71,9 +72,13 @@ pub(crate) fn arrow(
     ]
 }
 
-/// Every active runway end: threshold on the map, course, use.
+/// Every active runway end: threshold, course, use.
 #[derive(Resource, Debug, Default)]
-struct ActiveArrows(Vec<(Vec2, f32, Use)>);
+struct ActiveArrows(Vec<(LatLon, f32, Use)>);
+
+/// Arrows this many pixels from the screen centre are drawn: past the corner
+/// of any window.
+const VIEW_REACH: f32 = 3_000.0;
 
 /// Draws arrows on the runways in use at runway zoom.
 pub(crate) struct RunwayUsePlugin;
@@ -86,7 +91,7 @@ impl Plugin for RunwayUsePlugin {
 }
 
 /// The wind is fixed until weather arrives, so the runways in use are too.
-fn collect_arrows(mut commands: Commands, driver: Res<SimDriver>, projection: Res<MapProjection>) {
+fn collect_arrows(mut commands: Commands, driver: Res<SimDriver>) {
     let simulation = driver.simulation();
     let world = simulation.world();
     let mut arrows = Vec::new();
@@ -99,7 +104,7 @@ fn collect_arrows(mut commands: Commands, driver: Res<SimDriver>, projection: Re
             else {
                 continue;
             };
-            let position = projection.project(end.threshold());
+            let position = end.threshold();
             // Courses are in [0, 360); f32 is ample for drawing.
             #[allow(clippy::cast_possible_truncation)]
             let heading = end.true_heading().value() as f32;
@@ -126,15 +131,22 @@ fn draw_arrows(
     if !lod::runways_visible(rig.state.scale()) {
         return;
     }
-    // Map units per metre barely change over Germany; the origin's is used.
-    #[allow(clippy::cast_possible_truncation)]
-    let units_per_meter = MapProjection::units_per_meter(projection.origin()) as f32;
+    let centre = rig.state.center();
+    // Arrows within this distance of the camera, map units: the window and
+    // an arrow's length.
+    let reach = rig.state.scale() * VIEW_REACH;
     for (threshold, heading, use_) in &arrows.0 {
+        let position = wrap_near(projection.project(*threshold), centre);
+        if position.distance(centre) > reach {
+            continue;
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let units_per_meter = MapProjection::units_per_meter(*threshold) as f32;
         let color = match use_ {
             Use::Arrival => PhaseBand::Descent.color(),
             Use::Departure => PhaseBand::Climb.color(),
         };
-        for (from, to) in arrow(*threshold, *heading, *use_, units_per_meter) {
+        for (from, to) in arrow(position, *heading, *use_, units_per_meter) {
             gizmos.line_2d(from, to, color);
         }
     }

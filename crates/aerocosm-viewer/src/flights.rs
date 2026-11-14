@@ -189,6 +189,13 @@ impl Trail {
         })
     }
 
+    /// Moves every sample by `by`: the floating origin moved (plan M5 D130).
+    pub(crate) fn shift(&mut self, by: Vec2) {
+        for (_, position) in &mut self.samples {
+            *position += by;
+        }
+    }
+
     /// Forgets the track, e.g. when a new leg starts.
     pub(crate) fn clear(&mut self) {
         self.samples.clear();
@@ -272,6 +279,21 @@ mod tests {
         assert!(flight_visible(Phase::Cruise, 3000.0));
         assert!(!flight_visible(Phase::TaxiOut, 1600.0));
         assert!(flight_visible(Phase::TaxiOut, 50.0));
+    }
+
+    #[test]
+    fn test_trail_shift_moves_every_sample() -> Result<()> {
+        let mut trail = Trail::default();
+        let start = SimTime::UNIX_EPOCH;
+        trail.push(start, Vec2::new(1.0, 2.0));
+        trail.push(
+            start.checked_add(SimDuration::from_secs(60))?,
+            Vec2::new(3.0, 4.0),
+        );
+        trail.shift(Vec2::new(10.0, -10.0));
+        let points: Vec<Vec2> = trail.points().map(|(p, _)| p).collect();
+        assert_eq!(points, [Vec2::new(11.0, -8.0), Vec2::new(13.0, -6.0)]);
+        Ok(())
     }
 
     #[test]
