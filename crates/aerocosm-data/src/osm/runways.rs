@@ -16,7 +16,7 @@ use super::{
 const ON_RUNWAY: f64 = 25.0;
 /// Holding positions belong to a runway within this distance of its
 /// centreline (they stand 90–150 m off it, more at some airports).
-const HOLDING_REACH: f64 = 300.0;
+pub(crate) const HOLDING_REACH: f64 = 300.0;
 /// Exits turning more than this off the landing direction are not used.
 const MAX_EXIT_ANGLE: f64 = 120.0;
 /// An exit's direction is taken this far along it, past the curve that
@@ -68,7 +68,7 @@ impl LocalRunway {
         }
     }
 
-    fn length(&self) -> f64 {
+    pub(crate) fn length(&self) -> f64 {
         distance(self.ends[0].1, self.ends[1].1)
     }
 

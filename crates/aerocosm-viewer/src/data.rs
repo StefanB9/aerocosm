@@ -4,7 +4,7 @@
 use aerocosm_basemap::Basemap;
 use aerocosm_core::{
     AircraftCatalog, Scenario,
-    ground::{GroundDefinition, StandAreasDefinition},
+    ground::GroundDefinition,
     traffic::{model::derive, observed::ObservedTraffic},
     world::World,
 };
@@ -21,8 +21,12 @@ use bevy::{
 const WORLD: &[u8] = include_bytes!("../../../assets/world/world.bin");
 const AIRCRAFT_JSON: &str = include_str!("../../../assets/aircraft/types.json");
 const OBSERVED: &[u8] = include_bytes!("../../../assets/traffic/observed.bin");
-const GROUND_JSON: &str = include_str!("../../../assets/ground/germany.ground.json");
-const STAND_AREAS_JSON: &str = include_str!("../../../assets/ground/stand-areas.json");
+/// The ground of northern and southern Europe (ICAO regions E and L) until
+/// PR 4 streams it per airport (plan M5 D124).
+const GROUND: [&[u8]; 2] = [
+    include_bytes!("../../../assets/ground/E.ground.bin"),
+    include_bytes!("../../../assets/ground/L.ground.bin"),
+];
 const BASEMAP_JSON: &str = include_str!("../../../assets/basemap/germany.basemap.json");
 const INTER_REGULAR: &[u8] = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
 const INTER_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf");
@@ -49,14 +53,16 @@ pub(crate) fn load() -> Result<(Scenario, MapData)> {
     let (targets, airlines) = derive(&world, &observed, &aircraft)
         .context("cannot derive the world model")?
         .into_parts();
-    let scenario = Scenario::with_traffic(world, aircraft, airlines, targets)?
-        .with_ground(
-            GroundDefinition::from_json(GROUND_JSON).context("embedded ground is invalid")?,
-        )?
-        .with_stand_areas(
-            StandAreasDefinition::from_json(STAND_AREAS_JSON)
-                .context("embedded stand areas are invalid")?,
-        )?;
+    let scenario = Scenario::with_traffic(world, aircraft, airlines, targets)?.with_ground(
+        GroundDefinition::combine(
+            GROUND
+                .iter()
+                .map(|bytes| GroundDefinition::from_asset(bytes))
+                .collect::<Result<Vec<_>>>()
+                .context("embedded ground is invalid")?,
+        )
+        .context("embedded ground is invalid")?,
+    )?;
     let basemap = Basemap::from_json(BASEMAP_JSON).context("embedded basemap is invalid")?;
     Ok((scenario, MapData { basemap }))
 }

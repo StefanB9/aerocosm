@@ -1,7 +1,7 @@
 //! Arrivals under ground control: stand or waiting spot at touchdown, and
 //! the wait for a stand (plan M4 D69, D76).
 
-use super::{RETRY, SPOT_ESCAPE_AFTER, Start, Target, ms};
+use super::{FOLLOW, RETRY, SPOT_ESCAPE_AFTER, Start, Target, ms};
 use crate::{
     Id, SimTime,
     geo::Polyline,
@@ -137,15 +137,31 @@ impl Operations {
             self.ground.release(airport, owner);
             self.taxis[index] = None;
         }
-        // No way off is clear: it waits on the runway at its planned exit
-        // (go-arounds come with plan M4 D90).
-        let route = self.route_for(layout, index, planned, to)?;
-        let polyline = self.start_taxi(scenario, index, airport, start(route, planned), now)?;
-        Some((planned, polyline))
+        // No way off is clear: it waits on the runway at the first exit
+        // nobody stands near (else its planned one), and the next arrival
+        // goes around (plan M4 D90).
+        let empty = |exit: Id<Node>| {
+            let point = layout.nodes()[exit.as_usize()].position();
+            self.ground.airside(airport).is_none_or(|airside| {
+                !airside
+                    .seen
+                    .iter()
+                    .any(|seen| seen.tail != owner && seen.at.distance_to(point).value() < FOLLOW)
+            })
+        };
+        let wait = exits
+            .iter()
+            .copied()
+            .find(|&exit| empty(exit))
+            .unwrap_or(planned);
+        let route = self.route_for(layout, index, wait, to)?;
+        let polyline = self.start_taxi(scenario, index, airport, start(route, wait), now)?;
+        Some((wait, polyline))
     }
 
     /// The free waiting spot with the shortest taxi from `from` for tail
-    /// `index`.
+    /// `index`, among those from which a stand that fits it can be reached
+    /// (a spot in a dead end would keep it there).
     pub(super) fn free_spot(
         &self,
         scenario: &Scenario,
@@ -162,46 +178,85 @@ impl Operations {
                 .copied()
                 .unwrap_or(f64::INFINITY)
         };
-        airside
+        let wingspan = self.wingspans[index];
+        let leads_on = |spot: Id<Node>| {
+            let reach = layout.reachable_from(spot, wingspan);
+            layout.stands().iter().any(|stand| {
+                stand.max_wingspan() >= wingspan
+                    && reach.get(stand.node().as_usize()).copied().unwrap_or(false)
+            })
+        };
+        let mut spots: Vec<Id<Node>> = airside
             .spots
             .iter()
             .zip(&airside.spot_owner)
             .filter(|&(&spot, owner)| owner.is_none() && length(spot).is_finite())
             .map(|(spot, _)| *spot)
-            .min_by(|a, b| length(*a).total_cmp(&length(*b)))
+            .collect();
+        spots.sort_by(|a, b| length(*a).total_cmp(&length(*b)));
+        spots.into_iter().find(|&spot| leads_on(spot))
+    }
+
+    /// A free waiting spot to board remote at (D127): the one nearest the
+    /// airport's reference point.
+    pub(in crate::ops::fleet) fn boarding_spot(
+        &self,
+        scenario: &Scenario,
+        airport: Id<Airport>,
+    ) -> Option<Id<Node>> {
+        let layout = scenario.ground().airport(airport)?;
+        let airside = self.ground.airside(airport)?;
+        let at = scenario.world().airport(airport)?.location();
+        airside
+            .spots
+            .iter()
+            .zip(&airside.spot_owner)
+            .filter(|(_, owner)| owner.is_none())
+            .map(|(&spot, _)| {
+                (
+                    spot,
+                    layout.nodes()[spot.as_usize()]
+                        .position()
+                        .distance_to(at)
+                        .value(),
+                )
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(spot, _)| spot)
     }
 
     /// At a waiting spot: takes a stand as soon as one is free and taxies
-    /// there; after half an hour it shares one (D69).
+    /// there; after half an hour it deplanes there and is towed to remote
+    /// parking (D127). Returns whether it did.
     pub(super) fn wait_for_stand(
         &mut self,
         scenario: &Scenario,
         index: usize,
         now: SimTime,
         airline: AirlineIcao,
-    ) {
+    ) -> bool {
         let Some(taxi) = self.taxis[index].as_ref() else {
-            return;
+            return false;
         };
         if taxi.waiting.is_some_and(|retry| ms(now) < retry) {
-            return;
+            return false;
         }
         let (airport, offset) = (taxi.airport, taxi.end);
         let escape = ms(now) - taxi.spot_since >= SPOT_ESCAPE_AFTER;
         let Some(here) = taxi.end_node else {
-            return;
+            return false;
         };
         let Some(layout) = scenario.ground().airport(airport) else {
-            return;
+            return false;
         };
         let near = layout.nodes()[here.as_usize()].position();
-        let free = self.find_stand(scenario, index, airport, airline, (near, Some(here)), false);
-        let shared = free.is_none() && escape;
-        let stand = free.or_else(|| {
-            shared
-                .then(|| self.take_stand(scenario, index, airport, airline, (near, Some(here))))
-                .flatten()
-        });
+        let stand = self.find_stand(scenario, index, airport, airline, (near, Some(here)), false);
+        if stand.is_none() && escape {
+            self.ground.release(airport, Self::owner(index));
+            self.taxis[index] = None;
+            self.parking[index] = super::super::remote::Parking::Remote(None);
+            return true;
+        }
         let route = stand.and_then(|stand| {
             self.route_for(
                 layout,
@@ -214,11 +269,8 @@ impl Operations {
             if let Some(taxi) = self.taxis[index].as_mut() {
                 taxi.waiting = Some(ms(now) + RETRY);
             }
-            return;
+            return false;
         };
-        if shared {
-            self.stats.shared_stand(airport);
-        }
         let (base, escaped) = self.taxis[index].as_ref().map_or_else(
             || (Vec::new(), false),
             |taxi| (taxi.points.clone(), taxi.escaped),
@@ -248,6 +300,7 @@ impl Operations {
             let length = path.set_taxi_in(polyline, heading);
             self.profiles[index].set_taxi_in_length(length);
         }
+        false
     }
 }
 
@@ -268,4 +321,55 @@ fn later_exits(layout: &AirportGround, planned: Id<Node>) -> Vec<Id<Node>> {
     nodes.extend(later.iter().map(|e| e.node()).filter(|&n| n != planned));
     nodes.dedup();
     nodes
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::{Context, Result};
+
+    use super::*;
+    use crate::{
+        RngSeed,
+        ops::{StartMode, fleet::Operations},
+        schedule::{ScheduleConfig, generate},
+        test_data::{data, ground},
+        units::Meters,
+    };
+
+    #[test]
+    fn test_waiting_spots_lead_on_to_a_stand() -> Result<()> {
+        let data = data()?;
+        let scenario =
+            Scenario::with_traffic(data.world, data.aircraft, data.airlines, data.traffic)?
+                .with_ground(ground()?)?;
+        let start: SimTime = "2026-07-08T04:00:00Z".parse()?;
+        let inputs = scenario.schedule_inputs().context("traffic")?;
+        let schedule = generate(&inputs, ScheduleConfig::new(RngSeed::new(3), start))?;
+        let mut ops =
+            Operations::new(&scenario, schedule, start, RngSeed::new(3), StartMode::Cold)?;
+        ops.wingspans[0] = Meters::new(35.8)?;
+        // Örebro has a spot from which no stand can be reached.
+        let mut checked = 0;
+        for ident in ["ESOE", "EDDF", "EDDM"] {
+            let airport = scenario
+                .world()
+                .airport_by_ident(ident.parse()?)
+                .context("airport")?;
+            let layout = scenario.ground().airport(airport).context("layout")?;
+            for exit in layout.exits() {
+                let Some(spot) = ops.free_spot(&scenario, 0, airport, exit.node()) else {
+                    continue;
+                };
+                let reach = layout.reachable_from(spot, ops.wingspans[0]);
+                let stand = layout
+                    .stands()
+                    .iter()
+                    .any(|s| s.max_wingspan() >= ops.wingspans[0] && reach[s.node().as_usize()]);
+                assert!(stand, "{ident}: spot {spot:?} from exit {:?}", exit.node());
+                checked += 1;
+            }
+        }
+        assert!(checked > 20, "{checked}");
+        Ok(())
+    }
 }

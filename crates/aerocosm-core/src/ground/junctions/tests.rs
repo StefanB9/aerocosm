@@ -261,10 +261,7 @@ fn test_a_runway_is_entered_from_its_holding_positions() -> Result<()> {
 #[test]
 fn test_shipped_hubs_have_compact_junctions() -> Result<()> {
     let world = data()?.world;
-    let network = GroundNetwork::from_json(
-        include_str!("../../../../../assets/ground/germany.ground.json"),
-        &world,
-    )?;
+    let network = GroundNetwork::from_definition(crate::test_data::ground()?, &world)?;
     for ident in ["EDDF", "EDDM", "EDDB"] {
         let airport = world.airport_by_ident(ident.parse()?).context("airport")?;
         let ground = network.airport(airport).context("layout")?;

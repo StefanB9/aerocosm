@@ -51,6 +51,9 @@ const LOCK_AHEAD: f64 = 600.0;
 /// A pushback needs the taxilane clear this far either side of where it
 /// ends, m.
 const PUSH_CLEAR: f64 = 120.0;
+/// A pushback in progress is shown to other pilots this often along the
+/// rest of its push, m.
+const PUSH_SHOWN_EVERY: f64 = 10.0;
 /// An aircraft asks to be cleared on once it is this close to its limit,
 /// so that it rarely has to stop, m.
 const LOOKAHEAD: f64 = 120.0;
@@ -72,6 +75,10 @@ const SPOT_ESCAPE_AFTER: i64 = 1_800_000;
 /// A departure leaves its stand only if it would wait at most this long at
 /// the holding position; queues build at the gates, ms.
 const MAX_TAXI_WAIT: i64 = 120_000;
+/// An arrival less than this far along its taxi-in from the exit node, on
+/// the runway centreline, still stands on the runway, m (half a runway
+/// strip).
+const CLEAR_OF_RUNWAY: f64 = 60.0;
 /// Shortest and longest expected take-off interval from one holding
 /// position, ms; between them it is learnt from line-ups.
 const DEPARTURE_INTERVAL: i64 = 60_000;
@@ -347,6 +354,9 @@ pub(super) struct Taxi {
     unimpeded: i64,
     /// Since when it has waited for its next clearance, ms, and for whom.
     waiting_since: Option<i64>,
+    /// When it reached the end of a taxi-out and joined the runway's queue,
+    /// ms.
+    queued_at: Option<i64>,
     waiting_for: Option<u32>,
     /// Since when it has been the one to give way in a deadlock, ms.
     deadlock_since: Option<i64>,
@@ -364,6 +374,13 @@ pub(super) struct Taxi {
     crossing: Option<(RunwayKey, i64)>,
     /// How often it has been sent another way out of a deadlock (D93).
     reroutes: u8,
+}
+
+impl Taxi {
+    /// When it joined the runway's queue, ms.
+    pub(in crate::ops::fleet) const fn queued_since(&self) -> Option<i64> {
+        self.queued_at
+    }
 }
 
 impl Taxi {
@@ -507,6 +524,7 @@ impl Operations {
             started: ms(now),
             unimpeded: taxi_millis(end - offset),
             waiting_since: None,
+            queued_at: None,
             waiting_for: None,
             deadlock_since: None,
             queued: false,

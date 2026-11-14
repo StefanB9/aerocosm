@@ -10,20 +10,20 @@ use aerocosm_core::{
         StandDefinition,
     },
     units::{Degrees, Meters},
-    world::{Airport, World},
+    world::{Airport, RunwayDesignator, World},
 };
 use anyhow::{Context, Result};
 
 use super::{
     graph::Graph,
+    holds::place_holds,
     local::{Plane, Xy, inside},
     names::ground_name,
     overpass::{OsmData, OsmWay},
     runways::{
         LocalRunway, RawExit, RawHolding, exits, hold_lines, holding_positions, intermediate_holds,
     },
-    sizes::StandSizes,
-    stands::{Area, RawStand, area_of, attach_stands, wingspan_limits},
+    stands::{Area, RawStand, area_of, attach_stands, marks_cargo, wingspan_limits},
 };
 use crate::geometry::simplify;
 
@@ -108,17 +108,26 @@ pub(crate) struct Layout {
     pub(crate) dropped_stands: usize,
 }
 
-/// Builds `airport`'s ground layout from its OSM download.
+/// Builds `airport`'s ground layout from its OSM download; holding
+/// positions are placed by rule for the `departures` runway ends in use.
 pub(crate) fn build_layout(
     data: &OsmData,
     world: &World,
     airport: Id<Airport>,
-    sizes: &StandSizes,
+    departures: &[RunwayDesignator],
 ) -> Result<Layout> {
     let site = world.airport(airport).context("airport id out of range")?;
     let ident = site.ident();
     let location = site.location();
     let plane = Plane::new([location.latitude().value(), location.longitude().value()]);
+    let runways: Vec<LocalRunway> = world
+        .runways_of(airport)
+        .iter()
+        .map(|runway| LocalRunway::new(runway, &plane))
+        .collect();
+    // Holding positions by rule where none are mapped (plan M5 D126).
+    let placed = place_holds(data, &plane, &runways, departures);
+    let data = &placed;
     let outline = aerodrome(data, &plane, ident.as_str());
     let keep = |way: &OsmWay| {
         outline.as_ref().is_none_or(|ring| {
@@ -142,11 +151,6 @@ pub(crate) fn build_layout(
     junctions.extend(hold_lines(data));
     let mut graph = Graph::build(data, &plane, keep, &junctions);
     let stands = attach_stands(&mut graph, data, &plane);
-    let runways: Vec<LocalRunway> = world
-        .runways_of(airport)
-        .iter()
-        .map(|runway| LocalRunway::new(runway, &plane))
-        .collect();
     let connected = connected_to_runways(&graph, &runways);
     let holdings = holding_positions(&graph, data, &runways);
     let intermediate = intermediate_holds(&graph, data);
@@ -160,6 +164,12 @@ pub(crate) fn build_layout(
         .filter(|way| way.aeroway() == Some("apron") && keep(way))
         .filter_map(|way| ring(data, &plane, way))
         .map(|ring| simplify(&ring, APRON_TOLERANCE))
+        .collect();
+    let cargo: Vec<Vec<Xy>> = data
+        .ways
+        .iter()
+        .filter(|way| way.aeroway() == Some("apron") && marks_cargo(&way.tags))
+        .filter_map(|way| ring(data, &plane, way))
         .collect();
 
     let total_stands = stands.len();
@@ -176,7 +186,7 @@ pub(crate) fn build_layout(
             aprons: &aprons,
             terminals: &terminals,
             outlines: &apron_outlines,
-            sizes,
+            cargo: &cargo,
         },
     )?;
     Ok(Layout {
@@ -195,7 +205,8 @@ struct Parts<'a> {
     aprons: &'a [Area],
     terminals: &'a [Area],
     outlines: &'a [Vec<Xy>],
-    sizes: &'a StandSizes,
+    /// Aprons mapped for cargo.
+    cargo: &'a [Vec<Xy>],
 }
 
 fn degrees(value: f64) -> Result<Degrees> {
@@ -259,8 +270,9 @@ fn assemble(
             name: stand.name,
             node: index[stand.node].context("kept stand without a node")?,
             heading: degrees(stand.heading)?,
-            max_wingspan: meters(parts.sizes.limit(ident, stand.name.as_str(), span))?,
+            max_wingspan: meters(span)?,
             area: area_of(*p, parts.aprons, parts.terminals),
+            cargo: parts.cargo.iter().any(|ring| inside(*p, ring)),
         });
     }
     let holding_positions = parts

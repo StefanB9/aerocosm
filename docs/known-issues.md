@@ -5,26 +5,37 @@ happens, how often, why, and the intended fix.
 
 ## Ground control (plan M4 PR 4, PR 6, PR 7)
 
-### Escapes at about 2 % of taxis, about half at Frankfurt
+### Escapes at about 2 % of taxis
 
 **What:** an aircraft that gives way in a waiting cycle for a minute, or waits half an hour
 outside a runway queue, is sent another way if there is one (D94) and otherwise cleared
 regardless (D75, D83). Each escape counts as a ground conflict and the flight view marks it
 (`FlightView::ground_conflict`).
 
-**How often:** the 7-day run (seed 0, PR 7) has 733 escapes in 32,372 taxis (2.3 %), 379 at
-Frankfurt and 202 at Munich, and 55 reroutes. 24 h runs, seeds 0–7: 80–125 a day. The
-morning bank in the ground test (seeds 3, 7, 11) stays under the test's limit of one in
-fifty. Zero is the acceptance goal of D92, not yet met.
+**How often (plan M5 PR 3):** in the ground test's morning bank on region E (260 airports
+under ground control), 33, 49 and 27 escapes in about 2,350 taxis for seeds 3, 7 and 11
+(1.4 %, 2.0 %, 1.1 %): seed 7 exceeds the test's limit of one in fifty by one escape, and the
+test fails there. A 4-hour world run (seed 3, 836 airports) has 314 in 14,610 taxis (2.1 %).
+M4's 7-day run on 22 German airports had 2.3 %.
 
-**Why:** most cycles form at a junction both aircraft must cross, on approaches too short to
-hold clear of it (taxiway stubs of 25–35 m between two intersections), where through
-traffic would pass a holder closer than 22.5 m. There is no other way round, so rerouting
-rarely helps.
+**Why (diagnosed on seed 7):** nearly every escape ends a cycle of two aircraft waiting for
+each other, in two patterns:
 
-**Intended fix:** hold positions placed in such stubs before the previous junction (a
-first attempt that tied the two junctions together made Frankfurt worse), published or
-curated one-way taxi flows (D84).
+- *Short stubs* (about 15 of 49): two junctions closer together than an aircraft needs to stand
+  clear of both (30–60 m, e.g. Munich's junctions 202/203, twice in the morning). An arrival
+  stops at the hold for one with its tail still in the other, while a departure stands in the
+  first, needing the second.
+- *Order inversion at a runway entry* (about 10): a departure 400 m back is cleared onto the
+  runway junction (Frankfurt's junction 98 at 25R, four times) while the one in front, which
+  needs it first, waits for it.
+
+Two experiments made no difference and were reverted: keeping the close junctions beyond a
+cleared one for it (escapes 40/61/40, worse) and letting aircraft pass a waiting one down to
+21 m (32/50/27).
+
+**Intended fix:** clear a junction only to the first aircraft in line for it; one clearance
+for both junctions of a short stub, the arrival holding before the first; published or
+curated one-way flows (D84).
 
 ### Taxi delays at Frankfurt
 
@@ -47,15 +58,18 @@ real exit use at Frankfurt or Munich.
 
 **Intended fix:** compare planned exits with published exit use or ADS-B taxi tracks.
 
-### Stand shares overnight
+### Stand shares
 
-**What:** an arrival that waits 30 minutes for a stand shares one (D69), counted as a stand
-share. A 7-day run has 491 (PR 7), nearly all at Munich between 22:00 and 24:00 UTC (the last
-arrivals parking overnight), at Memmingen and at Leipzig (few code E stands for B777Fs).
+**What:** an aircraft that finds neither a free stand nor a free waiting spot shares a stand
+(D69, D127), counted as a stand share.
 
-**Why:** the stands mapped in OpenStreetMap run out; remote and maintenance aprons are missing.
+**How often (plan M5 PR 3):** 0.4–0.6 % of taxis in the morning bank on region E; 1.4 % in a
+4-hour world run. Remote parking (D125) and remote boarding at waiting spots (D127) took
+Frankfurt and Munich from 7–8 % to nearly none. Most remaining shares are arrivals whose
+planned exit has no way off at touchdown, and airports whose stands the spacing rule rates
+smaller than their largest freighters (D119).
 
-**Decision (M4 PR 3):** accepted and reported as a statistic.
+**Decision:** reported as a statistic.
 
 ### Benchmark above the 1 ms target
 
@@ -72,20 +86,10 @@ and most route searches fail after exploring the whole network.
 
 ### Ground control under the 2019 world traffic
 
-**What:** in the ground test's morning bank (04:00–08:00 UTC, seeds 3, 7, 11), with the
-world model's traffic at the German airports, 5–8 % of taxis escape a deadlock and 7–8 %
-share a stand, and the longest taxi takes up to 110 minutes; M4 kept each under 2 % and 75
-minutes with the curated 2025 traffic. The test's limits are relaxed to 10 % and 2 hours
-until PR 3. A departure whose stand has no way out for its wingspan taxies straight (D47):
-one aircraft in a morning at most.
-
-**Why:** Frankfurt and Munich get about 1,400 and 1,100 movements a day (2019), with more
-wide-bodies and hundreds of airlines instead of 23; the curated stand areas know only the
-airlines of 2025 (removing them did not help, so the stands and taxiways themselves run
-short).
-
-**Intended fix:** plan M5 PR 3: generic stand choice (D103), world-scale ground, and the M4
-limits restored.
+**Resolved in plan M5 PR 3** except for escapes (above): generic stand choice (D120), remote
+parking and boarding (D125, D127), a gap in the arrivals for long-waiting crossings and the
+runway occupied while a landing rolls out (D128), and pacing at unmapped queues restored M4's
+limits for stand shares, separation and the longest taxi in the morning bank on region E.
 
 ### Runway capacity by rule is short at some busy airports
 

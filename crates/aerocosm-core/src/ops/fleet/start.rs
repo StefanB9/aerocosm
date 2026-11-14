@@ -2,7 +2,11 @@
 
 use anyhow::{Context, Result};
 
-use super::{BOARDING, Operations, TailOps, add, routed_taxi_out, seconds_between};
+use super::{
+    BOARDING, Operations, TailOps, add,
+    remote::{Parking, starts_remote},
+    routed_taxi_out, seconds_between,
+};
 use crate::{
     SimDuration, SimTime,
     ops::{
@@ -51,6 +55,36 @@ impl Rotation<'_> {
 }
 
 impl Operations {
+    /// Parks tail `index` before leg `leg`, which leaves at `off_block`:
+    /// at a mapped airport on a free stand, or remote if it leaves late or
+    /// none is free (D125); elsewhere as before.
+    fn park_at_start(
+        &mut self,
+        scenario: &Scenario,
+        index: usize,
+        leg: usize,
+        off_block: SimTime,
+    ) -> Result<()> {
+        let origin = self.flight(index, leg)?.origin();
+        if scenario.ground().airport(origin).is_none() {
+            return self.stand_for_leg(scenario, index, leg);
+        }
+        let near = scenario
+            .world()
+            .airport(origin)
+            .context("origin out of range")?
+            .location();
+        let airline = self.airline_of(index, leg)?;
+        if starts_remote(self.time, off_block)
+            || self
+                .find_stand(scenario, index, origin, airline, (near, None), false)
+                .is_none()
+        {
+            self.parking[index] = Parking::Remote(None);
+        }
+        Ok(())
+    }
+
     /// The tail's state at the start instant (D44).
     pub(super) fn place_tail(
         &mut self,
@@ -68,7 +102,7 @@ impl Operations {
         if mode == StartMode::Cold {
             let delay = draw_delay(&mut self.rng)?;
             let leaves = off_block(next_scheduled, delay, start)?;
-            self.stand_for_leg(scenario, index, next)?;
+            self.park_at_start(scenario, index, next, leaves)?;
             return Ok(TailOps {
                 leg: next,
                 week: next_week,
@@ -79,8 +113,16 @@ impl Operations {
             });
         }
         // Warm: fly the current leg nominally from its scheduled departure,
-        // from a stand that it has left by now.
-        self.stand_for_leg(scenario, index, leg)?;
+        // from a stand that it has left by now: a free one, else from the
+        // airport point; never shared, since it is not there.
+        let origin = self.flight(index, leg)?.origin();
+        let near = scenario
+            .world()
+            .airport(origin)
+            .context("origin out of range")?
+            .location();
+        let airline = self.airline_of(index, leg)?;
+        self.find_stand(scenario, index, origin, airline, (near, None), false);
         let planned = self.plan(scenario, index, leg)?;
         self.release_stand(index);
         let flight = *self.flight(index, leg)?;
@@ -117,7 +159,7 @@ impl Operations {
         }
         let leaves = off_block(next_scheduled, SimDuration::ZERO, add(clock, turnaround)?)?;
         let boarding_from = leaves.checked_sub(BOARDING)?.max(clock);
-        self.stand_for_leg(scenario, index, next)?;
+        self.park_at_start(scenario, index, next, leaves)?;
         let mut tail = TailOps {
             leg: next,
             week: next_week,
@@ -126,7 +168,9 @@ impl Operations {
             boarding_from,
             motion: None,
         };
-        if boarding_from <= start {
+        // Boarding already, if it has a stand; from remote parking it is
+        // towed in first.
+        if boarding_from <= start && self.parking[index] == Parking::Stand {
             let planned = self.plan(scenario, index, next)?;
             tail.motion = Some(Motion::boarding(&planned.profile));
             self.install(index, planned);

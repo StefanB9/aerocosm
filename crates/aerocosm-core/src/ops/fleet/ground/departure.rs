@@ -39,7 +39,13 @@ impl Operations {
         let parked = self.parked[index]
             .filter(|(at, _)| *at == origin)
             .and_then(|(_, stand)| layout.stands().get(stand.as_usize()));
-        let stand = parked.map(crate::ground::Stand::node);
+        // From its stand, or the waiting spot it boarded at (D127).
+        let stand = parked
+            .map(crate::ground::Stand::node)
+            .or(match self.parking[index] {
+                super::super::remote::Parking::Spot(node) => Some(node),
+                _ => None,
+            });
         let (Some(stand), true) = (stand, self.ground.controls(origin)) else {
             return Ok(None);
         };
@@ -53,10 +59,16 @@ impl Operations {
             0.0
         };
         // Departure management: no pushback while the runway queue is long.
-        let runway = self
-            .ground
-            .airside(origin)
-            .and_then(|a| a.hold_runway.get(&hold).copied());
+        // Where no mapped holding position serves the runway end, the node
+        // it queues at stands in for one (plan M5 D126).
+        let end = self.paths[index].as_ref().and_then(Path::departure_end);
+        let runway = self.ground.airside_mut(origin).and_then(|a| {
+            a.hold_runway.get(&hold).copied().or_else(|| {
+                end.inspect(|&runway| {
+                    a.hold_runway.insert(hold, runway);
+                })
+            })
+        });
         // Its turn on the runway, behind the departures cleared before it
         // (plan M4 D91).
         let turn = self
@@ -129,12 +141,14 @@ impl Operations {
         Ok(None)
     }
 
-    /// A departure lines up from `hold`: the next one there is due one
-    /// interval later at the earliest, and the pace is learnt.
+    /// A departure lines up from `hold`, having waited `waited` ms in the
+    /// runway's queue: the next one there is due one interval later at the
+    /// earliest, and the pace is learnt.
     pub(in crate::ops::fleet) fn lined_up(
         &mut self,
         airport: Id<Airport>,
         hold: Option<Id<Node>>,
+        waited: i64,
         now: SimTime,
     ) {
         let Some(hold) = hold else {
@@ -147,23 +161,24 @@ impl Operations {
         else {
             return;
         };
-        // Someone else already waits at this runway, at any of its holding
-        // positions (plan M4 D91): only then does the interval show what the
-        // runway can take.
-        let queued = self.taxis.iter().enumerate().any(|(k, taxi)| {
-            taxi.as_ref().is_some_and(|taxi| {
-                taxi.airport == airport
-                    && taxi.target == Target::Hold
-                    && self
-                        .along_of(k)
-                        .is_some_and(|along| along >= taxi.end - QUEUE_REACH)
-                    && self
-                        .ground
-                        .airside(airport)
-                        .and_then(|a| taxi.end_node.and_then(|n| a.hold_runway.get(&n)))
-                        == Some(&runway)
-            })
-        });
+        // It waited for the runway itself, or someone else already waits at
+        // this runway, at any of its holding positions (plan M4 D91): only
+        // then does the interval show what the runway can take.
+        let queued = waited >= DEPARTURE_INTERVAL
+            || self.taxis.iter().enumerate().any(|(k, taxi)| {
+                taxi.as_ref().is_some_and(|taxi| {
+                    taxi.airport == airport
+                        && taxi.target == Target::Hold
+                        && self
+                            .along_of(k)
+                            .is_some_and(|along| along >= taxi.end - QUEUE_REACH)
+                        && self
+                            .ground
+                            .airside(airport)
+                            .and_then(|a| taxi.end_node.and_then(|n| a.hold_runway.get(&n)))
+                            == Some(&runway)
+                })
+            });
         if let Some(airside) = self.ground.airside_mut(airport) {
             let (last, mut pace) = airside
                 .pace
@@ -239,10 +254,7 @@ mod tests {
     #[test]
     fn test_holding_positions_queue_for_their_runway() -> Result<()> {
         let world = data()?.world;
-        let network = GroundNetwork::from_json(
-            include_str!("../../../../../../assets/ground/germany.ground.json"),
-            &world,
-        )?;
+        let network = GroundNetwork::from_definition(crate::test_data::ground()?, &world)?;
         let berlin = world.airport_by_ident("EDDB".parse()?).context("BER")?;
         let layout = network.airport(berlin).context("layout")?;
         let runways = hold_runways(layout);

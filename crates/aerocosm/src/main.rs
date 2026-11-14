@@ -4,7 +4,11 @@ mod cli;
 mod report;
 mod run;
 
-use std::{fs::File, io::BufReader, path::Path};
+use std::{
+    fs::{self, File},
+    io::BufReader,
+    path::{Path, PathBuf},
+};
 
 use aerocosm_core::Scenario;
 use anyhow::{Context, Result};
@@ -66,8 +70,30 @@ fn load(args: &RunArgs) -> Result<Scenario> {
     if args.no_ground {
         return Ok(scenario);
     }
-    run::add_ground(scenario, open(&args.ground)?, open(&args.stand_areas)?)
-        .context("cannot load the ground layouts")
+    let mut regions = Vec::new();
+    for path in ground_files(&args.ground)? {
+        regions.push(open(&path)?);
+    }
+    run::add_ground(scenario, regions).context("cannot load the ground layouts")
+}
+
+/// The regional ground assets in `dir`, `*.ground.bin`, in name order.
+fn ground_files(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    for entry in fs::read_dir(dir).with_context(|| format!("cannot list {}", dir.display()))? {
+        let path = entry
+            .with_context(|| format!("cannot list {}", dir.display()))?
+            .path();
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(run::is_ground_file)
+        {
+            files.push(path);
+        }
+    }
+    files.sort();
+    Ok(files)
 }
 
 /// Movements within this fraction of the target pass the check.

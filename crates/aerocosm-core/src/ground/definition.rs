@@ -7,12 +7,39 @@ use serde::{Deserialize, Serialize};
 use super::GroundName;
 use crate::{
     CoreError,
+    asset::{self, AssetKind},
     units::{Degrees, Meters},
     world::{RunwayDesignator, codes::AirportIdent},
 };
 
 /// Ground file format version this build reads and writes.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
+
+const GROUND_ASSET: AssetKind = AssetKind {
+    tag: *b"GRND",
+    name: "ground asset",
+    version: FORMAT_VERSION,
+};
+
+/// The region of the ground asset an airport's layout lives in (plan M5
+/// D117): the first letter of its ident (the ICAO region), or `None` for
+/// local codes that start with a digit.
+pub fn ground_region(airport: AirportIdent) -> Option<char> {
+    airport
+        .as_str()
+        .chars()
+        .next()
+        .filter(char::is_ascii_uppercase)
+}
+
+/// The file name of a region's ground asset, e.g. `E.ground.bin`, or
+/// `other.ground.bin` for `None`.
+pub fn ground_file(region: Option<char>) -> String {
+    region.map_or_else(
+        || "other.ground.bin".to_owned(),
+        |letter| format!("{letter}.ground.bin"),
+    )
+}
 
 /// A position as `[latitude, longitude]` in degrees: compact for the
 /// thousands of points of a hub's network.
@@ -43,16 +70,16 @@ pub struct EdgeDefinition {
     /// Pavement kind.
     pub kind: EdgeKind,
     /// Taxiway or runway name, e.g. "N7" or "07C/25C".
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub name: Option<GroundName>,
     /// Only to be taxied from `from` to `to`.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default)]
     pub oneway: bool,
     /// Largest wingspan allowed, where published.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub max_wingspan: Option<Meters>,
     /// Points between the two nodes.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub points: Vec<Point>,
 }
 
@@ -69,8 +96,11 @@ pub struct StandDefinition {
     /// Largest wingspan that fits.
     pub max_wingspan: Meters,
     /// Apron or terminal the stand belongs to, if known.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub area: Option<GroundName>,
+    /// On an apron mapped for cargo (plan M5 D120).
+    #[serde(default)]
+    pub cargo: bool,
 }
 
 /// A runway holding position: departures from `runway` wait here.
@@ -115,10 +145,10 @@ pub struct AirportGroundDefinition {
     pub exits: Vec<ExitDefinition>,
     /// Nodes with an intermediate holding position: where aircraft hold
     /// short of an intersection (plan M4 D89).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub intermediate_holds: Vec<u32>,
     /// Apron outlines, for drawing.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub aprons: Vec<Vec<Point>>,
 }
 
@@ -155,6 +185,47 @@ impl GroundDefinition {
         let mut json = serde_json::to_string(self).context("cannot serialise ground")?;
         json.push('\n');
         Ok(json)
+    }
+
+    /// Encodes as a binary asset (plan M5 D104), in the current version.
+    pub fn to_asset(&self) -> Result<Vec<u8>> {
+        let current = Self {
+            format_version: FORMAT_VERSION,
+            ..self.clone()
+        };
+        asset::encode(GROUND_ASSET, &current)
+    }
+
+    /// Reads an asset written by [`Self::to_asset`].
+    pub fn from_asset(bytes: &[u8]) -> Result<Self> {
+        asset::decode(GROUND_ASSET, bytes)
+    }
+
+    /// The layouts of all `parts` (regions) in one definition; an airport
+    /// mapped twice is an error.
+    pub fn combine(parts: impl IntoIterator<Item = Self>) -> Result<Self> {
+        let mut combined = Self {
+            format_version: FORMAT_VERSION,
+            attribution: String::new(),
+            airports: Vec::new(),
+        };
+        let mut seen = std::collections::BTreeSet::new();
+        for part in parts {
+            if combined.attribution.is_empty() {
+                combined.attribution = part.attribution;
+            }
+            for airport in part.airports {
+                if !seen.insert(airport.airport) {
+                    return Err(CoreError::InvalidGround {
+                        airport: airport.airport.to_string(),
+                        reason: "mapped in two ground assets",
+                    }
+                    .into());
+                }
+                combined.airports.push(airport);
+            }
+        }
+        Ok(combined)
     }
 }
 
@@ -196,6 +267,7 @@ pub(crate) mod tests {
                 heading: Degrees::new(180.0)?,
                 max_wingspan: Meters::new(36.0)?,
                 area: Some("T1".parse()?),
+                cargo: false,
             }],
             holding_positions: vec![HoldingPositionDefinition {
                 node: 2,
@@ -225,10 +297,53 @@ pub(crate) mod tests {
         let definition = file()?;
         let json = definition.to_json()?;
         assert!(json.ends_with('\n'));
-        assert!(json.starts_with("{\"format_version\":1,"), "{json}");
-        // Defaults are left out to keep the file small.
-        assert!(!json.contains("\"oneway\""));
+        assert!(json.starts_with("{\"format_version\":2,"), "{json}");
         assert_eq!(GroundDefinition::from_json(&json)?, definition);
+        Ok(())
+    }
+
+    #[test]
+    fn test_ground_asset_round_trips() -> Result<()> {
+        let definition = file()?;
+        let bytes = definition.to_asset()?;
+        assert!(bytes.starts_with(b"AEROGRND"));
+        assert_eq!(GroundDefinition::from_asset(&bytes)?, definition);
+        let error = GroundDefinition::from_asset(b"AEROWRLD\x02\0\0\0")
+            .err()
+            .context("a world asset is not ground")?;
+        assert_eq!(
+            error.downcast_ref::<CoreError>(),
+            Some(&CoreError::NotAnAsset {
+                file: "ground asset"
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_ground_regions_follow_the_ident() -> Result<()> {
+        assert_eq!(ground_region("EDDF".parse()?), Some('E'));
+        assert_eq!(ground_region("KLAX".parse()?), Some('K'));
+        assert_eq!(ground_region("03N".parse()?), None);
+        assert_eq!(ground_file(Some('E')), "E.ground.bin");
+        assert_eq!(ground_file(None), "other.ground.bin");
+        Ok(())
+    }
+
+    #[test]
+    fn test_ground_definitions_combine_without_duplicates() -> Result<()> {
+        let mut other = file()?;
+        other.airports[0].airport = "EDDM".parse()?;
+        let combined = GroundDefinition::combine([file()?, other.clone()])?;
+        let idents: Vec<String> = combined
+            .airports
+            .iter()
+            .map(|a| a.airport.to_string())
+            .collect();
+        assert_eq!(idents, ["EDDF", "EDDM"]);
+        assert_eq!(combined.attribution, "© OpenStreetMap contributors");
+        assert!(GroundDefinition::combine([file()?, file()?]).is_err());
+        assert_eq!(GroundDefinition::combine([])?.airports, []);
         Ok(())
     }
 
@@ -236,7 +351,7 @@ pub(crate) mod tests {
     fn test_ground_definition_rejects_other_versions() -> Result<()> {
         let json = file()?
             .to_json()?
-            .replace("\"format_version\":1", "\"format_version\":7");
+            .replace("\"format_version\":2", "\"format_version\":7");
         let error = GroundDefinition::from_json(&json)
             .err()
             .context("version 7 must be rejected")?;

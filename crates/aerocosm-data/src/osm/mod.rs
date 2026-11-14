@@ -1,30 +1,35 @@
-//! `OpenStreetMap` airport layouts (Overpass JSON) → the ground file (plan
-//! M4 D64–D67).
+//! `OpenStreetMap` airport layouts (Overpass JSON per airport, or the world's
+//! aeroways in OPL) → the ground assets by region (plan M4 D64–D67, M5
+//! D116–D119).
 
 mod gate;
 mod graph;
+mod holds;
 mod layout;
 mod local;
 mod names;
+mod opl;
 mod overpass;
 mod prune;
 mod query;
 mod runways;
-mod sizes;
 mod stands;
 
-use std::fmt;
+use std::{collections::BTreeMap, fmt};
 
 use aerocosm_core::{
-    ground::{FORMAT_VERSION, GroundDefinition, GroundNetwork},
+    ground::{
+        AirportGroundDefinition, FORMAT_VERSION, GroundDefinition, GroundNetwork, ground_region,
+    },
     traffic::TrafficTargets,
     world::{World, codes::AirportIdent},
 };
 use anyhow::{Context, Result};
 
-pub use self::{
-    query::{ground_airports, overpass_query},
-    sizes::{Code, SIZES_VERSION, StandSizes},
+pub use self::query::{ground_airports, overpass_query, query_box};
+use self::{
+    opl::{WorldOsm, read_opl},
+    overpass::OsmData,
 };
 
 /// Attribution the `ODbL` requires for the ground file (plan M4 D65).
@@ -82,42 +87,66 @@ impl fmt::Display for AirportGroundReport {
     }
 }
 
-/// The ground file and what the import did per airport.
-#[derive(Debug, Clone)]
+/// Where the OSM data comes from.
+#[derive(Debug, Clone, Copy)]
+pub enum OsmInput<'a> {
+    /// One Overpass download per airport.
+    Overpass(&'a [OsmSource]),
+    /// The world's aeroways in OPL (plan M5 D116), cut out for each of the
+    /// airports (normally [`ground_airports`]).
+    Opl {
+        /// The OPL text.
+        text: &'a str,
+        /// The airports to cut out.
+        airports: &'a [AirportIdent],
+    },
+}
+
+/// What the ground import produced.
+#[derive(Debug, Clone, PartialEq)]
 pub struct GroundImport {
-    /// Contents of the ground file (compact JSON).
-    pub ground_json: String,
-    /// One report per source, in source order.
+    /// The binary ground asset of each region with a layout (plan M5 D117).
+    pub regions: Vec<(Option<char>, Vec<u8>)>,
+    /// One report per airport, in ident order.
     pub reports: Vec<AirportGroundReport>,
-    /// The layouts that failed the gate, as ground files of one airport each,
-    /// for inspection.
+    /// Layouts that failed the quality gate, as JSON for inspection.
     pub rejected: Vec<(AirportIdent, String)>,
 }
 
-/// Imports every source's layout and keeps those passing the quality gate.
-/// Airports are written in source order sorted by ident, so the output does
-/// not depend on directory listing order.
+/// Builds the layouts of `input`'s airports, checks them against the
+/// quality gate and groups those that pass by region.
 pub fn import_ground(
-    sources: &[OsmSource],
+    input: OsmInput<'_>,
     world: &World,
     traffic: &TrafficTargets,
-    sizes: &StandSizes,
 ) -> Result<GroundImport> {
-    let mut sources: Vec<&OsmSource> = sources.iter().collect();
-    sources.sort_by_key(|source| source.airport);
-    let mut airports = Vec::with_capacity(sources.len());
+    let mut sources: Vec<(AirportIdent, OsmData)> = Vec::new();
+    match input {
+        OsmInput::Overpass(downloads) => {
+            for source in downloads {
+                let data = overpass::read_overpass(&source.json)
+                    .with_context(|| format!("cannot read the OSM data of {}", source.airport))?;
+                sources.push((source.airport, data));
+            }
+        }
+        OsmInput::Opl { text, airports } => {
+            let osm = WorldOsm::new(read_opl(text).context("cannot read the OPL file")?);
+            for &airport in airports {
+                sources.push((airport, osm.within(query_box(world, airport)?)));
+            }
+        }
+    }
+    sources.sort_by_key(|(airport, _)| *airport);
+    let mut regions: BTreeMap<Option<char>, Vec<AirportGroundDefinition>> = BTreeMap::new();
     let mut reports = Vec::with_capacity(sources.len());
     let mut rejected_layouts = Vec::new();
-    for source in sources {
-        let ident = source.airport;
+    for (ident, data) in sources {
         let airport = world
             .airport_by_ident(ident)
             .with_context(|| format!("{ident} is not in the world"))?;
-        let data = overpass::read_overpass(&source.json)
-            .with_context(|| format!("cannot read the OSM data of {ident}"))?;
-        let mut layout = layout::build_layout(&data, world, airport, sizes)
-            .with_context(|| format!("cannot build the layout of {ident}"))?;
         let requirements = gate::requirements(world, airport, traffic);
+        let mut layout = layout::build_layout(&data, world, airport, &requirements.departures)
+            .with_context(|| format!("cannot build the layout of {ident}"))?;
         let unroutable = prune::prune_stands(&mut layout.definition, world, &requirements)
             .with_context(|| format!("cannot check the stands of {ident}"))?;
         let rejected = gate::check(&layout.definition, &requirements).err();
@@ -133,8 +162,11 @@ pub fn import_ground(
             rejected: rejected.clone(),
         });
         if rejected.is_none() {
-            airports.push(layout.definition);
-        } else {
+            regions
+                .entry(ground_region(ident))
+                .or_default()
+                .push(layout.definition);
+        } else if !definition.edges.is_empty() {
             let alone = GroundDefinition {
                 format_version: FORMAT_VERSION,
                 attribution: ATTRIBUTION.to_owned(),
@@ -143,16 +175,20 @@ pub fn import_ground(
             rejected_layouts.push((ident, alone.to_json()?));
         }
     }
-    let definition = GroundDefinition {
-        format_version: FORMAT_VERSION,
-        attribution: ATTRIBUTION.to_owned(),
-        airports,
-    };
-    // The core must accept what the importer writes.
-    GroundNetwork::from_definition(definition.clone(), world)
-        .context("the imported ground layouts do not validate")?;
+    let mut assets = Vec::with_capacity(regions.len());
+    for (region, airports) in regions {
+        let definition = GroundDefinition {
+            format_version: FORMAT_VERSION,
+            attribution: ATTRIBUTION.to_owned(),
+            airports,
+        };
+        // The core must accept what the importer writes.
+        GroundNetwork::from_definition(definition.clone(), world)
+            .with_context(|| format!("the ground layouts of region {region:?} do not validate"))?;
+        assets.push((region, definition.to_asset()?));
+    }
     Ok(GroundImport {
-        ground_json: definition.to_json()?,
+        regions: assets,
         reports,
         rejected: rejected_layouts,
     })
@@ -163,6 +199,43 @@ mod tests {
     use anyhow::{Context, Result};
 
     use super::*;
+
+    #[test]
+    fn test_shipped_region_assets_load_and_cover_the_world() -> Result<()> {
+        let (world, _) = crate::shipped_model()?;
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/ground");
+        let mut regions = 0;
+        let mut airports = Vec::new();
+        for entry in std::fs::read_dir(&dir)? {
+            let path = entry?.path();
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if !name.ends_with(".ground.bin") {
+                continue;
+            }
+            let definition = GroundDefinition::from_asset(&std::fs::read(&path)?)
+                .with_context(|| name.to_owned())?;
+            assert_eq!(definition.attribution, ATTRIBUTION, "{name}");
+            for layout in &definition.airports {
+                // Each airport in the file of its region (plan M5 D117).
+                let file = aerocosm_core::ground::ground_file(ground_region(layout.airport));
+                assert_eq!(file, name, "{}", layout.airport);
+                airports.push(layout.airport.to_string());
+            }
+            GroundNetwork::from_definition(definition, &world).with_context(|| name.to_owned())?;
+            regions += 1;
+        }
+        assert!(regions >= 15, "{regions} regions");
+        assert!(airports.len() > 600, "{} airports", airports.len());
+        // A hub on every continent.
+        for hub in [
+            "EDDF", "EGLL", "KATL", "SBGR", "FAOR", "OMDB", "RJTT", "YSSY",
+        ] {
+            assert!(airports.contains(&hub.to_owned()), "{hub}");
+        }
+        Ok(())
+    }
 
     #[test]
     fn test_report_display() -> Result<()> {
@@ -198,11 +271,12 @@ mod tests {
             airport: "EDDF".parse()?,
             json: "{\"elements\": []}".to_owned(),
         };
-        assert!(import_ground(&[source], &world, &traffic, &StandSizes::default()).is_err());
-        let empty = import_ground(&[], &world, &traffic, &StandSizes::default())?;
+        let sources = [source];
+        assert!(import_ground(OsmInput::Overpass(&sources), &world, &traffic).is_err());
+        let empty = import_ground(OsmInput::Overpass(&[]), &world, &traffic)?;
         assert_eq!(empty.reports.len(), 0);
         assert_eq!(empty.rejected.len(), 0);
-        assert!(empty.ground_json.contains("OpenStreetMap"));
+        assert_eq!(empty.regions, []);
         Ok(())
     }
 
@@ -283,18 +357,15 @@ mod tests {
     fn test_import_ground_builds_a_layout_end_to_end() -> Result<()> {
         let world = grid_world()?;
         let (_, traffic) = crate::shipped_model()?;
-        let source = grid_source()?;
-        let first = import_ground(
-            std::slice::from_ref(&source),
-            &world,
-            &traffic,
-            &StandSizes::default(),
-        )?;
+        let sources = [grid_source()?];
+        let first = import_ground(OsmInput::Overpass(&sources), &world, &traffic)?;
         let report = first.reports.first().context("a report")?;
         assert_eq!(report.rejected, None, "{report}");
         assert_eq!((report.stands, report.holding_positions), (2, 2));
         assert!(report.exits >= 2, "{report}");
-        let network = GroundNetwork::from_json(&first.ground_json, &world)?;
+        let (region, bytes) = first.regions.first().context("a region")?;
+        assert_eq!(*region, Some('E'));
+        let network = GroundNetwork::from_definition(GroundDefinition::from_asset(bytes)?, &world)?;
         let layout = network.airports().first().context("a layout")?;
         let names: Vec<String> = layout
             .stands()
@@ -303,8 +374,57 @@ mod tests {
             .collect();
         assert_eq!(names, ["1", "2"]);
         // Same input, same bytes.
-        let second = import_ground(&[source], &world, &traffic, &StandSizes::default())?;
-        assert_eq!(first.ground_json, second.ground_json);
+        let second = import_ground(OsmInput::Overpass(&sources), &world, &traffic)?;
+        assert_eq!(first.regions, second.regions);
+        Ok(())
+    }
+
+    /// The grid source as OPL, as `osmium cat -f opl` writes it.
+    fn grid_opl() -> Result<String> {
+        let source = grid_source()?;
+        let data = overpass::read_overpass(&source.json)?;
+        let tags = |tags: &overpass::Tags| -> String {
+            tags.iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        let mut lines: Vec<String> = data
+            .nodes
+            .values()
+            .map(|n| format!("n{} v1 T{} x{} y{}", n.id, tags(&n.tags), n.lon, n.lat))
+            .collect();
+        lines.sort();
+        for way in &data.ways {
+            let nodes: Vec<String> = way.nodes.iter().map(|n| format!("n{n}")).collect();
+            lines.push(format!(
+                "w{} v1 T{} N{}",
+                way.id,
+                tags(&way.tags),
+                nodes.join(",")
+            ));
+        }
+        Ok(lines.join("\n"))
+    }
+
+    #[test]
+    fn test_import_ground_cuts_airports_from_opl() -> Result<()> {
+        let world = grid_world()?;
+        let (_, traffic) = crate::shipped_model()?;
+        let overpass = import_ground(OsmInput::Overpass(&[grid_source()?]), &world, &traffic)?;
+        let text = grid_opl()?;
+        let airports = ["EDXX".parse()?];
+        let opl = import_ground(
+            OsmInput::Opl {
+                text: &text,
+                airports: &airports,
+            },
+            &world,
+            &traffic,
+        )?;
+        // The same layout either way.
+        assert_eq!(opl.regions, overpass.regions);
+        assert_eq!(opl.reports, overpass.reports);
         Ok(())
     }
 }

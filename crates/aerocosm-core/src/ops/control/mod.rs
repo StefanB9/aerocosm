@@ -22,6 +22,11 @@ const CROSSING_PATIENCE: SimDuration = SimDuration::from_secs(60);
 const CROSSING_RENEWAL: SimDuration = SimDuration::from_secs(20);
 /// A runway may be crossed this long after a touchdown at the earliest.
 const CROSSING_AFTER_LANDING: SimDuration = SimDuration::from_secs(20);
+/// After waiting this long to cross, an aircraft gets a gap in the arrivals
+/// (plan M5 D128): no more approaches are cleared until it has crossed.
+const CROSSING_GAP_AFTER: SimDuration = SimDuration::from_secs(180);
+/// A rolling landing keeps the runway occupied this long ahead.
+const ROLLING_MARGIN: SimDuration = SimDuration::from_secs(10);
 /// A crossing ends at least this long before the next touchdown.
 const CROSSING_BEFORE_LANDING: SimDuration = SimDuration::from_secs(30);
 /// The lowest holding level, m (7,000 ft)…
@@ -50,6 +55,14 @@ struct RunwayState {
     /// Since when an aircraft has waited to cross (plan M4 D77), and when
     /// it last asked.
     crossing_waits: Option<(SimTime, SimTime)>,
+}
+
+/// Whether, at `now`, an aircraft has waited long enough to cross `runway`
+/// to be given a gap in the arrivals, and still asks.
+fn gap_wanted(runway: &RunwayState, now: SimTime) -> bool {
+    runway.crossing_waits.is_some_and(|(first, asked)| {
+        now <= after(asked, CROSSING_RENEWAL) && now >= after(first, CROSSING_GAP_AFTER)
+    })
 }
 
 /// Altitude of holding level `level`, m.
@@ -185,15 +198,19 @@ impl Control {
             return true;
         };
         let free = runway.occupied_until.is_none_or(|busy| busy <= from);
+        // With a gap opened, booked slots wait: only landings already
+        // cleared to approach count.
+        let gap = gap_wanted(runway, from);
         // No touchdown from shortly before the crossing starts until shortly
         // after it ends: the landing must have passed, the next not be on
         // short final.
         let early = from.checked_sub(CROSSING_AFTER_LANDING).unwrap_or(from);
         let late = after(until, CROSSING_BEFORE_LANDING);
-        let landing = runway
-            .timeline
-            .next_after(early)
-            .is_some_and(|slot| slot < late)
+        let landing = (!gap
+            && runway
+                .timeline
+                .next_after(early)
+                .is_some_and(|slot| slot < late))
             || runway
                 .last_landing
                 .is_some_and(|(touchdown, _)| touchdown > early && touchdown < late);
@@ -235,18 +252,22 @@ impl Control {
         self.runway(key).timeline.cancel(slot);
     }
 
-    /// Whether an aircraft touching down at `touchdown` keeps wake
-    /// separation behind the last one cleared to approach.
+    /// Whether, asked `now`, an aircraft touching down at `touchdown`
+    /// keeps wake separation behind the last one cleared to approach, and
+    /// no aircraft waiting to cross has been promised a gap.
     pub(crate) fn may_approach(
         &mut self,
         key: RunwayKey,
         wake: WakeCategory,
         approach_speed: f64,
         touchdown: SimTime,
+        now: SimTime,
     ) -> bool {
-        self.runway(key).last_landing.is_none_or(|(time, leader)| {
-            touchdown >= after(time, arrival_spacing(leader, wake, approach_speed))
-        })
+        let runway = self.runway(key);
+        !gap_wanted(runway, now)
+            && runway.last_landing.is_none_or(|(time, leader)| {
+                touchdown >= after(time, arrival_spacing(leader, wake, approach_speed))
+            })
     }
 
     /// Records an approach clearance with its predicted touchdown.
@@ -281,6 +302,14 @@ impl Control {
     /// Records a touchdown: the runway is occupied by the landing roll.
     pub(crate) fn landed(&mut self, key: RunwayKey, now: SimTime) {
         self.runway(key).occupied_until = Some(after(now, RUNWAY_OCCUPANCY));
+    }
+
+    /// A landing still rolls on the runway at `now`, towards an exit
+    /// further on than most: it stays occupied a little longer.
+    pub(crate) fn rolling(&mut self, key: RunwayKey, now: SimTime) {
+        let runway = self.runway(key);
+        let until = after(now, ROLLING_MARGIN);
+        runway.occupied_until = Some(runway.occupied_until.map_or(until, |busy| busy.max(until)));
     }
 
     /// Forgets booked landings before `time`.
@@ -430,6 +459,45 @@ mod tests {
     }
 
     #[test]
+    fn test_a_landing_occupies_the_runway_until_it_vacates() -> Result<()> {
+        let mut control = control();
+        control.landed(key(), at(0)?);
+        assert!(!control.may_cross(key(), at(30)?, at(60)?));
+        // A short roll: crossable a minute after touchdown.
+        assert!(control.may_cross(key(), at(70)?, at(100)?));
+        // Still rolling at 80 s towards a late exit: not until it is off.
+        control.rolling(key(), at(80)?);
+        assert!(!control.may_cross(key(), at(85)?, at(115)?));
+        assert!(control.may_cross(key(), at(95)?, at(125)?));
+        Ok(())
+    }
+
+    #[test]
+    fn test_a_long_wait_to_cross_opens_a_gap_in_arrivals() -> Result<()> {
+        let mut control = control();
+        // Landings booked every 70 s: never a gap of 90 s.
+        for k in 0..20 {
+            control.book_arrival(key(), at(70 * k)?, WakeCategory::Medium, 70.0);
+        }
+        control.crossing_wanted(key(), at(0)?, at(0)?);
+        assert!(!control.may_cross(key(), at(100)?, at(140)?));
+        assert!(control.may_approach(key(), WakeCategory::Medium, 70.0, at(500)?, at(100)?));
+        control.approach_started(key(), WakeCategory::Medium, at(500)?);
+        // Waiting three minutes and still asking: no more approaches…
+        control.crossing_wanted(key(), at(0)?, at(185)?);
+        assert!(!control.may_approach(key(), WakeCategory::Medium, 70.0, at(600)?, at(190)?));
+        // …and once the last one cleared is down, it crosses, booked slots
+        // or not.
+        assert!(!control.may_cross(key(), at(470)?, at(510)?));
+        control.crossing_wanted(key(), at(0)?, at(515)?);
+        assert!(control.may_cross(key(), at(520)?, at(560)?));
+        control.crossing(key(), at(560)?);
+        // Crossed: approaches resume.
+        assert!(control.may_approach(key(), WakeCategory::Medium, 70.0, at(700)?, at(560)?));
+        Ok(())
+    }
+
+    #[test]
     fn test_crossings_fit_between_movements() -> Result<()> {
         let mut control = control();
         assert!(control.may_cross(key(), at(0)?, at(40)?));
@@ -457,18 +525,19 @@ mod tests {
     #[test]
     fn test_approach_gate_keeps_landings_apart() -> Result<()> {
         let mut control = control();
-        assert!(control.may_approach(key(), WakeCategory::Heavy, 75.0, at(300)?));
+        assert!(control.may_approach(key(), WakeCategory::Heavy, 75.0, at(300)?, at(0)?));
         control.approach_started(key(), WakeCategory::Heavy, at(300)?);
         let spacing = arrival_spacing(WakeCategory::Heavy, WakeCategory::Medium, 70.0);
         let too_soon = at(300)?
             .checked_add(spacing)?
             .checked_sub(SimDuration::from_secs(1))?;
-        assert!(!control.may_approach(key(), WakeCategory::Medium, 70.0, too_soon));
+        assert!(!control.may_approach(key(), WakeCategory::Medium, 70.0, too_soon, at(0)?));
         assert!(control.may_approach(
             key(),
             WakeCategory::Medium,
             70.0,
-            at(300)?.checked_add(spacing)?
+            at(300)?.checked_add(spacing)?,
+            at(0)?
         ));
         control.landed(key(), at(300)?);
         assert!(!control.may_take_off(key(), WakeCategory::Medium, at(320)?));

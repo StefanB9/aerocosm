@@ -268,6 +268,21 @@ mod tests {
     }
 
     #[test]
+    fn test_fit_rejects_targets_one_route_cannot_meet() -> Result<()> {
+        // A proptest case: the second node's only route (the edges lie under
+        // the minimum distance) is to the first, so both share its demand
+        // and cannot meet targets of 1 and 515.
+        let nodes = [
+            node(47.5, 6.5, 1e5, Some(1.0))?,
+            node(52.675_112, 8.857_987, 1e5, Some(514.596))?,
+            node(52.636_674, 10.578_287, 1e6, None)?,
+            node(51.182_594, 9.610_469, 1e6, None)?,
+        ];
+        assert!(fit(&nodes, gravity(&nodes, &DemandParams::default())).is_err());
+        Ok(())
+    }
+
+    #[test]
     fn test_fit_rejects_unreachable_target() -> Result<()> {
         // A constrained airport with no route at all cannot meet a positive
         // target.
@@ -296,8 +311,12 @@ mod tests {
                 nodes.push(node(*lat, *lon, *mass, None).map_err(fail)?);
             }
             let routes = gravity(&nodes, &DemandParams::default());
-            // Every German node needs at least one route for its target to be reachable.
-            prop_assume!((0..german.len()).all(|i| routes.iter().any(|r| r.from == i || r.to == i)));
+            // Every German node needs a route to an edge node, whose demand
+            // is free, for its target to be reachable whatever the others'.
+            let edge = |i: usize| i >= german.len();
+            prop_assume!((0..german.len()).all(|i| routes
+                .iter()
+                .any(|r| (r.from == i && edge(r.to)) || (r.to == i && edge(r.from)))));
             let routes = fit(&nodes, routes).map_err(fail)?;
             for (index, n) in nodes.iter().enumerate() {
                 if let Some(target) = n.target {

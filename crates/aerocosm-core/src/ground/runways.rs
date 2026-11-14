@@ -148,10 +148,7 @@ mod tests {
     #[test]
     fn test_waiting_spots_at_munich_leave_the_taxiways_clear() -> Result<()> {
         let world = data()?.world;
-        let network = GroundNetwork::from_json(
-            include_str!("../../../../assets/ground/germany.ground.json"),
-            &world,
-        )?;
+        let network = GroundNetwork::from_definition(crate::test_data::ground()?, &world)?;
         let munich = world.airport_by_ident("EDDM".parse()?).context("EDDM")?;
         let ground = network.airport(munich).context("layout")?;
         let mut on_runway = vec![false; ground.nodes().len()];
@@ -168,10 +165,7 @@ mod tests {
     #[test]
     fn test_runway_nodes_and_waiting_spots_at_frankfurt() -> Result<()> {
         let world = data()?.world;
-        let network = GroundNetwork::from_json(
-            include_str!("../../../../assets/ground/germany.ground.json"),
-            &world,
-        )?;
+        let network = GroundNetwork::from_definition(crate::test_data::ground()?, &world)?;
         let frankfurt = world.airport_by_ident("EDDF".parse()?).context("EDDF")?;
         let ground = network.airport(frankfurt).context("layout")?;
         let mut on_runway = vec![false; ground.nodes().len()];

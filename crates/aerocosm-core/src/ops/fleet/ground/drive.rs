@@ -52,7 +52,11 @@ impl Operations {
     ) -> Option<Event> {
         let taxi = self.taxis[index].as_ref()?;
         if taxi.waiting.is_some() {
-            self.wait_for_stand(scenario, index, now, airline);
+            if self.wait_for_stand(scenario, index, now, airline) {
+                // Deplaned at the spot, towed to remote parking (D127).
+                motion.arrive_now();
+                return Some(Event::Arrived);
+            }
             motion.taxi_at(motion.along(), 0.0);
             return None;
         }
@@ -109,6 +113,9 @@ impl Operations {
                 // The taxi stays on record until line-up: it still holds
                 // the holding position.
                 motion.queue_now();
+                if let Some(taxi) = self.taxis[index].as_mut() {
+                    taxi.queued_at = Some(end);
+                }
                 None
             }
             Target::Stand(_) => {

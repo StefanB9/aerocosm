@@ -6,7 +6,7 @@ mod ground;
 mod plan;
 
 pub(crate) use self::{
-    ground::arrival as arrival_route,
+    ground::{Origin, arrival as arrival_route},
     plan::{LegGround, plan_leg},
 };
 use super::{Phase, motion::Motion};
@@ -15,6 +15,7 @@ use crate::{
     geo::{Polyline, Route, Segment},
     ground::Node,
     units::{Degrees, Meters},
+    world::RunwayDesignator,
 };
 
 /// Where a leg's parts lie.
@@ -38,6 +39,8 @@ pub(crate) struct Path {
     /// Index of the runway used at the origin and at the destination.
     departure_runway: Option<usize>,
     arrival_runway: Option<usize>,
+    /// The runway end the departure takes off from.
+    departure_end: Option<RunwayDesignator>,
     /// Whether the taxi-out follows taxiways (else a straight line).
     routed_out: bool,
     /// How far the pushback goes along the taxi-out, m (0 without one).
@@ -98,6 +101,11 @@ impl Path {
     /// The holding position and pushback end of a routed departure.
     pub(crate) fn departure_nodes(&self) -> Option<(Id<Node>, Id<Node>)> {
         self.hold.zip(self.joint)
+    }
+
+    /// The runway end the departure takes off from.
+    pub(crate) const fn departure_end(&self) -> Option<RunwayDesignator> {
+        self.departure_end
     }
 
     /// From the holding position node on to where the line-up starts.

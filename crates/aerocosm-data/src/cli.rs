@@ -18,7 +18,8 @@ pub(crate) struct Cli {
 pub(crate) enum Command {
     /// Import Germany from local downloads (see docs/data-sources.md).
     Import(ImportArgs),
-    /// Import airport ground layouts from Overpass downloads (plan M4).
+    /// Import airport ground layouts from Overpass downloads or the planet's
+    /// aeroways (plan M4, M5 D116).
     Ground(GroundArgs),
     /// Write the Overpass query of every airport with a ground layout.
     Queries(QueriesArgs),
@@ -105,8 +106,12 @@ pub(crate) struct ImportArgs {
 #[derive(Debug, Args)]
 pub(crate) struct GroundArgs {
     /// Directory containing one Overpass JSON file per airport, `<IDENT>.json`.
+    #[arg(long, required_unless_present = "opl", conflicts_with = "opl")]
+    pub(crate) osm: Option<PathBuf>,
+    /// The world's aeroways in OPL (`osmium cat -f opl`), cut out for every
+    /// scheduled airport (plan M5 D116).
     #[arg(long)]
-    pub(crate) osm: PathBuf,
+    pub(crate) opl: Option<PathBuf>,
     /// Asset directory: reads `world/` and `traffic/`, writes `ground/`.
     #[arg(long, default_value = "assets")]
     pub(crate) assets: PathBuf,
@@ -124,6 +129,10 @@ pub(crate) struct QueriesArgs {
     /// File to write, one `IDENT<TAB>query` line per airport.
     #[arg(long)]
     pub(crate) out: PathBuf,
+    /// Also write the airports' boxes as one `GeoJSON` multipolygon, for
+    /// `osmium extract -p` on the planet file (plan M5 D116).
+    #[arg(long)]
+    pub(crate) boxes: Option<PathBuf>,
 }
 
 #[cfg(test)]
@@ -163,10 +172,19 @@ mod tests {
         let Command::Ground(args) = cli.command else {
             anyhow::bail!("expected the ground command");
         };
-        assert_eq!(args.osm, Path::new("dl/osm"));
+        assert_eq!(args.osm.as_deref(), Some(Path::new("dl/osm")));
+        assert_eq!(args.opl, None);
         assert_eq!(args.assets, Path::new("assets"));
         assert_eq!(args.rejected, None);
+        let cli = Cli::try_parse_from(["aerocosm-data", "ground", "--opl", "a.opl"])?;
+        let Command::Ground(args) = cli.command else {
+            anyhow::bail!("expected the ground command");
+        };
+        assert_eq!(args.opl.as_deref(), Some(Path::new("a.opl")));
         assert!(Cli::try_parse_from(["aerocosm-data", "ground"]).is_err());
+        assert!(
+            Cli::try_parse_from(["aerocosm-data", "ground", "--osm", "d", "--opl", "a"]).is_err()
+        );
         Ok(())
     }
 
@@ -179,6 +197,19 @@ mod tests {
         };
         assert_eq!(args.out, Path::new("q.tsv"));
         assert_eq!(args.assets, Path::new("assets"));
+        assert_eq!(args.boxes, None);
+        let cli = Cli::try_parse_from([
+            "aerocosm-data",
+            "queries",
+            "--out",
+            "q.tsv",
+            "--boxes",
+            "b.geojson",
+        ])?;
+        let Command::Queries(args) = cli.command else {
+            anyhow::bail!("expected the queries command");
+        };
+        assert_eq!(args.boxes.as_deref(), Some(Path::new("b.geojson")));
         Ok(())
     }
 

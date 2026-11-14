@@ -3,9 +3,9 @@
 //! ahead of their hold, the most urgent first.
 
 use super::{
-    AIRCRAFT_LENGTH, DEADLOCK_AFTER, EDGE, ENGINE_START, FOLLOW, GAP, LOCK_AHEAD, LOOKAHEAD,
-    Occupant, PUSH_CLEAR, PUSH_SPEED, STUCK_AFTER, Target, Taxi, ZONE, ms, taxi_millis, tight,
-    time_of,
+    AIRCRAFT_LENGTH, CLEAR_OF_RUNWAY, DEADLOCK_AFTER, EDGE, ENGINE_START, FOLLOW, GAP, LOCK_AHEAD,
+    LOOKAHEAD, Occupant, PUSH_CLEAR, PUSH_SHOWN_EVERY, PUSH_SPEED, STUCK_AFTER, Target, Taxi, ZONE,
+    ms, taxi_millis, tight, time_of,
 };
 use crate::{
     SimDuration, SimTime,
@@ -71,9 +71,19 @@ impl Operations {
         if taxi.target == Target::Hold || motion.speed() > STANDING {
             return None;
         }
+        let along = motion.along();
+        // Still at its exit, which lies on the centreline: it stands on the
+        // runway it landed on, whatever junction it waits for.
+        if along < taxi.offset + CLEAR_OF_RUNWAY
+            && let Some(key) = self
+                .flows
+                .get(index)
+                .and_then(super::super::flow::Flow::arrival_runway)
+        {
+            return Some(key);
+        }
         let airside = self.ground.airside(taxi.airport)?;
         let first = taxi.passages.first()?;
-        let along = motion.along();
         let junction = airside.junctions.junctions().get(first.junction as usize)?;
         if !junction.runway || first.entry > taxi.offset + 1e-6 || along > first.exit + ZONE {
             return None;
@@ -153,17 +163,24 @@ impl Operations {
                         && super::drive::at_a_line(&taxi.passages, taxi.next, along),
                     waits_for: taxi.waiting_for,
                 });
-                // Pushing back, it shows where it will stand: pilots keep
-                // clear of a pushback in progress.
+                // Pushing back, it shows the rest of its push and where it
+                // will stand: pilots keep clear of a pushback in progress.
                 if motion.phase() == Phase::Pushback {
-                    airside.seen.push(super::drive::Seen {
-                        tail: owner,
-                        at: path.taxi_out_point(taxi.push),
-                        heading,
-                        moving: false,
-                        at_hold: false,
-                        waits_for: None,
-                    });
+                    let mut ahead = motion.along().max(0.0);
+                    loop {
+                        ahead = (ahead + PUSH_SHOWN_EVERY).min(taxi.push);
+                        airside.seen.push(super::drive::Seen {
+                            tail: owner,
+                            at: path.taxi_out_point(ahead),
+                            heading,
+                            moving: false,
+                            at_hold: false,
+                            waits_for: None,
+                        });
+                        if ahead >= taxi.push {
+                            break;
+                        }
+                    }
                 }
             }
             // Past its last chain (at the holding point) it stands at that
@@ -414,7 +431,10 @@ impl Operations {
             !escape && key.is_some_and(|key| !self.control.may_cross(key, now, until));
         let in_way = !escape && blocker.is_some();
         if in_way || runway_busy {
-            if let Some(key) = key.filter(|_| runway_busy) {
+            // It asks to cross only when the runway alone stops it: take-offs
+            // held for it while traffic blocks its way (often the runway's
+            // own departure queue) would hold up that traffic too.
+            if let Some(key) = key.filter(|_| runway_busy && !in_way) {
                 self.hold_short(index, key, now);
             }
             if let Some(taxi) = self.taxis[index].as_mut() {

@@ -7,7 +7,7 @@ use std::{
 
 use aerocosm_core::{
     AircraftCatalog, Scenario, SimConfig, SimTime, Simulation, TICK, WallClock, WallInstant,
-    ground::{GroundDefinition, StandAreasDefinition},
+    ground::GroundDefinition,
     ops::{AirportStats, StartMode},
     traffic::{model::derive, observed::ObservedTraffic},
     world::World,
@@ -95,19 +95,23 @@ pub(crate) fn load_scenario(
     Scenario::with_traffic(world, aircraft, airlines, targets)
 }
 
-/// Adds airport ground layouts and stand areas (plan M4) to `scenario`.
+/// Whether a file named `name` is a regional ground asset.
+pub(crate) fn is_ground_file(name: &str) -> bool {
+    name.len() > ".ground.bin".len() && name.ends_with(".ground.bin")
+}
+
+/// Adds the airport ground layouts of the `regions` (plan M4, M5 D117) to
+/// `scenario`.
 pub(crate) fn add_ground(
     scenario: Scenario,
-    ground: impl Read,
-    areas: impl Read,
+    regions: impl IntoIterator<Item = impl Read>,
 ) -> Result<Scenario> {
-    scenario
-        .with_ground(
-            GroundDefinition::from_json(&read(ground, "ground")?).context("ground layouts")?,
-        )?
-        .with_stand_areas(
-            StandAreasDefinition::from_json(&read(areas, "stand areas")?).context("stand areas")?,
-        )
+    let mut parts = Vec::new();
+    for region in regions {
+        let bytes = read_bytes(region, "ground")?;
+        parts.push(GroundDefinition::from_asset(&bytes).context("ground layouts")?);
+    }
+    scenario.with_ground(GroundDefinition::combine(parts)?)
 }
 
 /// Runs `scenario` from `args.start` for `args.duration`, timing it with
@@ -218,8 +222,7 @@ mod tests {
             observed: "assets/traffic/observed.bin".into(),
             no_traffic: false,
             cold_start: false,
-            ground: "assets/ground/germany.ground.json".into(),
-            stand_areas: "assets/ground/stand-areas.json".into(),
+            ground: "assets/ground".into(),
             no_ground: false,
         })
     }
@@ -292,14 +295,24 @@ mod tests {
     }
 
     #[test]
-    fn test_add_ground_loads_layouts_and_stand_areas() -> Result<()> {
-        let scenario = add_ground(
-            germany()?,
-            include_str!("../../../assets/ground/germany.ground.json").as_bytes(),
-            include_str!("../../../assets/ground/stand-areas.json").as_bytes(),
-        )?;
-        assert!(scenario.ground().airports().len() > 20);
-        assert!(add_ground(germany()?, b"{}".as_slice(), b"{}".as_slice()).is_err());
+    fn test_ground_files_are_region_assets() {
+        assert!(is_ground_file("E.ground.bin") && is_ground_file("other.ground.bin"));
+        assert!(!is_ground_file(".ground.bin"));
+        assert!(!is_ground_file("germany.ground.json"));
+        assert!(!is_ground_file("LICENSE.txt"));
+    }
+
+    #[test]
+    fn test_add_ground_loads_layouts() -> Result<()> {
+        let europe = [
+            &include_bytes!("../../../assets/ground/E.ground.bin")[..],
+            &include_bytes!("../../../assets/ground/L.ground.bin")[..],
+        ];
+        let scenario = add_ground(germany()?, europe)?;
+        assert!(scenario.ground().airports().len() > 100);
+        assert!(add_ground(germany()?, [b"{}".as_slice()]).is_err());
+        // A region twice maps its airports twice.
+        assert!(add_ground(germany()?, [europe[0], europe[0]]).is_err());
         Ok(())
     }
 

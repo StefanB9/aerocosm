@@ -1,19 +1,20 @@
-//! Ground control on the shipped data (plan M4 PR 3): aircraft taxiing at
-//! the mapped airports keep apart, never get stuck, and the result is
-//! deterministic.
+//! Ground control on the shipped data (plan M4 PR 3, M5 PR 3): aircraft
+//! taxiing at the mapped airports of northern Europe keep apart, never get
+//! stuck, and the result is deterministic.
 
 use std::collections::HashMap;
 
 use aerocosm_core::{
     AircraftCatalog, RngSeed, Scenario, SimConfig, SimDuration, SimTime, Simulation,
-    ground::{GroundDefinition, StandAreasDefinition},
+    ground::GroundDefinition,
     ops::{FlightView, Phase, TaxiState},
     traffic::{model::derive, observed::ObservedTraffic},
     world::World,
 };
 use anyhow::{Context, Result};
 
-const GROUND: &str = include_str!("../../../assets/ground/germany.ground.json");
+/// Northern Europe's ground (ICAO region E), Frankfurt and Munich among it.
+const GROUND: &[u8] = include_bytes!("../../../assets/ground/E.ground.bin");
 
 fn simulation(seed: u64) -> Result<Simulation> {
     let world = World::from_asset(include_bytes!("../../../assets/world/world.bin"))?;
@@ -22,10 +23,7 @@ fn simulation(seed: u64) -> Result<Simulation> {
         ObservedTraffic::from_asset(include_bytes!("../../../assets/traffic/observed.bin"))?;
     let (traffic, airlines) = derive(&world, &observed, &aircraft)?.into_parts();
     let scenario = Scenario::with_traffic(world, aircraft, airlines, traffic)?
-        .with_ground(GroundDefinition::from_json(GROUND)?)?
-        .with_stand_areas(StandAreasDefinition::from_json(include_str!(
-            "../../../assets/ground/stand-areas.json"
-        ))?)?;
+        .with_ground(GroundDefinition::from_asset(GROUND)?)?;
     // A summer Wednesday from 06:00 local: the morning departure bank.
     let config = SimConfig::new("2026-07-08T04:00:00Z".parse()?, RngSeed::new(seed));
     Simulation::new(config, scenario).context("cannot set up the simulation")
@@ -44,7 +42,7 @@ fn taxiing_at(flight: &FlightView) -> Option<usize> {
 fn mapped(simulation: &Simulation) -> Result<Vec<bool>> {
     let world = simulation.world();
     let mut mapped = vec![false; world.airport_count()];
-    for layout in GroundDefinition::from_json(GROUND)?.airports {
+    for layout in GroundDefinition::from_asset(GROUND)?.airports {
         let id = world
             .airport_by_ident(layout.airport)
             .context("a mapped airport")?;
@@ -203,14 +201,12 @@ fn observe(simulation: &mut Simulation, hours: u32, every: u32) -> Result<Observ
     Ok(observed)
 }
 
-/// Nobody taxies longer than this. M4 held it to 75 minutes (a stand wait
-/// ends after 30, D69, D75); with the 2019 world traffic at Frankfurt and
-/// Munich waits grow, until ground at world scale (plan M5 PR 3,
-/// docs/known-issues.md).
-const LONGEST_TAXI: SimDuration = SimDuration::from_secs(2 * 3_600);
-/// At most one taxi in this many escapes a deadlock or shares a stand (M4:
-/// fifty; plan M5 PR 3 restores it).
-const RARE: u32 = 10;
+/// Nobody taxies longer than this (M4: a stand wait ends after 30 minutes,
+/// D69, D75).
+const LONGEST_TAXI: SimDuration = SimDuration::from_secs(75 * 60);
+/// At most one taxi in this many escapes a deadlock or shares a stand (M4;
+/// docs/known-issues.md for escapes).
+const RARE: u32 = 50;
 /// Taxiing aircraft never stand on the same spot (D70) unless one escaped a
 /// deadlock (D75): their reference points stay half an airliner's length
 /// apart, m.
@@ -219,56 +215,62 @@ const CLOSEST: f64 = 20.0;
 #[test]
 fn test_ground_traffic_keeps_apart_and_flows() -> Result<()> {
     let mut seen = [false; 8];
+    // Every limit a seed breaks, so that one run shows them all.
+    let mut failures = Vec::new();
     for seed in [3, 7, 11] {
         let mut simulation = simulation(seed)?;
         let observed = observe(&mut simulation, 4, 10)?;
         let stats = simulation.statistics().context("statistics")?.network();
-        assert!(stats.taxis() > 500, "seed {seed}: {}", stats.taxis());
-        assert!(
+        let taxis = stats.taxis();
+        let mut check = |ok: bool, what: String| {
+            if !ok {
+                failures.push(format!("seed {seed}: {what}"));
+            }
+        };
+        check(taxis > 500, format!("{taxis} taxis"));
+        check(
             observed.closest.0 >= CLOSEST,
-            "seed {seed}: {:.1} m: {}",
-            observed.closest.0,
-            observed.closest.1
+            format!("{:.1} m: {}", observed.closest.0, observed.closest.1),
         );
-        assert!(
+        check(
             observed.longest.0 <= LONGEST_TAXI,
-            "seed {seed}: {} s: {}",
-            observed.longest.0.as_millis() / 1000,
-            observed.longest.1
+            format!(
+                "{} s: {}",
+                observed.longest.0.as_millis() / 1000,
+                observed.longest.1
+            ),
         );
         // Ground control says what each aircraft on its ground is doing
         // (D85), and routes it; a departure whose stand has no way out for
         // its wingspan taxies straight (D47): a few at most.
-        assert!(
-            observed.stateless.0.len() * 100 <= usize::try_from(stats.taxis())?,
-            "seed {seed}: {}",
-            observed.stateless.1
+        let few = usize::try_from(taxis)? / 100;
+        check(
+            observed.stateless.0.len() <= few,
+            format!("stateless: {}", observed.stateless.1),
         );
-        assert!(
-            observed.unrouted.0.len() * 100 <= usize::try_from(stats.taxis())?,
-            "seed {seed}: {}",
-            observed.unrouted.1
+        check(
+            observed.unrouted.0.len() <= few,
+            format!("unrouted: {}", observed.unrouted.1),
         );
         for (any, now) in seen.iter_mut().zip(observed.states) {
             *any |= now;
         }
         // Rare (D75, D93); zero is the goal of the acceptance runs (D92).
-        assert!(
-            stats.ground_conflicts() * RARE <= stats.taxis(),
-            "seed {seed}: {} conflicts in {} taxis",
-            stats.ground_conflicts(),
-            stats.taxis()
+        check(
+            stats.ground_conflicts() * RARE <= taxis,
+            format!("{} conflicts in {taxis} taxis", stats.ground_conflicts()),
         );
         // Stands run short only where few fit the largest freighters (D69).
-        assert!(
-            stats.stand_shares() * RARE <= stats.taxis(),
-            "seed {seed}: {} stand shares in {} taxis",
-            stats.stand_shares(),
-            stats.taxis()
+        check(
+            stats.stand_shares() * RARE <= taxis,
+            format!("{} stand shares in {taxis} taxis", stats.stand_shares()),
         );
     }
     // Every taxi state occurs in the morning bank.
-    assert_eq!(seen, [true; 8]);
+    if seen != [true; 8] {
+        failures.push(format!("taxi states seen: {seen:?}"));
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
     Ok(())
 }
 

@@ -80,14 +80,13 @@ mod tests {
 
     #[test]
     fn test_prune_drops_stands_that_cannot_taxi_out() -> Result<()> {
-        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets");
-        let read = |path: &str| std::fs::read_to_string(format!("{root}/{path}"));
         let (world, traffic) = crate::shipped_model()?;
-        let mut definition = GroundDefinition::from_json(&read("ground/germany.ground.json")?)?
-            .airports
-            .into_iter()
-            .find(|a| a.airport.as_str() == "EDDF")
-            .context("EDDF")?;
+        let mut definition =
+            GroundDefinition::from_asset(include_bytes!("../../../../assets/ground/E.ground.bin"))?
+                .airports
+                .into_iter()
+                .find(|a| a.airport.as_str() == "EDDF")
+                .context("EDDF")?;
         let frankfurt = world.airport_by_ident(definition.airport).context("EDDF")?;
         let needs = requirements(&world, frankfurt, &traffic);
         // The shipped layout is already pruned.
@@ -113,6 +112,7 @@ mod tests {
             heading: Degrees::new(0.0)?,
             max_wingspan: Meters::new(36.0)?,
             area: None,
+            cargo: false,
         });
         assert_eq!(prune_stands(&mut definition, &world, &needs)?, 1);
         assert_eq!(definition.stands.len(), shipped);
