@@ -93,6 +93,29 @@ fn minutes(duration: crate::SimDuration) -> u32 {
     u32::try_from(duration.as_millis() / 60_000).unwrap_or(0)
 }
 
+/// At most this many trips are reserved up front.
+const MAX_RESERVED_TRIPS: usize = 1 << 22;
+
+/// About how many round trips `services` fly in a week: the sum of their
+/// daily frequencies. The world has some ten million services that hardly
+/// ever fly, so reserving per service would ask for gigabytes (more than
+/// wasm32 can address).
+fn expected_trips(services: &[Service]) -> usize {
+    let week: f64 = services
+        .iter()
+        .map(|service| service.daily.max(0.0))
+        .sum::<f64>()
+        * 7.0;
+    if !week.is_finite() {
+        return 0;
+    }
+    // SAFETY: a capacity hint of a finite, non-negative sum; a huge one
+    // saturates and is capped.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let trips = week.ceil() as usize;
+    trips.min(MAX_RESERVED_TRIPS)
+}
+
 /// Builds every service's round trips for the week template, drawing from
 /// `rng`.
 pub(crate) fn build_trips(
@@ -100,7 +123,7 @@ pub(crate) fn build_trips(
     services: &[Service],
     rng: &mut SimRng,
 ) -> Result<TripsOutcome> {
-    let mut trips = Vec::with_capacity(services.len() * 10);
+    let mut trips = Vec::with_capacity(expected_trips(services));
     let mut dropped = 0;
     let mut next_number: HashMap<Id<Airline>, u16> = HashMap::new();
     let mut books = ctx.slot_books();
@@ -255,6 +278,26 @@ mod tests {
         let mut rng = RngSeed::new(seed).stream(StreamId::Scheduling);
         let outcome = build_trips(&context(&data)?, &services, &mut rng)?;
         Ok((data, outcome))
+    }
+
+    #[test]
+    fn test_expected_trips_follow_frequencies_not_services() {
+        let service = |daily: f64| Service {
+            airline: Id::new(0),
+            base: Id::new(0),
+            other: Id::new(1),
+            daily,
+            kind: FlightKind::Passenger,
+        };
+        // A world's worth of services that hardly ever fly reserve little:
+        // ten trips each would be 4.4 GB, more than wasm32 can address.
+        let rare = vec![service(1e-4); 1_000_000];
+        assert!(expected_trips(&rare) <= 1_000, "{}", expected_trips(&rare));
+        // A week of a twice-daily service.
+        assert_eq!(expected_trips(&[service(2.0)]), 14);
+        assert_eq!(expected_trips(&[]), 0);
+        assert_eq!(expected_trips(&[service(f64::INFINITY)]), 0);
+        assert_eq!(expected_trips(&[service(1e12)]), MAX_RESERVED_TRIPS);
     }
 
     #[test]
