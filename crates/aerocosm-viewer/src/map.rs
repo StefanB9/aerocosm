@@ -2,6 +2,7 @@
 //! gizmos.
 
 use aerocosm_basemap::Line;
+use aerocosm_core::LatLon;
 use bevy::{
     camera::visibility::RenderLayers,
     gizmos::{
@@ -13,6 +14,7 @@ use bevy::{
 };
 
 use crate::{
+    anchor::MapAnchor,
     camera::CameraRig,
     data::{MAP_LAYER, MapData},
     lod,
@@ -20,9 +22,6 @@ use crate::{
     tessellate::fill_polygons,
     theme,
 };
-
-/// Country code drawn as the simulated country.
-const HOME_COUNTRY: &str = "DE";
 
 /// Draws the basemap.
 pub(crate) struct MapPlugin;
@@ -41,52 +40,73 @@ struct RiverBucket {
     gizmo: Gizmo,
 }
 
+/// A frame for shapes spanning `points`: at the centre of their extent.
+/// Natural Earth splits shapes at the antimeridian, so they are built
+/// unwrapped in it.
+fn frame_of<'a>(points: impl IntoIterator<Item = &'a LatLon>) -> Option<MapProjection> {
+    let mut extent: Option<[f64; 4]> = None;
+    for point in points {
+        let (lat, lon) = (point.latitude().value(), point.longitude().value());
+        let e = extent.get_or_insert([lat, lon, lat, lon]);
+        *e = [e[0].min(lat), e[1].min(lon), e[2].max(lat), e[3].max(lon)];
+    }
+    let [south, west, north, east] = extent?;
+    LatLon::new(f64::midpoint(south, north), f64::midpoint(west, east))
+        .ok()
+        .map(MapProjection::new)
+}
+
 fn spawn_basemap(
     mut commands: Commands,
     map: Res<MapData>,
-    projection: Res<MapProjection>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut gizmos: ResMut<Assets<GizmoAsset>>,
 ) {
     let basemap = &map.basemap;
     let layer = RenderLayers::layer(MAP_LAYER);
-    let mut fill =
-        |polygons: Vec<&aerocosm_basemap::Polygon>, color: Color, z: f32| match fill_polygons(
-            polygons,
-            &projection,
-        ) {
-            Ok(triangles) => {
-                commands.spawn((
-                    Mesh2d(meshes.add(triangles.into_mesh())),
-                    MeshMaterial2d(materials.add(color)),
-                    Transform::from_xyz(0.0, 0.0, z),
-                    layer.clone(),
-                ));
-            }
-            Err(error) => error!("cannot tessellate basemap layer: {error:#}"),
-        };
-    let (home, abroad): (Vec<_>, Vec<_>) = basemap
+    let land = materials.add(theme::LAND);
+    let lake = materials.add(theme::LAKE);
+    let shapes = basemap
         .countries()
         .iter()
-        .partition(|country| country.code.as_str() == HOME_COUNTRY);
-    fill(
-        abroad.iter().flat_map(|c| &c.polygons).collect(),
-        theme::LAND,
-        0.0,
-    );
-    fill(
-        home.iter().flat_map(|c| &c.polygons).collect(),
-        theme::LAND_HOME,
-        0.1,
-    );
-    fill(basemap.lakes().iter().collect(), theme::LAKE, 0.2);
+        .flat_map(|country| &country.polygons)
+        .map(|polygon| (polygon, &land, 0.0))
+        .chain(basemap.lakes().iter().map(|polygon| (polygon, &lake, 0.2)));
+    // One mesh per country and lake in its own frame (plan M5 D130), drawn
+    // three times a world apart (D131); frustum culling drops the copies
+    // out of view.
+    for (polygon, material, z) in shapes {
+        let Some(frame) = frame_of(polygon.outer().path().points()) else {
+            continue;
+        };
+        match fill_polygons([polygon], &frame) {
+            Ok(triangles) => {
+                let mesh = meshes.add(triangles.into_mesh());
+                for anchor in MapAnchor::copies(frame) {
+                    commands.spawn((
+                        anchor,
+                        Mesh2d(mesh.clone()),
+                        MeshMaterial2d(material.clone()),
+                        Transform::from_xyz(0.0, 0.0, z),
+                        layer.clone(),
+                    ));
+                }
+            }
+            Err(error) => error!("cannot tessellate basemap shape: {error:#}"),
+        }
+    }
 
+    // Lines in one frame at the map's centre, unwrapped.
+    let frame = MapProjection::zero();
     let mut lines = |lines: &mut dyn Iterator<Item = &Line>, color: Color| {
         let mut asset = GizmoAsset::new();
         for line in lines {
             asset.linestrip_2d(
-                line.path().points().iter().map(|p| projection.project(*p)),
+                line.path()
+                    .points()
+                    .iter()
+                    .map(|p| frame.project_unwrapped(*p)),
                 color,
             );
         }
@@ -99,14 +119,18 @@ fn spawn_basemap(
     };
     let state_handle = lines(&mut basemap.state_borders().iter(), theme::STATE_BORDER);
     let border_handle = lines(&mut basemap.borders().iter(), theme::BORDER);
-    commands.spawn((
-        Gizmo {
-            handle: state_handle,
-            line_config: line_config(1.0),
-            ..default()
-        },
-        layer.clone(),
-    ));
+    for anchor in MapAnchor::copies(frame) {
+        commands.spawn((
+            anchor,
+            Gizmo {
+                handle: state_handle.clone(),
+                line_config: line_config(1.0),
+                ..default()
+            },
+            Transform::default(),
+            layer.clone(),
+        ));
+    }
 
     // Rivers are grouped by rank so detail appears progressively when zooming
     // in.
@@ -118,29 +142,36 @@ fn spawn_basemap(
             &mut basemap.rivers().iter().filter(|r| r.rank() == rank),
             theme::RIVER,
         );
-        commands.spawn((
-            RiverBucket {
-                rank,
-                gizmo: Gizmo {
-                    handle,
-                    line_config: line_config(if rank <= 4 { 1.6 } else { 1.1 }),
-                    ..default()
+        for anchor in MapAnchor::copies(frame) {
+            commands.spawn((
+                anchor,
+                RiverBucket {
+                    rank,
+                    gizmo: Gizmo {
+                        handle: handle.clone(),
+                        line_config: line_config(if rank <= 4 { 1.6 } else { 1.1 }),
+                        ..default()
+                    },
                 },
+                Transform::default(),
+                layer.clone(),
+            ));
+        }
+    }
+
+    // Borders last: they read best on top of rivers and state lines.
+    for anchor in MapAnchor::copies(frame) {
+        commands.spawn((
+            anchor,
+            Gizmo {
+                handle: border_handle.clone(),
+                line_config: line_config(1.5),
+                ..default()
             },
             Transform::default(),
             layer.clone(),
         ));
     }
-
-    // Borders last: they read best on top of rivers and state lines.
-    commands.spawn((
-        Gizmo {
-            handle: border_handle,
-            line_config: line_config(1.5),
-            ..default()
-        },
-        layer,
-    ));
 }
 
 /// Retained gizmos ignore `Visibility`, so buckets are switched by adding or

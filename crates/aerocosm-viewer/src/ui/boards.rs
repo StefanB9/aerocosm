@@ -118,7 +118,13 @@ pub(super) struct BoardsPlugin;
 
 impl Plugin for BoardsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, refresh_boards);
+        app.add_systems(
+            Update,
+            bevy::ecs::schedule::IntoScheduleConfigs::in_set(
+                refresh_boards,
+                crate::driver::SimReady,
+            ),
+        );
     }
 }
 

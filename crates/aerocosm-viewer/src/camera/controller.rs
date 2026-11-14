@@ -26,6 +26,9 @@ pub(crate) struct CameraLimits {
     pub(crate) min_scale: f32,
     /// Farthest zoom, in world units per pixel.
     pub(crate) max_scale: f32,
+    /// Widest view, in world units: the world's width where east and west
+    /// wrap, so nothing is seen twice side by side (plan M5 D131).
+    pub(crate) max_width: f32,
 }
 
 /// Position, zoom and motion of the 2D map camera.
@@ -113,7 +116,7 @@ impl CameraState {
     ) {
         self.viewport = viewport;
         let anchor = self.screen_to_world(cursor, viewport);
-        let scale = (self.scale * factor).clamp(limits.min_scale, limits.max_scale);
+        let scale = (self.scale * factor).clamp(limits.min_scale, self.max_scale(limits));
         self.center = anchor + (self.center - anchor) * (scale / self.scale);
         self.scale = scale;
         self.clamp(limits);
@@ -162,6 +165,12 @@ impl CameraState {
         }
     }
 
+    /// Moves the centre by `-by` without touching zoom or motion: the
+    /// floating origin moved to `by` (plan M5 D130).
+    pub(crate) fn shift(&mut self, by: Vec2) {
+        self.center -= by;
+    }
+
     /// Centres on `target` at the current zoom and stops any coasting.
     pub(crate) fn follow(&mut self, target: Vec2, limits: &CameraLimits) {
         self.center = target;
@@ -169,11 +178,21 @@ impl CameraState {
         self.clamp(limits);
     }
 
+    /// The farthest zoom in the current viewport.
+    fn max_scale(&self, limits: &CameraLimits) -> f32 {
+        let widest = if self.viewport.x > 0.0 {
+            limits.max_width / self.viewport.x
+        } else {
+            f32::INFINITY
+        };
+        limits.max_scale.min(widest).max(limits.min_scale)
+    }
+
     /// Pulls the scale within `limits` and moves the centre so the visible area
     /// stays inside the bounds; on an axis where the view is wider than the
     /// bounds, it is centred.
     pub(crate) fn clamp(&mut self, limits: &CameraLimits) {
-        self.scale = self.scale.clamp(limits.min_scale, limits.max_scale);
+        self.scale = self.scale.clamp(limits.min_scale, self.max_scale(limits));
         let half = self.viewport * self.scale / 2.0;
         let low = limits.bounds.min + half;
         let high = limits.bounds.max - half;
@@ -206,6 +225,7 @@ mod tests {
             bounds: Rect::new(-700_000.0, -900_000.0, 700_000.0, 900_000.0),
             min_scale: 0.5,
             max_scale: 4000.0,
+            max_width: f32::INFINITY,
         }
     }
 
@@ -214,11 +234,53 @@ mod tests {
     }
 
     #[test]
+    fn test_view_is_at_most_max_width_wide() {
+        let limits = CameraLimits {
+            max_width: 640_000.0,
+            ..limits()
+        };
+        let mut camera = state(4000.0);
+        camera.zoom_about(VIEWPORT / 2.0, 1.0, VIEWPORT, &limits);
+        assert!((camera.scale() - 500.0).abs() < 1e-3, "{}", camera.scale());
+    }
+
+    #[test]
+    fn test_unbounded_axis_pans_freely() {
+        // East–west wraps (plan M5 D131): no bounds on x.
+        let limits = CameraLimits {
+            bounds: Rect::new(f32::NEG_INFINITY, -1000.0, f32::INFINITY, 1000.0),
+            min_scale: 0.1,
+            max_scale: 1.0,
+            max_width: f32::INFINITY,
+        };
+        let mut camera = CameraState::new(Vec2::ZERO, 1.0);
+        camera.pan_by_pixels(Vec2::new(-5e6, 0.0), &limits);
+        assert!(
+            (camera.center().x - 5e6).abs() < 1.0,
+            "{:?}",
+            camera.center()
+        );
+        assert!(camera.center().y.is_finite());
+    }
+
+    #[test]
+    fn test_shift_moves_the_centre_only() {
+        let mut camera = state(2.0);
+        camera.release(Vec2::new(10.0, 0.0));
+        camera.shift(Vec2::new(10_000.0, -20_000.0));
+        assert_eq!(camera.center(), Vec2::ZERO);
+        assert!((camera.scale() - 2.0).abs() < f32::EPSILON);
+        camera.step(0.1, VIEWPORT, &limits());
+        assert!(camera.center().x < 0.0, "still coasting");
+    }
+
+    #[test]
     fn test_follow_centres_and_stops_coasting() {
         let limits = CameraLimits {
             bounds: Rect::new(-1000.0, -1000.0, 1000.0, 1000.0),
             min_scale: 0.1,
             max_scale: 10.0,
+            max_width: f32::INFINITY,
         };
         let mut state = CameraState::new(Vec2::ZERO, 1.0);
         state.release(Vec2::new(500.0, 0.0));

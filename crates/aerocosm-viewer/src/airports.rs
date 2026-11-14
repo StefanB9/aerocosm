@@ -1,7 +1,9 @@
 //! Airport symbols, runways drawn to scale, and hover/selection.
 
+use std::collections::HashMap;
+
 use aerocosm_core::{
-    Id,
+    Id, LatLon,
     world::{Airport, AirportKind, Runway, Surface, World},
 };
 use bevy::{
@@ -12,7 +14,12 @@ use bevy::{
 };
 
 use crate::{
-    camera::CameraRig, data::OVERLAY_LAYER, lod, projection::MapProjection, selection::Selection,
+    anchor::{AnchorSet, MapAnchor},
+    camera::CameraRig,
+    data::OVERLAY_LAYER,
+    lod,
+    projection::MapProjection,
+    selection::Selection,
     theme,
 };
 
@@ -49,9 +56,9 @@ impl Plugin for AirportsPlugin {
             .add_systems(
                 Update,
                 (
-                    update_symbols,
+                    update_symbols.after(AnchorSet),
                     update_runways,
-                    crate::selection::hover_and_select.after(crate::camera::CameraSet),
+                    crate::selection::hover_and_select.after(update_symbols),
                     draw_selection,
                 ),
             );
@@ -79,7 +86,6 @@ fn kind_color(kind: AirportKind) -> Color {
 fn spawn_airports(
     mut commands: Commands,
     view: Res<WorldView>,
-    projection: Res<MapProjection>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
@@ -92,14 +98,18 @@ fn spawn_airports(
         let fill = fills[usize::from(kind_rank(kind))]
             .get_or_insert_with(|| materials.add(kind_color(kind)))
             .clone();
-        let position = projection.project(airport.location());
         let z = 10.0 + f32::from(kind_rank(kind));
         commands
             .spawn((
-                AirportSymbol { id, kind, position },
+                AirportSymbol {
+                    id,
+                    kind,
+                    position: Vec2::ZERO,
+                },
+                MapAnchor::new(MapProjection::new(airport.location())),
                 Mesh2d(disc.clone()),
                 MeshMaterial2d(fill),
-                Transform::from_translation(position.extend(z)),
+                Transform::from_xyz(0.0, 0.0, z),
                 layer.clone(),
             ))
             .with_child((
@@ -111,17 +121,27 @@ fn spawn_airports(
     }
 }
 
-/// Keeps symbols a constant size on screen and applies level of detail.
+/// Keeps symbols a constant size on screen, applies level of detail and
+/// records where each is drawn.
 fn update_symbols(
     rig: Option<Res<CameraRig>>,
-    mut symbols: Query<(&AirportSymbol, &mut Transform, &mut Visibility)>,
+    mut symbols: Query<(&mut AirportSymbol, &mut Transform, &mut Visibility)>,
 ) {
     let Some(rig) = rig else {
         return;
     };
     let scale = rig.state.scale();
-    for (symbol, mut transform, mut visibility) in &mut symbols {
-        transform.scale = Vec3::splat(lod::glyph_radius(symbol.kind) * scale);
+    for (mut symbol, mut transform, mut visibility) in &mut symbols {
+        let position = transform.translation.truncate();
+        if symbol.position != position {
+            symbol.position = position;
+        }
+        // Written only when it changes: rewriting it every frame would
+        // propagate every airport's transform every frame.
+        let size = Vec3::splat(lod::glyph_radius(symbol.kind) * lod::symbol_factor(scale) * scale);
+        if transform.scale != size {
+            transform.scale = size;
+        }
         visibility.set_if_neq(if lod::airport_visible(symbol.kind, scale) {
             Visibility::Inherited
         } else {
@@ -141,34 +161,67 @@ fn runway_quad(runway: &Runway, projection: &MapProjection) -> [Vec2; 4] {
     [a - across, b - across, b + across, a + across]
 }
 
+/// Runways are meshed in tiles of this many degrees, each in its own frame
+/// (plan M5 D130).
+const RUNWAY_TILE: f64 = 10.0;
+
+/// The tile of `point`: south-west corner in whole tiles.
+// SAFETY: latitudes and longitudes over RUNWAY_TILE are far inside i32.
+#[allow(clippy::cast_possible_truncation)]
+fn runway_tile(point: LatLon) -> (i32, i32) {
+    (
+        (point.latitude().value() / RUNWAY_TILE).floor() as i32,
+        (point.longitude().value() / RUNWAY_TILE).floor() as i32,
+    )
+}
+
 fn spawn_runways(
     mut commands: Commands,
     view: Res<WorldView>,
-    projection: Res<MapProjection>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let mut paved = Quads::default();
-    let mut soft = Quads::default();
-    for (id, _) in view.world.airports() {
+    // Per tile: its frame, and paved and soft quads.
+    let mut tiles: HashMap<(i32, i32), (MapProjection, Quads, Quads)> = HashMap::new();
+    for (id, airport) in view.world.airports() {
+        let (frame, paved, soft) =
+            tiles
+                .entry(runway_tile(airport.location()))
+                .or_insert_with(|| {
+                    (
+                        MapProjection::new(airport.location()),
+                        Quads::default(),
+                        Quads::default(),
+                    )
+                });
         for runway in view.world.runways_of(id) {
             let quads = if runway.surface() == Surface::Paved {
-                &mut paved
+                &mut *paved
             } else {
-                &mut soft
+                &mut *soft
             };
-            quads.push(runway_quad(runway, &projection));
+            quads.push(runway_quad(runway, frame));
         }
     }
-    for (quads, color) in [(paved, theme::RUNWAY_PAVED), (soft, theme::RUNWAY_SOFT)] {
-        commands.spawn((
-            RunwayLayer,
-            Mesh2d(meshes.add(quads.into_mesh())),
-            MeshMaterial2d(materials.add(color)),
-            Transform::from_xyz(0.0, 0.0, 5.0),
-            Visibility::Hidden,
-            RenderLayers::layer(OVERLAY_LAYER),
-        ));
+    let paved_material = materials.add(theme::RUNWAY_PAVED);
+    let soft_material = materials.add(theme::RUNWAY_SOFT);
+    let mut tiles: Vec<_> = tiles.into_iter().collect();
+    tiles.sort_by_key(|(key, _)| *key);
+    for (_, (frame, paved, soft)) in tiles {
+        for (quads, material) in [(paved, &paved_material), (soft, &soft_material)] {
+            if quads.indices.is_empty() {
+                continue;
+            }
+            commands.spawn((
+                RunwayLayer,
+                MapAnchor::new(frame),
+                Mesh2d(meshes.add(quads.into_mesh())),
+                MeshMaterial2d(material.clone()),
+                Transform::from_xyz(0.0, 0.0, 5.0),
+                Visibility::Hidden,
+                RenderLayers::layer(OVERLAY_LAYER),
+            ));
+        }
     }
 }
 
@@ -228,7 +281,7 @@ fn draw_selection(
     };
     let scale = rig.state.scale();
     for symbol in &symbols {
-        let radius = lod::glyph_radius(symbol.kind) * scale;
+        let radius = lod::glyph_radius(symbol.kind) * lod::symbol_factor(scale) * scale;
         if Some(symbol.id) == selection.selected_airport() {
             gizmos.circle_2d(symbol.position, radius * SELECTED_RING, theme::ACCENT);
             gizmos.circle_2d(
@@ -255,7 +308,7 @@ mod tests {
 
     #[test]
     fn test_runway_quad_has_true_width_and_length() -> Result<()> {
-        let projection = MapProjection::germany()?;
+        let projection = MapProjection::new(aerocosm_core::LatLon::new(51.163_4, 10.447_7)?);
         let start = LatLon::new(50.0, 8.5)?;
         let heading = Degrees::new(90.0)?;
         let end = start.destination(heading, Meters::new(3000.0)?);

@@ -6,8 +6,6 @@ use bevy::color::Color;
 pub(crate) const SEA: Color = Color::srgb(0.043, 0.071, 0.125);
 /// Land of neighbouring countries.
 pub(crate) const LAND: Color = Color::srgb(0.082, 0.110, 0.173);
-/// Land of the simulated country.
-pub(crate) const LAND_HOME: Color = Color::srgb(0.106, 0.141, 0.216);
 /// Lakes.
 pub(crate) const LAKE: Color = Color::srgb(0.055, 0.090, 0.157);
 /// International borders.

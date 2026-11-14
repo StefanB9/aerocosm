@@ -17,6 +17,8 @@ use crate::lock::locked_version;
 const RENDERERS: [&str; 2] = ["webgpu", "webgl2"];
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
 const VIEWER: &str = "aerocosm-viewer";
+/// The ground layouts, at the same path in the repository and in the build.
+const GROUND: &str = "assets/ground";
 
 /// Side effects of a build, so the build logic can be tested with a fake.
 pub(crate) trait Host {
@@ -30,6 +32,8 @@ pub(crate) trait Host {
     fn reset_dir(&mut self, path: &Path) -> Result<()>;
     /// Copies a file.
     fn copy(&mut self, from: &Path, to: &Path) -> Result<()>;
+    /// The names of the files in a directory, sorted.
+    fn list_dir(&mut self, path: &Path) -> Result<Vec<String>>;
 }
 
 /// The real machine.
@@ -75,6 +79,22 @@ impl Host for SystemHost {
         fs::copy(from, to)
             .map(drop)
             .with_context(|| format!("cannot copy {} to {}", from.display(), to.display()))
+    }
+
+    fn list_dir(&mut self, path: &Path) -> Result<Vec<String>> {
+        let mut names = Vec::new();
+        for entry in
+            fs::read_dir(path).with_context(|| format!("cannot list {}", path.display()))?
+        {
+            let entry = entry.with_context(|| format!("cannot list {}", path.display()))?;
+            if entry.file_type().is_ok_and(|kind| kind.is_file())
+                && let Ok(name) = entry.file_name().into_string()
+            {
+                names.push(name);
+            }
+        }
+        names.sort();
+        Ok(names)
     }
 }
 
@@ -144,6 +164,13 @@ pub(crate) fn build(host: &mut impl Host, options: &BuildOptions) -> Result<()> 
 
     host.reset_dir(&options.out)?;
     host.copy(Path::new("web/index.html"), &options.out.join("index.html"))?;
+    // The ground layouts, fetched by the viewer at start (plan M5 D132), with
+    // their licence.
+    let ground = options.out.join(GROUND);
+    host.reset_dir(&ground)?;
+    for name in host.list_dir(Path::new(GROUND))? {
+        host.copy(&Path::new(GROUND).join(&name), &ground.join(&name))?;
+    }
     for renderer in RENDERERS {
         // Separate target directories keep both variants' build caches.
         let target_dir = Path::new("target/web-build").join(renderer);
@@ -225,6 +252,11 @@ mod tests {
                 .push(format!("copy {} {}", from.display(), to.display()));
             Ok(())
         }
+
+        fn list_dir(&mut self, path: &Path) -> Result<Vec<String>> {
+            self.calls.push(format!("list {}", path.display()));
+            Ok(vec!["E.ground.bin".to_owned(), "LICENSE.txt".to_owned()])
+        }
     }
 
     fn host(bindgen: &str) -> FakeHost {
@@ -252,6 +284,10 @@ mod tests {
             "output wasm-bindgen --version",
             "reset target/web",
             "copy web/index.html target/web/index.html",
+            "reset target/web/assets/ground",
+            "list assets/ground",
+            "copy assets/ground/E.ground.bin target/web/assets/ground/E.ground.bin",
+            "copy assets/ground/LICENSE.txt target/web/assets/ground/LICENSE.txt",
             "run cargo build -p aerocosm-viewer --target wasm32-unknown-unknown --profile release \
              --no-default-features --features webgpu --target-dir target/web-build/webgpu",
             "run wasm-bindgen --target web --no-typescript --out-dir target/web/webgpu \

@@ -124,6 +124,7 @@ mod tests {
                 bounds: Rect::new(-1e6, -1e6, 1e6, 1e6),
                 min_scale: 1.0,
                 max_scale: 100.0,
+                max_width: f32::INFINITY,
             },
         ))
         .insert_resource(PointerState {

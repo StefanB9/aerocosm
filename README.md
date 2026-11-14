@@ -149,6 +149,21 @@ cargo run -p aerocosm-viewer
 
 For a smoother experience use `cargo run --release -p aerocosm-viewer` (slower to build).
 
+The viewer opens on the whole world. `--view <lat>,<lon>,<metres per pixel>` opens it
+elsewhere, e.g. at Frankfurt's terminal 1 (`--view 50.0485,8.57,0.8`) or the Pacific
+(`--view -10,180,3000`):
+
+```bash
+cargo run --release -p aerocosm-viewer -- --view 50.0485,8.57,0.8
+```
+
+The airport ground layouts are not compiled in: the viewer reads them from `assets/ground` at
+start (plan M5 D132; "Loading airport layouts… n of 21" shows meanwhile), and the simulation
+starts once all are in.
+They are found at `../../assets` from the crate (under `cargo run`) or from
+`target/<profile>`; to run a copied binary elsewhere, set `BEVY_ASSET_ROOT` to the
+repository's `crates/aerocosm-viewer`. Without them every airport taxis in straight lines.
+
 ### Controls
 
 | Input | Action |
@@ -157,7 +172,7 @@ For a smoother experience use `cargo run --release -p aerocosm-viewer` (slower t
 | Mouse wheel / touchpad / pinch | Zoom towards the pointer |
 | Arrow keys or WASD | Pan |
 | `+` / `-` | Zoom in / out |
-| Home | Back to the whole of Germany |
+| Home | Back to the whole world |
 | Click an airport | Select it and open its panel with departure and arrival boards |
 | Click an aircraft | Select it and open the flight panel |
 | `F` / Follow button | Follow the selected flight with the camera (dragging stops it) |
@@ -166,10 +181,15 @@ For a smoother experience use `cargo run --release -p aerocosm-viewer` (slower t
 | `,` / `.` | Slower / faster |
 | Speed buttons (top right) | Pause, 1×, 10×, 60× (default), 300×, 1000×, Max |
 
+The simulation gets at most 25 ms of each frame (plan M5 PR 4); on a machine too slow for the
+chosen speed it runs slower than shown rather than stalling the view. `Max` runs as many
+ticks as fit.
+
 ### Manual test checklist
 
-1. **Start-up view:** Germany fills the window on a dark map; neighbouring countries, state
-   borders, lakes and major rivers are visible; there is no hard map edge anywhere.
+1. **Start-up view:** the whole world fills the window, Europe and Africa in the middle;
+   about 12,000 aircraft fly at once, drawn smaller than at country zoom; there is no hard map
+   edge anywhere.
 2. **Labels:** major airports show IATA codes (FRA, MUC, BER, …) and big cities their names
    (Berlin, Hamburg, Frankfurt, Munich, Amsterdam, Prague, …); no labels overlap.
 3. **Clock:** the top bar starts at `Thu 5 Nov 2026 07:00:00 UTC` (08:00 in Germany) and
@@ -182,14 +202,15 @@ For a smoother experience use `cargo run --release -p aerocosm-viewer` (slower t
    then airfields and smaller towns, appear progressively; labels never overlap.
 6. **Runways:** keep zooming into Frankfurt — four runways appear to scale (07L/25R, 07C/25C,
    07R/25L and 18), each end labelled with its designator.
-7. **Pan:** drag the map and release while moving — it coasts and slows down. The view stops
-   at the edge of the basemap.
+7. **Pan:** drag the map and release while moving — it coasts and slows down. East and west
+   wrap without a seam: pan across the Pacific and the map, airports and flights continue
+   (plan M5 D131); north and south the view stops at the map's edge.
 8. **Hover and select:** hovering an airport shows a ring; clicking it shows an accent ring and
    a panel (top right) with name, ICAO · IATA · kind, position, elevation and every runway
    (length × width, surface, "approx. position" where the geometry was synthesised — try a
    small airfield). Escape or a click on empty map closes it.
 9. **Cursor readout:** the bottom right shows the latitude and longitude under the pointer.
-10. **Keyboard:** arrows/WASD pan, `+`/`-` zoom, Home returns to Germany.
+10. **Keyboard:** arrows/WASD pan, `+`/`-` zoom, Home returns to the whole world.
 11. **UI vs map:** clicking the speed buttons never pans the map or deselects an airport.
 12. **Traffic at country zoom:** several hundred aircraft are in the air at once, each a small
     silhouette (regional, narrow-body, wide-body or A380) pointing along its course, green
@@ -225,6 +246,10 @@ For a smoother experience use `cargo run --release -p aerocosm-viewer` (slower t
     approach fix, with a faint outline of the pattern once zoomed in; their flight panel says
     "Holding, expected out hh:mm". Sequenced arrivals show "Expected landing", slowed ones
     "Speed control −n %", and slot-held departures "Slot (CTOT) hh:mm".
+19. **Anywhere on the globe** (plan M5 D130): zoom down to a stand at Atlanta, Shanghai
+    Pudong or Sydney — aprons, taxiways, stands and their names appear as the airport comes
+    into view, lines and aircraft are as sharp as at Frankfurt, and nothing jitters while
+    panning.
 
 ## Browser viewer
 
@@ -243,7 +268,9 @@ render with WebGPU (it renders one tiny probe frame first) and the WebGL2 build 
 Force one with <http://localhost:8080/?renderer=webgl2> or
 <http://localhost:8080/?renderer=webgpu>.
 
-Each variant's `.wasm` is currently about 33 MB uncompressed; the first load takes a moment.
+Each variant's `.wasm` is currently about 40 MB uncompressed; the first load takes a
+moment. The build copies the ground layouts (`assets/ground`, 15 MB) next to it; the page
+fetches them at start.
 
 The release build of both variants takes a while; `cargo xtask web build --dev` builds faster
 but produces much larger, slower files. `cargo xtask web serve --port 9000` picks another

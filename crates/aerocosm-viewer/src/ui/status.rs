@@ -83,7 +83,7 @@ mod tests {
 
     #[test]
     fn test_status_lines_describe_frankfurt() -> Result<()> {
-        let (scenario, _) = crate::data::load()?;
+        let (scenario, _) = crate::data::load_with_ground(&['E'])?;
         let mut simulation = Simulation::new(
             SimConfig::new("2026-11-05T07:00:00Z".parse()?, RngSeed::new(0)),
             scenario,

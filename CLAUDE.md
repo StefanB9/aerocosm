@@ -99,8 +99,13 @@ aerocosm/                              (workspace root)
     │       └── geometry/              clip (rings, lines), Douglas–Peucker simplify
     ├── aerocosm-viewer/               (binary — Bevy 0.20 viewer, native and wasm)
     │   └── src/
-    │       ├── main.rs, data.rs       App assembly; embedded data and fonts
-    │       ├── projection.rs          Web Mercator around a fixed local origin
+    │       ├── main.rs, data.rs       App assembly; embedded data (world, basemap) and fonts
+    │       ├── start.rs               Opening view: the world, or `--view lat,lon,scale`
+    │       ├── loading.rs             Ground region files via the asset server (disk, HTTP);
+    │       │                          builds the simulation once all are in (plan M5 D132)
+    │       ├── projection.rs          Web Mercator, floating origin, east–west wrap (M5 D130)
+    │       ├── anchor.rs              Meshes built in their own frame, placed at the copy
+    │       │                          nearest the camera (plan M5 D130, D131)
     │       ├── camera/                Two layered cameras; controller.rs = pure camera maths
     │       ├── map.rs, airports.rs    Basemap meshes/gizmo lines; airport symbols, runways
     │       ├── aircraft.rs            Aircraft sprites, tick interpolation, trails (systems)
@@ -111,7 +116,8 @@ aerocosm/                              (workspace root)
     │       ├── runway_use.rs          Arrows on the runways in use (pure geometry + systems)
     │       ├── ground/                Airport grounds (plan M4 D87): aprons, taxiways, stands
     │       │                          (retained gizmos), geometry.rs (pure: LOD, culling,
-    │       │                          markers, name anchors), route.rs (selected taxi route)
+    │       │                          markers, name anchors), stream.rs (pure: which airports
+    │       │                          to build and drop, M5 D132), route.rs (selected route)
     │       └── ui/                    Top bar, airport panel + boards + flow status (status.rs),
     │                                  flight panel with flow notes, labels
     ├── xtask/                         (binary — project tooling: `cargo xtask web build|serve`)

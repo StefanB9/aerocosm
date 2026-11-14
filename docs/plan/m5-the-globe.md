@@ -126,6 +126,11 @@ parking): at 04:00 UTC Munich holds 429 aircraft on 189 stands, Frankfurt 469 on
 | D126 | **Holding positions by rule.** Where OSM maps no holding position for a runway end in use, the importer places one on each taxiway joining that runway, at the Annex 14 distance from the centreline for the runway's code. Mapped holding positions always win |
 | D127 | **Remote boarding at the peak** (agreed after D125 left 2.3–3.5 % shares in region E, mostly Oslo and Copenhagen). An arrival that finds no stand within 30 minutes at its waiting spot deplanes there and is towed to remote parking; a departure that finds no stand within 30 minutes of its tow-back boards remote and joins the taxiways at a free waiting spot, without pushback. A stand is shared only when neither a stand nor a spot is free; waiting spots are offered only where a stand that fits can be reached from them |
 | D128 | **A gap in arrivals for crossings** (agreed after a 97-minute wait to cross Frankfurt's mixed-mode 25R, D113). Once an aircraft has waited 3 minutes to cross a runway and keeps asking, no further approaches to it are cleared, and the crossing no longer waits for booked slots of landings not yet cleared, only for those cleared. Arrivals absorb the gap as holding. A landing occupies the runway until it vacates, not a fixed minute. Departures queueing where OSM maps no holding position are paced by their runway end, and a runway's pace is also learnt from a departure's own wait at the hold |
+| D129 | **Flat Web Mercator at every zoom** (agreed for PR 4). The far view is the whole world as a flat map, not a 3D sphere; one projection from the globe to a stand | Smallest change from D25; a sphere would need 3D cameras, every mesh re-projected and a transition between the two |
+| D130 | **Floating origin.** Map positions are `f64` Web Mercator metres; the projection's origin moves to the camera centre whenever the camera is more than 10,000 pixels from it. Meshes and lines are built relative to their own anchor, and their transform is the anchor minus the origin narrowed to `f32`, so every drawn offset stays small: under a thousandth of a pixel of error at any zoom, anywhere | D106; replaces the fixed German origin (about 1 m of error at Sydney, against the centimetres a stand needs) |
+| D131 | **Seamless wrap at the antimeridian** (agreed). East–west positions wrap by the world's width; everything is drawn at its copy nearest the camera, with a second copy where an item is wider than the rest of the view; the farthest zoom shows at most one world's width, so nothing is seen twice side by side | Trans-Pacific flights cross ±180° without jumping; Pacific views have no seam |
+| D132 | **Ground: all at start, drawn on demand** (agreed). The simulation gets every region file at start, as the runner does: read from `assets/ground` on disk natively, fetched over HTTP on the web through Bevy's asset server (15 MB), behind a loading screen. Only the drawing is streamed: an airport's aprons, taxiways and stands are built when it comes into view at airport zoom and dropped when it is far away. The embedded regions E and L retire (D124); the world, basemap, aircraft and observed traffic stay embedded | Ground control behaves the same wherever the camera is (same seed + same inputs ⇒ same world); the web build does not carry the ground in its wasm |
+| D133 | **World basemap and level of detail.** The viewer draws the world basemap (`basemap/world.bin`) in place of the German one; the home-country tint retires (D95). Zoom limits and level-of-detail thresholds extend to the world view; it opens on the whole world and Home returns there (agreed) | The German basemap ends a few hundred kilometres outside Germany |
 
 *As built (PR 3):* 836 of 3,908 scheduled airports pass the gate (15 MB of region assets).
 The integration test runs region E (northern Europe, 260 airports under ground control)
@@ -144,6 +149,44 @@ escapes 2.1 % and stand shares 1.4 % of 14,610 taxis.
   streamed per airport, web build with fetched layouts (xtask serve).
 - **Tests:** projection and origin maths (property tests), LOD and streaming logic behind
   traits; screenshots on three continents.
+
+*Detail (agreed 2026-11-14, D129–D133):* the projection keeps `f64` positions and a movable
+origin with wrap (pure, property-tested: round trip, wrap, rebase keeps every drawn point
+within tolerance); static meshes and lines carry an anchor and are placed by one system
+when the origin moves; which airports' ground to build and drop is a pure function of the
+view, the zoom and what is built, behind a trait for the loader (disk, HTTP); the viewer
+builds the simulation once the ground is in. `cargo xtask web build` copies
+`assets/ground` next to the wasm. Measured in the PR: frame time at world zoom (about
+12,000 aircraft) natively and on the web, start-up, wasm size. Screenshots: the world, a
+Pacific crossing, and stands at Frankfurt, Atlanta and Shanghai Pudong.
+
+*As built (PR 4):* the projection keeps `f64` Web Mercator positions with an origin that
+moves to the camera once it is 10,000 pixels (or a quarter of the world) away; meshes are
+built in their own frame (basemap per country and lake, three copies a world apart;
+runways per 10° tile; each airport's ground) and one system places them at the copy nearest
+the camera. The viewer opens on the whole world; `--view <lat>,<lon>,<metres per pixel>`
+opens anywhere. Aircraft and airport symbols shrink to 40 % between country and world zoom.
+Region files are read through Bevy's asset server and the simulation is built once all 21
+are in; grounds are built within a quarter view of the screen below 30 map units per pixel,
+at most two per frame, and dropped beyond one and a half views or above 120.
+Two problems surfaced on the way and are fixed here. Labels: the world has about 102,000
+(28,204 airports, 7,341 places, 66,252 runway ends, then taxiways and stands), each a hidden
+UI text entity, about a gigabyte natively and walked by Bevy's UI every frame; they are now
+plain sources and only placed labels get an entity. The schedule reserved ten round trips per
+service, and the world has 10 million services (nearly all hardly ever flying): 4.4 GB of
+untouched virtual memory natively, but more than wasm32 can address, so the browser aborted
+while building the schedule (`capacity overflow`, reproduced with the core's schedule tests
+on 32-bit x86); the reservation now follows expected trips.
+A third: at 60× a frame owing more ticks than it could run owed more the next frame, up to
+2,000, so the viewer now gives the simulation at most 25 ms of a frame and drops the rest.
+Measured in this container (4 cores, no GPU): natively the window opens after 0.6 s, the 21
+region files are in after 1.1 s and the simulation is ready after 12.9 s, with 1.0 GB of
+memory then and 1.17 GB a minute later (2.2 GB before labels were made on demand). In headless
+Chromium (WebGL2 build, `.wasm` 42 MB, WebGPU 40 MB) the files are fetched after 4.9 s and the
+simulation is ready after 25.5 s. Frame times here are those of software rasterisers (Mesa
+llvmpipe natively: about 500 ms at the world view, three quarters of the busy samples in the
+rasteriser, the viewer's own systems a few per cent; SwiftShader in headless Chromium: about
+7 s), so the frame time on a real GPU is still to be measured on hardware (PR 5).
 
 ### PR 5 — Scale and acceptance
 

@@ -19,7 +19,10 @@ pub(super) struct PanelPlugin;
 impl Plugin for PanelPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_panel.after(crate::data::setup_fonts))
-            .add_systems(Update, (refresh_panel, close_with_escape));
+            .add_systems(
+                Update,
+                (refresh_panel, close_with_escape).in_set(crate::driver::SimReady),
+            );
     }
 }
 
