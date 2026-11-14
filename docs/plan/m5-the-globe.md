@@ -160,6 +160,34 @@ builds the simulation once the ground is in. `cargo xtask web build` copies
 12,000 aircraft) natively and on the web, start-up, wasm size. Screenshots: the world, a
 Pacific crossing, and stands at Frankfurt, Atlanta and Shanghai Pudong.
 
+*As built (PR 4):* the projection keeps `f64` Web Mercator positions with an origin that
+moves to the camera once it is 10,000 pixels (or a quarter of the world) away; meshes are
+built in their own frame (basemap per country and lake, three copies a world apart;
+runways per 10° tile; each airport's ground) and one system places them at the copy nearest
+the camera. The viewer opens on the whole world; `--view <lat>,<lon>,<metres per pixel>`
+opens anywhere. Aircraft and airport symbols shrink to 40 % between country and world zoom.
+Region files are read through Bevy's asset server and the simulation is built once all 21
+are in; grounds are built within a quarter view of the screen below 30 map units per pixel,
+at most two per frame, and dropped beyond one and a half views or above 120.
+Two problems surfaced on the way and are fixed here. Labels: the world has about 102,000
+(28,204 airports, 7,341 places, 66,252 runway ends, then taxiways and stands), each a hidden
+UI text entity, about a gigabyte natively and walked by Bevy's UI every frame; they are now
+plain sources and only placed labels get an entity. The schedule reserved ten round trips per
+service, and the world has 10 million services (nearly all hardly ever flying): 4.4 GB of
+untouched virtual memory natively, but more than wasm32 can address, so the browser aborted
+while building the schedule (`capacity overflow`, reproduced with the core's schedule tests
+on 32-bit x86); the reservation now follows expected trips.
+A third: at 60× a frame owing more ticks than it could run owed more the next frame, up to
+2,000, so the viewer now gives the simulation at most 25 ms of a frame and drops the rest.
+Measured in this container (4 cores, no GPU): natively the window opens after 0.6 s, the 21
+region files are in after 1.1 s and the simulation is ready after 12.9 s, with 1.0 GB of
+memory then and 1.17 GB a minute later (2.2 GB before labels were made on demand). In headless
+Chromium (WebGL2 build, `.wasm` 42 MB, WebGPU 40 MB) the files are fetched after 4.9 s and the
+simulation is ready after 25.5 s. Frame times here are those of software rasterisers (Mesa
+llvmpipe natively: about 500 ms at the world view, three quarters of the busy samples in the
+rasteriser, the viewer's own systems a few per cent; SwiftShader in headless Chromium: about
+7 s), so the frame time on a real GPU is still to be measured on hardware (PR 5).
+
 ### PR 5 — Scale and acceptance
 
 - World benchmark (D107), 7-day world run, `docs/known-issues.md` and the definition of done.
