@@ -8,7 +8,7 @@ use aerocosm_core::{
     schedule::Tail,
 };
 use bevy::{
-    app::{App, Plugin, Startup, Update},
+    app::{App, Plugin, Update},
     asset::{Assets, Handle},
     camera::visibility::{RenderLayers, Visibility},
     color::{Alpha, Color, Srgba},
@@ -17,7 +17,7 @@ use bevy::{
         component::Component,
         hierarchy::ChildOf,
         resource::Resource,
-        schedule::IntoScheduleConfigs,
+        schedule::{IntoScheduleConfigs, common_conditions::resource_added},
         system::{Commands, Query, Res, ResMut},
     },
     gizmos::gizmos::Gizmos,
@@ -31,7 +31,7 @@ use bevy::{
 use crate::{
     camera::{CameraRig, CameraSet},
     data::OVERLAY_LAYER,
-    driver::{SimDriver, SimSet},
+    driver::{SimDriver, SimReady, SimSet},
     flights::{
         PhaseBand, Pose, Trail, blend, display_length, flight_visible, rotation, trail_visible,
     },
@@ -209,20 +209,20 @@ pub(crate) struct AircraftPlugin;
 
 impl Plugin for AircraftPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<TrafficView>()
-            .add_systems(Startup, spawn_aircraft)
-            .add_systems(
-                Update,
-                (
-                    sample_traffic.after(SimSet).after(CameraSet),
-                    draw_aircraft
-                        .in_set(DrawSet)
-                        .after(sample_traffic)
-                        .after(CameraSet),
-                    size_halos.after(DrawSet),
-                    draw_trails.after(DrawSet),
-                ),
-            );
+        app.init_resource::<TrafficView>().add_systems(
+            Update,
+            (
+                spawn_aircraft.run_if(resource_added::<SimDriver>),
+                sample_traffic.after(SimSet).after(CameraSet),
+                draw_aircraft
+                    .in_set(DrawSet)
+                    .after(sample_traffic)
+                    .after(CameraSet),
+                size_halos.after(DrawSet),
+                draw_trails.after(DrawSet),
+            )
+                .in_set(SimReady),
+        );
     }
 }
 
@@ -355,7 +355,7 @@ fn draw_aircraft(
     };
     let scale = rig.state.scale();
     let centre = rig.state.center();
-    let symbol_factor = crate::lod::aircraft_symbol_factor(scale);
+    let symbol_factor = crate::lod::symbol_factor(scale);
     let t = tick_fraction(&driver);
     for (mut sprite, mut look, mut transform, mut visibility, mut material) in &mut sprites {
         let shown = traffic

@@ -3,7 +3,7 @@
 
 use aerocosm_core::{
     Id, LatLon,
-    ground::GroundNetwork,
+    ground::AirportGround,
     world::{Airport, AirportKind},
 };
 use bevy::{
@@ -17,7 +17,6 @@ use crate::{
     camera::{CameraRig, PointerState},
     data::{Fonts, MapData},
     ground::{
-        GroundView,
         geometry::{stand_names_visible, stretch_anchors, taxiway_names_visible},
         named_edges,
     },
@@ -62,7 +61,7 @@ const SELECTED_GAP: f32 = 6.0;
 
 /// Label entities in placement priority order.
 #[derive(Resource, Default)]
-struct LabelOrder(Vec<Entity>);
+pub(crate) struct LabelOrder(Vec<Entity>);
 
 /// Spawns and places map labels.
 pub(crate) struct LabelsPlugin;
@@ -92,12 +91,55 @@ fn tier(subject: Subject) -> u8 {
     }
 }
 
+/// The UI node all map labels hang from.
+#[derive(Resource)]
+pub(crate) struct LabelRoot(Entity);
+
+/// Spawns one hidden label; placement shows it.
+fn spawn_label(
+    commands: &mut Commands,
+    fonts: &Fonts,
+    projection: &MapProjection,
+    root: Entity,
+    subject: Subject,
+    (location, outward): (LatLon, Vec2),
+    text: String,
+) -> Entity {
+    let (font, color) = style(subject, fonts);
+    commands
+        .spawn((
+            MapLabel {
+                subject,
+                location,
+                position: projection.project(location),
+                outward,
+            },
+            Text::new(text),
+            font,
+            TextColor(color),
+            TextShadow {
+                offset: Vec2::new(0.0, 1.0),
+                color: theme::SEA.with_alpha(0.9),
+            },
+            // Hidden with `Visibility`, not `Display::None`, so the text is
+            // still laid out and its measured size is available for
+            // placement.
+            Node {
+                position_type: PositionType::Absolute,
+                ..default()
+            },
+            Visibility::Hidden,
+            Pickable::IGNORE,
+            ChildOf(root),
+        ))
+        .id()
+}
+
 fn spawn_labels(
     mut commands: Commands,
     fonts: Res<Fonts>,
     view: Res<WorldView>,
     map: Res<MapData>,
-    ground: Res<GroundView>,
     projection: Res<MapProjection>,
     mut order: ResMut<LabelOrder>,
 ) {
@@ -112,41 +154,11 @@ fn spawn_labels(
             Pickable::IGNORE,
         ))
         .id();
-    let shadow = TextShadow {
-        offset: Vec2::new(0.0, 1.0),
-        color: theme::SEA.with_alpha(0.9),
-    };
+    commands.insert_resource(LabelRoot(root));
     let mut labels: Vec<(u8, usize, Entity)> =
         Vec::with_capacity(view.world.airport_count() + map.basemap.places().len());
-    let mut spawn = |commands: &mut Commands,
-                     subject: Subject,
-                     (location, outward): (LatLon, Vec2),
-                     text: String| {
-        let (font, color) = style(subject, &fonts);
-        let entity = commands
-            .spawn((
-                MapLabel {
-                    subject,
-                    location,
-                    position: projection.project(location),
-                    outward,
-                },
-                Text::new(text),
-                font,
-                TextColor(color),
-                shadow,
-                // Hidden with `Visibility`, not `Display::None`, so the text is
-                // still laid out and its measured size is available for
-                // placement.
-                Node {
-                    position_type: PositionType::Absolute,
-                    ..default()
-                },
-                Visibility::Hidden,
-                Pickable::IGNORE,
-                ChildOf(root),
-            ))
-            .id();
+    let mut spawn = |commands: &mut Commands, subject: Subject, anchor: (LatLon, Vec2), text| {
+        let entity = spawn_label(commands, &fonts, &projection, root, subject, anchor, text);
         labels.push((tier(subject), labels.len(), entity));
     };
     for (id, airport) in view.world.airports() {
@@ -183,11 +195,40 @@ fn spawn_labels(
             }
         }
     }
-    for (subject, location, text) in ground_labels(&ground.ground) {
-        spawn(&mut commands, subject, (location, Vec2::ZERO), text);
-    }
     labels.sort_by_key(|(tier, index, _)| (*tier, *index));
     order.0 = labels.into_iter().map(|(_, _, entity)| entity).collect();
+}
+
+/// Spawns the taxiway and stand names of `layout`, built in `frame`, after
+/// every other label (they are the last tiers); returns their entities.
+pub(crate) fn spawn_ground_labels(
+    commands: &mut Commands,
+    fonts: &Fonts,
+    projection: &MapProjection,
+    root: &LabelRoot,
+    order: &mut LabelOrder,
+    layout: &AirportGround,
+    frame: &MapProjection,
+) -> Vec<Entity> {
+    let mut spawned = Vec::new();
+    for (subject, location, text) in ground_labels(layout, frame) {
+        spawned.push(spawn_label(
+            commands,
+            fonts,
+            projection,
+            root.0,
+            subject,
+            (location, Vec2::ZERO),
+            text,
+        ));
+    }
+    order.0.extend(&spawned);
+    spawned
+}
+
+/// Forgets dropped labels.
+pub(crate) fn forget_labels(order: &mut LabelOrder, dropped: &[Entity]) {
+    order.0.retain(|entity| !dropped.contains(entity));
 }
 
 /// The typeface, size and colour of `subject`'s label.
@@ -209,32 +250,23 @@ fn style(subject: Subject, fonts: &Fonts) -> (TextFont, Color) {
     (TextFont::from_font_size(size).with_font(font), color)
 }
 
-/// Taxiway names, one per named stretch, and stand names at every mapped
-/// airport (plan M4 D87).
-fn ground_labels(ground: &GroundNetwork) -> Vec<(Subject, LatLon, String)> {
-    let mut labels = Vec::new();
-    for layout in ground.airports() {
-        let Some(first) = layout.nodes().first() else {
-            continue;
-        };
-        // Anchors are found in the airport's own frame.
-        let frame = MapProjection::new(first.position());
-        labels.extend(
-            stretch_anchors(&named_edges(layout, &frame))
-                .into_iter()
-                .filter_map(|(name, at)| {
-                    Some((
-                        Subject::Taxiway,
-                        frame.unproject(at).ok()?,
-                        name.to_string(),
-                    ))
-                }),
-        );
-        labels.extend(layout.stands().iter().map(|stand| {
-            let position = layout.nodes()[stand.node().as_usize()].position();
-            (Subject::Stand, position, stand.name().to_string())
-        }));
-    }
+/// Taxiway names, one per named stretch, then stand names of one airport
+/// (plan M4 D87), anchors found in its `frame`.
+fn ground_labels(layout: &AirportGround, frame: &MapProjection) -> Vec<(Subject, LatLon, String)> {
+    let mut labels: Vec<(Subject, LatLon, String)> = stretch_anchors(&named_edges(layout, frame))
+        .into_iter()
+        .filter_map(|(name, at)| {
+            Some((
+                Subject::Taxiway,
+                frame.unproject(at).ok()?,
+                name.to_string(),
+            ))
+        })
+        .collect();
+    labels.extend(layout.stands().iter().map(|stand| {
+        let position = layout.nodes()[stand.node().as_usize()].position();
+        (Subject::Stand, position, stand.name().to_string())
+    }));
     labels
 }
 

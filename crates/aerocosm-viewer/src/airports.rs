@@ -136,7 +136,8 @@ fn update_symbols(
         if symbol.position != position {
             symbol.position = position;
         }
-        transform.scale = Vec3::splat(lod::glyph_radius(symbol.kind) * scale);
+        transform.scale =
+            Vec3::splat(lod::glyph_radius(symbol.kind) * lod::symbol_factor(scale) * scale);
         visibility.set_if_neq(if lod::airport_visible(symbol.kind, scale) {
             Visibility::Inherited
         } else {
@@ -276,7 +277,7 @@ fn draw_selection(
     };
     let scale = rig.state.scale();
     for symbol in &symbols {
-        let radius = lod::glyph_radius(symbol.kind) * scale;
+        let radius = lod::glyph_radius(symbol.kind) * lod::symbol_factor(scale) * scale;
         if Some(symbol.id) == selection.selected_airport() {
             gizmos.circle_2d(symbol.position, radius * SELECTED_RING, theme::ACCENT);
             gizmos.circle_2d(

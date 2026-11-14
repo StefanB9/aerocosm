@@ -3,10 +3,10 @@
 
 use aerocosm_core::LatLon;
 use bevy::{
-    app::{App, Plugin, Startup, Update},
+    app::{App, Plugin, Update},
     ecs::{
         resource::Resource,
-        schedule::IntoScheduleConfigs,
+        schedule::{IntoScheduleConfigs, common_conditions::resource_added},
         system::{Commands, Res},
     },
     gizmos::gizmos::Gizmos,
@@ -15,7 +15,7 @@ use bevy::{
 
 use crate::{
     camera::{CameraRig, CameraSet},
-    driver::SimDriver,
+    driver::{SimDriver, SimReady},
     flights::PhaseBand,
     lod,
     projection::{MapProjection, wrap_near},
@@ -85,8 +85,14 @@ pub(crate) struct RunwayUsePlugin;
 
 impl Plugin for RunwayUsePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, collect_arrows)
-            .add_systems(Update, draw_arrows.after(CameraSet));
+        app.add_systems(
+            Update,
+            (
+                collect_arrows.run_if(resource_added::<SimDriver>),
+                draw_arrows.after(CameraSet),
+            )
+                .in_set(SimReady),
+        );
     }
 }
 

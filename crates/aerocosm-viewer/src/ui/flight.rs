@@ -69,7 +69,8 @@ impl Plugin for FlightPanelPlugin {
                     follow_flight
                         .after(CameraSet)
                         .after(crate::aircraft::DrawSet),
-                ),
+                )
+                    .in_set(crate::driver::SimReady),
             );
     }
 }
@@ -588,7 +589,7 @@ mod tests {
 
     #[test]
     fn test_flight_lines_start_with_the_taxi_state() -> Result<()> {
-        let (scenario, _) = crate::data::load()?;
+        let (scenario, _) = crate::data::load_with_ground(&['E'])?;
         let mut simulation = Simulation::new(
             SimConfig::new("2026-11-05T07:00:00Z".parse()?, RngSeed::new(0)),
             scenario,

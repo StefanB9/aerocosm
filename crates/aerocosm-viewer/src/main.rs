@@ -14,6 +14,7 @@ mod driver;
 mod flights;
 mod ground;
 mod labels;
+mod loading;
 mod lod;
 mod map;
 mod picking;
@@ -26,13 +27,14 @@ mod tessellate;
 mod theme;
 mod ui;
 
-use aerocosm_core::{RngSeed, SimConfig, SimTime, Simulation};
+use aerocosm_core::SimTime;
 use anyhow::{Context, Result};
 use bevy::{
     DefaultPlugins,
     app::{App, PluginGroup, Startup, Update},
+    asset::{AssetMetaCheck, AssetPlugin},
     ecs::{
-        schedule::IntoScheduleConfigs,
+        schedule::{IntoScheduleConfigs, common_conditions::resource_exists},
         system::{Res, ResMut},
     },
     log::error,
@@ -46,8 +48,9 @@ use crate::{
     airports::{AirportsPlugin, WorldView},
     anchor::AnchorPlugin,
     camera::CameraPlugin,
-    driver::{SimDriver, SimSet},
-    ground::{GroundPlugin, GroundView},
+    driver::{SimDriver, SimReady, SimSet},
+    ground::GroundPlugin,
+    loading::{LoadingPlugin, PendingSimulation},
     map::MapPlugin,
     projection::MapProjection,
     runway_use::RunwayUsePlugin,
@@ -59,6 +62,14 @@ use crate::{
 /// Germany, identical on desktop and web.
 const START: &str = "2026-11-05T07:00:00Z";
 
+/// The repository's `assets` folder: natively relative to the crate (under
+/// `cargo run`) or to `target/<profile>`; on the web next to the page, where
+/// `cargo xtask web build` copies the ground layouts.
+#[cfg(not(target_arch = "wasm32"))]
+const ASSETS: &str = "../../assets";
+#[cfg(target_arch = "wasm32")]
+const ASSETS: &str = "assets";
+
 fn main() -> Result<()> {
     let view = StartView::from_args(std::env::args().skip(1))?;
     let (scenario, map) = data::load()?;
@@ -67,30 +78,37 @@ fn main() -> Result<()> {
     // small and never mutated, and this keeps the core free of shared-ownership
     // types.
     let world = scenario.world().clone();
-    let ground = scenario.ground().clone();
-    let simulation = Simulation::new(SimConfig::new(start, RngSeed::new(0)), scenario)?;
-    let driver = SimDriver::new(simulation)?;
 
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "aerocosm".to_owned(),
-                resolution: WindowResolution::new(1440, 900),
-                canvas: Some("#aerocosm".to_owned()),
-                fit_canvas_to_parent: true,
-                prevent_default_event_handling: true,
-                ..default()
-            }),
-            ..default()
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "aerocosm".to_owned(),
+                        resolution: WindowResolution::new(1440, 900),
+                        canvas: Some("#aerocosm".to_owned()),
+                        fit_canvas_to_parent: true,
+                        prevent_default_event_handling: true,
+                        ..default()
+                    }),
+                    ..default()
+                })
+                .set(AssetPlugin {
+                    file_path: ASSETS.to_owned(),
+                    // No `.meta` files: on the web each would be a request.
+                    meta_check: AssetMetaCheck::Never,
+                    ..default()
+                }),
+        )
         .insert_resource(MapProjection::new(view.centre))
         .insert_resource(view)
         .insert_resource(map)
         .insert_resource(WorldView { world })
-        .insert_resource(GroundView { ground })
-        .insert_resource(driver)
+        .insert_resource(PendingSimulation::new(scenario, start))
         .add_systems(Startup, data::setup_fonts)
+        .configure_sets(Update, SimReady.run_if(resource_exists::<SimDriver>))
         .add_plugins((
+            LoadingPlugin,
             CameraPlugin,
             AnchorPlugin,
             MapPlugin,
@@ -100,7 +118,7 @@ fn main() -> Result<()> {
             RunwayUsePlugin,
             UiPlugin,
         ))
-        .add_systems(Update, drive_simulation.in_set(SimSet))
+        .add_systems(Update, drive_simulation.in_set(SimSet).in_set(SimReady))
         .run();
     Ok(())
 }

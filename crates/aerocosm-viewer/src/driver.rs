@@ -13,6 +13,11 @@ const MAX_TICKS_PER_FRAME: u32 = 2000;
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct SimSet;
 
+/// Systems that read the simulation: they run once it exists, after the
+/// ground has loaded (plan M5 D132).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct SimReady;
+
 /// The simulation plus the pacer that decides how far to advance it each frame.
 #[derive(Resource)]
 pub(crate) struct SimDriver {

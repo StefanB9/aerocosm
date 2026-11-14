@@ -4,7 +4,7 @@
 mod boards;
 mod flight;
 mod format;
-mod labels;
+pub(crate) mod labels;
 mod panel;
 mod status;
 
@@ -18,7 +18,7 @@ pub(crate) use self::labels::LabelsPlugin;
 use crate::{
     camera::{CameraRig, PointerState},
     data::Fonts,
-    driver::{SimDriver, format_clock},
+    driver::{SimDriver, SimReady, format_clock},
     projection::MapProjection,
     theme,
 };
@@ -54,9 +54,7 @@ impl Plugin for UiPlugin {
         .add_systems(
             Update,
             (
-                update_clock,
-                speed_shortcuts,
-                style_speed_buttons,
+                (update_clock, speed_shortcuts, style_speed_buttons).in_set(SimReady),
                 update_cursor_readout.after(crate::camera::CameraSet),
             ),
         );
@@ -215,8 +213,8 @@ fn spawn_speed_buttons(commands: &mut Commands, fonts: &Fonts, bar: Entity) {
             .observe(
                 |click: On<PointerClick>,
                  buttons: Query<&SpeedButton>,
-                 mut driver: ResMut<SimDriver>| {
-                    if let Ok(button) = buttons.get(click.entity) {
+                 driver: Option<ResMut<SimDriver>>| {
+                    if let (Ok(button), Some(mut driver)) = (buttons.get(click.entity), driver) {
                         driver.set_speed(button.speed);
                     }
                 },

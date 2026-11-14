@@ -72,9 +72,10 @@ const AIRCRAFT_FULL_SCALE: f32 = 2_000.0;
 const AIRCRAFT_FAR_SCALE: f32 = 20_000.0;
 const AIRCRAFT_FAR_FACTOR: f32 = 0.4;
 
-/// Factor on an aircraft symbol's on-screen size: at the world view, about
-/// 12,000 full-size symbols would hide the map (plan M5 D133).
-pub(crate) fn aircraft_symbol_factor(scale: f32) -> f32 {
+/// Factor on the on-screen size of aircraft and airport symbols: at the
+/// world view, about 12,000 aircraft and the major airports at full size
+/// would hide the map (plan M5 D133).
+pub(crate) fn symbol_factor(scale: f32) -> f32 {
     let t = ((scale / AIRCRAFT_FULL_SCALE).ln() / (AIRCRAFT_FAR_SCALE / AIRCRAFT_FULL_SCALE).ln())
         .clamp(0.0, 1.0);
     1.0 - t * (1.0 - AIRCRAFT_FAR_FACTOR)
@@ -116,11 +117,11 @@ mod tests {
     }
 
     #[test]
-    fn test_aircraft_symbols_shrink_only_beyond_country_zoom() {
-        assert!((aircraft_symbol_factor(10.0) - 1.0).abs() < f32::EPSILON);
-        assert!((aircraft_symbol_factor(COUNTRY_VIEW) - 1.0).abs() < f32::EPSILON);
-        assert!((aircraft_symbol_factor(28_000.0) - 0.4).abs() < 1e-6);
-        let between = aircraft_symbol_factor(6_000.0);
+    fn test_symbols_shrink_only_beyond_country_zoom() {
+        assert!((symbol_factor(10.0) - 1.0).abs() < f32::EPSILON);
+        assert!((symbol_factor(COUNTRY_VIEW) - 1.0).abs() < f32::EPSILON);
+        assert!((symbol_factor(28_000.0) - 0.4).abs() < 1e-6);
+        let between = symbol_factor(6_000.0);
         assert!(between > 0.4 && between < 1.0, "{between}");
     }
 
@@ -142,7 +143,7 @@ mod tests {
             prop_assert!(!place_label_visible(rank, far) || place_label_visible(rank, near));
             prop_assert!(!river_visible(rank, far) || river_visible(rank, near));
             prop_assert!(!runways_visible(far) || runways_visible(near));
-            prop_assert!(aircraft_symbol_factor(far) <= aircraft_symbol_factor(near));
+            prop_assert!(symbol_factor(far) <= symbol_factor(near));
         }
 
         #[test]
