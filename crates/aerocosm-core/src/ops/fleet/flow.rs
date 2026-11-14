@@ -53,6 +53,13 @@ pub(super) struct Flow {
 }
 
 impl Flow {
+    /// The controlled runway the leg lands on, if any.
+    pub(super) const fn arrival_runway(&self) -> Option<RunwayKey> {
+        self.arrival
+    }
+}
+
+impl Flow {
     /// End of the planned hold.
     pub(super) const fn hold_until(&self) -> Option<SimTime> {
         self.hold_until
@@ -258,7 +265,7 @@ impl Operations {
                 clear
             }),
             Request::Approach => flow.arrival.is_none_or(|key| {
-                let clear = control.may_approach(key, wake, speed, touchdown);
+                let clear = control.may_approach(key, wake, speed, touchdown, now);
                 if clear {
                     control.approach_started(key, wake, touchdown);
                 }
@@ -272,7 +279,7 @@ impl Operations {
             Request::LeaveHold => {
                 let leave = if at_fix {
                     flow.arrival
-                        .is_none_or(|key| control.may_approach(key, wake, speed, touchdown))
+                        .is_none_or(|key| control.may_approach(key, wake, speed, touchdown, now))
                 } else {
                     hold_until.is_none_or(|until| now >= until)
                 };
@@ -329,6 +336,14 @@ impl Operations {
             self.record(key, now, self.wakes[index], Some(speed));
         }
         Ok(())
+    }
+
+    /// While tail `index` rolls out after landing, its runway stays
+    /// occupied: nobody crosses ahead of it.
+    pub(super) fn still_rolling(&mut self, index: usize, now: SimTime) {
+        if let Some(key) = self.flows.get(index).and_then(|flow| flow.arrival) {
+            self.control.rolling(key, now);
+        }
     }
 
     /// Starts runway control afresh for a newly planned leg.

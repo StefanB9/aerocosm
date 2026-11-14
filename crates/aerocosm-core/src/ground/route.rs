@@ -480,10 +480,7 @@ mod tests {
 
     fn shipped() -> Result<(World, GroundNetwork)> {
         let world = data()?.world;
-        let ground = GroundNetwork::from_json(
-            include_str!("../../../../assets/ground/germany.ground.json"),
-            &world,
-        )?;
+        let ground = GroundNetwork::from_definition(crate::test_data::ground()?, &world)?;
         Ok((world, ground))
     }
 

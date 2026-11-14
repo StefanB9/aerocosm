@@ -122,10 +122,10 @@ What to check:
   ground delays.
 - A `capacity exceeded` warning would flag a coordinated airport whose busiest hour tops its
   declared capacity by more than 5 %; the week above has none (FRA peaks at 108 of 104).
-- Since M4, the ground layouts (`assets/ground/`) are loaded by default: at the 22 mapped
-  airports aircraft use real stands and taxi routes, and block times include each airport's
-  typical routed taxi times. `--no-ground` taxies in straight lines everywhere; `--ground` and
-  `--stand-areas` name other files.
+- Since M4, the ground layouts (`assets/ground/`, one asset per ICAO region since M5) are
+  loaded by default: at the mapped airports aircraft use real stands and taxi routes, and
+  block times include each airport's typical routed taxi times. `--no-ground` taxies in
+  straight lines everywhere; `--ground` names another directory of region assets.
 - Since M4 PR 3, ground control plans every taxi there with time reservations: departures
   push back when their turn at the runway comes, queue at the holding position and line up;
   arrivals vacate at real exits and wait at a waiting spot when no stand is free. The

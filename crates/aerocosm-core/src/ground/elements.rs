@@ -87,6 +87,7 @@ pub struct Stand {
     pub(super) heading: Degrees,
     pub(super) max_wingspan: Meters,
     pub(super) area: Option<GroundName>,
+    pub(super) cargo: bool,
 }
 
 impl Stand {
@@ -113,6 +114,11 @@ impl Stand {
     /// Apron or terminal, if known.
     pub const fn area(&self) -> Option<GroundName> {
         self.area
+    }
+
+    /// On an apron mapped for cargo.
+    pub const fn cargo(&self) -> bool {
+        self.cargo
     }
 }
 

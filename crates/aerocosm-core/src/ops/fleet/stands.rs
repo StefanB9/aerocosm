@@ -17,6 +17,8 @@ use crate::{
 pub(super) struct StandBook {
     /// By airport index, then stand index; empty for unmapped airports.
     taken: Vec<Vec<u16>>,
+    /// The airline of the first tail on each stand, likewise (plan M5 D120).
+    holders: Vec<Vec<Option<AirlineIcao>>>,
 }
 
 impl StandBook {
@@ -31,8 +33,12 @@ impl StandBook {
                     .airport(id)
                     .map_or_else(Vec::new, |layout| vec![0; layout.stands().len()])
             })
+            .collect::<Vec<Vec<u16>>>();
+        let holders = taken
+            .iter()
+            .map(|stands| vec![None; stands.len()])
             .collect();
-        Self { taken }
+        Self { taken, holders }
     }
 
     /// Whether `stand` at `airport` is free.
@@ -54,17 +60,52 @@ impl StandBook {
             .get_mut(stand.as_usize())
     }
 
-    /// Marks `stand` taken by one more tail.
-    pub(super) fn take(&mut self, airport: Id<Airport>, stand: Id<Stand>) {
-        if let Some(count) = self.slot(airport, stand) {
-            *count = count.saturating_add(1);
+    /// Whether a tail of `airline` holds `stand` at `airport`.
+    pub(super) fn held_by(
+        &self,
+        airport: Id<Airport>,
+        stand: Id<Stand>,
+        airline: AirlineIcao,
+    ) -> bool {
+        self.holders
+            .get(airport.as_usize())
+            .and_then(|stands| stands.get(stand.as_usize()))
+            .is_some_and(|holder| *holder == Some(airline))
+    }
+
+    fn holder(
+        &mut self,
+        airport: Id<Airport>,
+        stand: Id<Stand>,
+    ) -> Option<&mut Option<AirlineIcao>> {
+        self.holders
+            .get_mut(airport.as_usize())?
+            .get_mut(stand.as_usize())
+    }
+
+    /// Marks `stand` taken by one more tail, of `airline`.
+    pub(super) fn take(&mut self, airport: Id<Airport>, stand: Id<Stand>, airline: AirlineIcao) {
+        let Some(count) = self.slot(airport, stand) else {
+            return;
+        };
+        *count = count.saturating_add(1);
+        if *count == 1
+            && let Some(holder) = self.holder(airport, stand)
+        {
+            *holder = Some(airline);
         }
     }
 
     /// Marks `stand` left by one tail.
     pub(super) fn release(&mut self, airport: Id<Airport>, stand: Id<Stand>) {
-        if let Some(count) = self.slot(airport, stand) {
-            *count = count.saturating_sub(1);
+        let Some(count) = self.slot(airport, stand) else {
+            return;
+        };
+        *count = count.saturating_sub(1);
+        if *count == 0
+            && let Some(holder) = self.holder(airport, stand)
+        {
+            *holder = None;
         }
     }
 
@@ -123,27 +164,19 @@ impl Operations {
         }
         self.release_stand(index);
         let request = StandRequest {
-            airline,
             wingspan: self.wingspans[index],
             near,
+            cargo: self.cargo[index],
         };
-        let areas = scenario.stand_areas().areas(airport);
         let book = &self.stands;
+        let mate = |stand| book.held_by(airport, stand, airline);
         let stand = layout
-            .choose_stand(areas, &request, |stand| {
+            .choose_stand(&request, mate, |stand| {
                 book.is_free(airport, stand) && reachable(stand)
             })
             .or_else(|| {
                 shared
-                    .then(|| layout.choose_stand(areas, &request, reachable))
-                    .flatten()
-            })
-            .or_else(|| {
-                // Every stand that fits lies in other airlines' exclusive
-                // areas (curated for the airlines of 2025, plan M4 D68): one
-                // of them rather than waiting all day.
-                shared
-                    .then(|| layout.choose_stand(&[], &request, reachable))
+                    .then(|| layout.choose_stand(&request, mate, reachable))
                     .flatten()
             })
             .or_else(|| {
@@ -161,11 +194,20 @@ impl Operations {
                     ..request
                 };
                 shared
-                    .then(|| layout.choose_stand(areas, &smaller, reachable))
+                    .then(|| layout.choose_stand(&smaller, mate, reachable))
                     .flatten()
             });
         if let Some(stand) = stand {
-            self.stands.take(airport, stand);
+            // Taken while another tail or a variant holds it: shared (D69).
+            let held = !self.stands.is_free(airport, stand)
+                || layout
+                    .variants(stand)
+                    .iter()
+                    .any(|&variant| !self.stands.is_free(airport, variant));
+            if held {
+                self.stats.shared_stand(airport);
+            }
+            self.stands.take(airport, stand, airline);
             self.parked[index] = Some((airport, stand));
         }
         stand
@@ -207,7 +249,6 @@ mod tests {
     use super::*;
     use crate::{
         RngSeed, SimTime,
-        ground::{GroundDefinition, StandAreasDefinition},
         ops::{Phase, StartMode},
         schedule::{ScheduleConfig, generate},
         test_data::data,
@@ -221,12 +262,7 @@ mod tests {
         let data = data()?;
         let scenario =
             Scenario::with_traffic(data.world, data.aircraft, data.airlines, data.traffic)?
-                .with_ground(GroundDefinition::from_json(include_str!(
-                    "../../../../../assets/ground/germany.ground.json"
-                ))?)?
-                .with_stand_areas(StandAreasDefinition::from_json(include_str!(
-                    "../../../../../assets/ground/stand-areas.json"
-                ))?)?;
+                .with_ground(crate::test_data::ground()?)?;
         let inputs = scenario.schedule_inputs().context("traffic")?;
         let schedule = generate(&inputs, ScheduleConfig::new(RngSeed::new(1), midday()?))?;
         let operations = Operations::new(&scenario, schedule, midday()?, RngSeed::new(seed), mode)?;
@@ -319,7 +355,8 @@ mod tests {
             }
         }
         assert!(checked > 20, "{checked} taxi-ins checked");
-        assert!(clashes(&scenario, &operations, fra) < 10);
+        let clashing = clashes(&scenario, &operations, fra);
+        assert!(clashing < 10, "{clashing} clashes");
         Ok(())
     }
 
@@ -371,11 +408,9 @@ mod tests {
     #[test]
     fn test_aircraft_too_large_for_every_stand_take_the_largest() -> Result<()> {
         let (scenario, mut operations) = mapped(StartMode::Cold, 3)?;
-        let airport = scenario
-            .world()
-            .airport_by_ident("EDVE".parse()?)
-            .context("EDVE")?;
-        let layout = scenario.ground().airport(airport).context("layout")?;
+        // Any mapped airport: the aircraft is made larger than its stands.
+        let layout = scenario.ground().airports().first().context("a layout")?;
+        let airport = layout.airport();
         let largest = layout
             .stands()
             .iter()
@@ -400,22 +435,109 @@ mod tests {
     }
 
     #[test]
-    fn test_stand_book_counts_tails() {
+    fn test_long_stays_wait_in_remote_parking() -> Result<()> {
+        let (scenario, mut operations) = mapped(StartMode::Warm, 5)?;
+        let fra = frankfurt(&scenario)?;
+        let layout = scenario.ground().airport(fra).context("FRA layout")?;
+        for _ in 0..3_600 {
+            operations.step(&scenario)?;
+        }
+        let at_fra = |index: usize| -> Result<bool> {
+            let leg = operations.tails[index].leg;
+            Ok(operations.flight(index, leg)?.origin() == fra)
+        };
+        let mut remote = 0;
+        for index in 0..operations.tails.len() {
+            if operations.tails[index].motion.is_some() || !at_fra(index)? {
+                continue;
+            }
+            if let super::super::remote::Parking::Remote(_) = operations.parking[index] {
+                // Off its stand, and not boarding within the hour.
+                assert_eq!(operations.parked[index], None);
+                remote += 1;
+            }
+        }
+        assert!(remote > 20, "{remote} tails in remote parking at FRA");
+        // The stands hold what boards and turns round: no more tails than
+        // stands, nearly no stand shared.
+        let parked = operations.stands.occupied(fra);
+        assert!(
+            usize::try_from(parked)? <= layout.stands().len(),
+            "{parked}"
+        );
+        assert!(clashes(&scenario, &operations, fra) <= 2);
+        Ok(())
+    }
+
+    #[test]
+    fn test_without_free_stands_aircraft_board_and_deplane_remote() -> Result<()> {
+        let (scenario, mut operations) = mapped(StartMode::Warm, 6)?;
+        let fra = frankfurt(&scenario)?;
+        let layout = scenario.ground().airport(fra).context("FRA layout")?;
+        // Every stand blocked by an aircraft that never leaves.
+        let blocker = "ZZZ".parse()?;
+        for i in 0..layout.stands().len() {
+            operations.stands.take(fra, Id::from_usize(i)?, blocker);
+        }
+        let mut boarded = std::collections::HashSet::new();
+        let mut deplaned = std::collections::HashSet::new();
+        for _ in 0..(150 * 60) {
+            operations.step(&scenario)?;
+            for index in 0..operations.tails.len() {
+                match operations.parking[index] {
+                    super::super::remote::Parking::Spot(_) => {
+                        boarded.insert(index);
+                    }
+                    super::super::remote::Parking::Remote(None)
+                        if operations.tails[index].motion.is_none()
+                            && operations
+                                .flight(index, operations.tails[index].leg)
+                                .is_ok_and(|f| f.origin() == fra) =>
+                    {
+                        deplaned.insert(index);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let stats = operations.stats.airport(fra);
+        let (boarded, deplaned) = (boarded.len(), deplaned.len());
+        assert!(boarded > 0, "nobody boarded at a spot");
+        assert!(deplaned > 0, "nobody deplaned remote");
+        // Only arrivals that find neither a stand nor a spot free share one.
+        assert!(
+            usize::try_from(stats.stand_shares())? * 4 <= boarded + deplaned,
+            "{boarded} boarded, {deplaned} deplaned, {} shares",
+            stats.stand_shares()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_stand_book_counts_tails_and_their_airline() -> Result<()> {
         let mut book = StandBook {
             taken: vec![vec![0; 3]],
+            holders: vec![vec![None; 3]],
         };
         let (airport, stand) = (Id::new(0), Id::new(1));
+        let (dlh, afr) = ("DLH".parse()?, "AFR".parse()?);
         assert!(book.is_free(airport, stand));
-        book.take(airport, stand);
-        book.take(airport, stand);
+        assert!(!book.held_by(airport, stand, dlh));
+        book.take(airport, stand, dlh);
+        book.take(airport, stand, afr);
         assert!(!book.is_free(airport, stand));
         assert_eq!(book.occupied(airport), 2);
+        // The first tail's airline holds it while anyone stands there.
+        assert!(book.held_by(airport, stand, dlh) && !book.held_by(airport, stand, afr));
         book.release(airport, stand);
+        assert!(book.held_by(airport, stand, dlh));
         book.release(airport, stand);
         book.release(airport, stand);
         assert!(book.is_free(airport, stand));
+        assert!(!book.held_by(airport, stand, dlh));
         assert!(book.is_free(Id::new(5), stand));
-        book.take(Id::new(5), stand);
+        book.take(Id::new(5), stand, dlh);
         assert_eq!(book.occupied(Id::new(5)), 0);
+        Ok(())
     }
 }

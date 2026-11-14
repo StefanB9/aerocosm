@@ -212,6 +212,7 @@ impl AirportGround {
                     "a stand's wingspan limit is not positive",
                 )?,
                 area: stand.area,
+                cargo: stand.cargo,
             });
         }
         Ok(stands)

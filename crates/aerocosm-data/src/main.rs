@@ -4,13 +4,14 @@
 mod cli;
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fs::{self, File},
     io::BufReader,
     path::{Path, PathBuf},
 };
 
 use aerocosm_core::{
+    ground::{ground_file, ground_region},
     traffic::TrafficTargets,
     units::Degrees,
     world::{World, WorldDefinition, codes::AirportIdent},
@@ -19,7 +20,7 @@ use aerocosm_data::{
     GlobeSources, import_all, import_globe,
     natural_earth::NaturalEarthSources,
     opensky::{Aggregator, read_openflights},
-    osm::{OsmSource, StandSizes, ground_airports, import_ground, overpass_query},
+    osm::{OsmInput, OsmSource, ground_airports, import_ground, overpass_query, query_box},
     ourairports::{OurAirportsSources, read_closed_airports},
     wind::parse_wind,
     world_model,
@@ -103,12 +104,38 @@ fn query_lines(world: &World, traffic: &TrafficTargets) -> Result<String> {
     Ok(lines)
 }
 
+/// Every airport's [`query_box`] as one `GeoJSON` multipolygon feature.
+fn box_polygons(world: &World, traffic: &TrafficTargets) -> Result<String> {
+    let mut polygons = Vec::new();
+    for airport in ground_airports(world, traffic) {
+        let [south, west, north, east] = query_box(world, airport)?;
+        polygons.push(serde_json::json!([[
+            [west, south],
+            [east, south],
+            [east, north],
+            [west, north],
+            [west, south]
+        ]]));
+    }
+    let feature = serde_json::json!({
+        "type": "Feature",
+        "properties": {},
+        "geometry": {"type": "MultiPolygon", "coordinates": polygons},
+    });
+    Ok(feature.to_string())
+}
+
 fn queries(args: &QueriesArgs) -> Result<()> {
     let paths = GroundPaths::new(&args.assets);
     let (world, traffic) = paths.model()?;
     let lines = query_lines(&world, &traffic)?;
     fs::write(&args.out, &lines).with_context(|| format!("cannot write {}", args.out.display()))?;
     info!(path = %args.out.display(), airports = lines.lines().count(), "wrote queries");
+    if let Some(path) = &args.boxes {
+        fs::write(path, box_polygons(&world, &traffic)?)
+            .with_context(|| format!("cannot write {}", path.display()))?;
+        info!(path = %path.display(), "wrote boxes");
+    }
     Ok(())
 }
 
@@ -117,8 +144,8 @@ struct GroundPaths {
     world: PathBuf,
     aircraft: PathBuf,
     observed: PathBuf,
+    /// The directory of the regional ground assets.
     ground: PathBuf,
-    sizes: PathBuf,
 }
 
 impl GroundPaths {
@@ -127,8 +154,7 @@ impl GroundPaths {
             world: assets.join("world").join("world.bin"),
             aircraft: assets.join("aircraft").join("types.json"),
             observed: assets.join("traffic").join("observed.bin"),
-            ground: assets.join("ground").join("germany.ground.json"),
-            sizes: assets.join("ground").join("stand-sizes.json"),
+            ground: assets.join("ground"),
         }
     }
 
@@ -157,21 +183,44 @@ fn ground(args: &GroundArgs) -> Result<()> {
     };
     let (world, traffic) = paths.model()?;
     let mut sources = Vec::new();
-    let entries =
-        fs::read_dir(&args.osm).with_context(|| format!("cannot list {}", args.osm.display()))?;
-    for entry in entries {
-        let path = entry.context("cannot list the OSM directory")?.path();
-        if let Some(airport) = source_airport(&path) {
-            sources.push(OsmSource {
-                airport,
-                json: read(&path)?,
-            });
+    let (text, airports);
+    let input = if let Some(opl) = &args.opl {
+        text = read(opl)?;
+        airports = ground_airports(&world, &traffic);
+        OsmInput::Opl {
+            text: &text,
+            airports: &airports,
+        }
+    } else {
+        let dir = args.osm.as_deref().context("--osm or --opl")?;
+        let entries =
+            fs::read_dir(dir).with_context(|| format!("cannot list {}", dir.display()))?;
+        for entry in entries {
+            let path = entry.context("cannot list the OSM directory")?.path();
+            if let Some(airport) = source_airport(&path) {
+                sources.push(OsmSource {
+                    airport,
+                    json: read(&path)?,
+                });
+            }
+        }
+        OsmInput::Overpass(&sources)
+    };
+    let output = import_ground(input, &world, &traffic)?;
+    // The quality gate per region (plan M5 D118).
+    let mut gate: BTreeMap<Option<char>, (usize, usize)> = BTreeMap::new();
+    for report in &output.reports {
+        let entry = gate.entry(ground_region(report.airport)).or_default();
+        if report.rejected.is_none() {
+            entry.0 += 1;
+            info!(%report, "airport");
+        } else {
+            entry.1 += 1;
+            tracing::debug!(%report, "airport");
         }
     }
-    let sizes = StandSizes::from_json(&read(&paths.sizes)?).context("invalid stand size file")?;
-    let output = import_ground(&sources, &world, &traffic, &sizes)?;
-    for report in &output.reports {
-        info!(%report, "airport");
+    for (region, (passed, rejected)) in &gate {
+        info!(region = %ground_file(*region), passed, rejected, "quality gate");
     }
     if let Some(dir) = &args.rejected {
         fs::create_dir_all(dir).with_context(|| format!("cannot create {}", dir.display()))?;
@@ -180,13 +229,13 @@ fn ground(args: &GroundArgs) -> Result<()> {
             fs::write(&path, json).with_context(|| format!("cannot write {}", path.display()))?;
         }
     }
-    if let Some(parent) = paths.ground.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("cannot create {}", parent.display()))?;
+    fs::create_dir_all(&paths.ground)
+        .with_context(|| format!("cannot create {}", paths.ground.display()))?;
+    for (region, bytes) in &output.regions {
+        let path = paths.ground.join(ground_file(*region));
+        fs::write(&path, bytes).with_context(|| format!("cannot write {}", path.display()))?;
+        info!(path = %path.display(), bytes = bytes.len(), "wrote asset");
     }
-    fs::write(&paths.ground, &output.ground_json)
-        .with_context(|| format!("cannot write {}", paths.ground.display()))?;
-    info!(path = %paths.ground.display(), bytes = output.ground_json.len(), "wrote asset");
     Ok(())
 }
 
@@ -438,13 +487,36 @@ mod tests {
         let paths = GroundPaths::new(Path::new("assets"));
         assert_eq!(paths.world, Path::new("assets/world/world.bin"));
         assert_eq!(paths.observed, Path::new("assets/traffic/observed.bin"));
-        assert_eq!(paths.ground, Path::new("assets/ground/germany.ground.json"));
+        assert_eq!(paths.ground, Path::new("assets/ground"));
         assert_eq!(
             source_airport(Path::new("dl/EDDF.json")).map(|a| a.to_string()),
             Some("EDDF".to_owned())
         );
         assert_eq!(source_airport(Path::new("dl/EDDF.tmp")), None);
         assert_eq!(source_airport(Path::new("dl/notes.json")), None);
+    }
+
+    #[test]
+    fn test_box_polygons_hold_one_box_per_airport() -> Result<()> {
+        let (world, traffic) = world_model(
+            include_bytes!("../../../assets/world/world.bin"),
+            include_str!("../../../assets/aircraft/types.json"),
+            include_bytes!("../../../assets/traffic/observed.bin"),
+        )?;
+        let text = box_polygons(&world, &traffic)?;
+        let value: serde_json::Value = serde_json::from_str(&text)?;
+        assert_eq!(value["geometry"]["type"], "MultiPolygon");
+        let polygons = value["geometry"]["coordinates"]
+            .as_array()
+            .context("coordinates")?;
+        assert_eq!(polygons.len(), traffic.airports().count());
+        // Closed rings, west to east, south to north.
+        let ring = polygons[0][0].as_array().context("a ring")?;
+        assert_eq!(ring.len(), 5);
+        assert_eq!(ring[0], ring[4]);
+        let at = |i: usize, j: usize| ring[i][j].as_f64().context("a number");
+        assert!(at(0, 0)? < at(1, 0)? && at(0, 1)? < at(2, 1)?);
+        Ok(())
     }
 
     #[test]
@@ -455,17 +527,13 @@ mod tests {
             include_bytes!("../../../assets/traffic/observed.bin"),
         )?;
         let lines = query_lines(&world, &traffic)?;
-        // Germany's airports with scheduled service, until ground goes
-        // worldwide (plan M5 PR 3).
-        assert!(
-            (30..50).contains(&lines.lines().count()),
-            "{}",
-            lines.lines().count()
-        );
-        let first = lines.lines().next().context("a line")?;
-        let (ident, query) = first.split_once('\t').context("a tab")?;
-        assert_eq!(ident.len(), 4);
-        assert!(query.starts_with("[out:json]"));
+        // Every scheduled airport (plan M5 D103).
+        assert_eq!(lines.lines().count(), traffic.airports().count());
+        for line in lines.lines() {
+            let (ident, query) = line.split_once('\t').context("a tab")?;
+            assert!(!ident.is_empty() && !ident.contains(' '), "{ident}");
+            assert!(query.starts_with("[out:json]"), "{query}");
+        }
         Ok(())
     }
 

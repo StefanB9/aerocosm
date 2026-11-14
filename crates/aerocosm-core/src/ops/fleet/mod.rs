@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 pub(super) mod board;
 mod flow;
 mod ground;
+mod remote;
 mod stands;
 mod start;
 
@@ -14,13 +15,14 @@ use start::Rotation;
 use self::{
     flow::Flow,
     ground::{GroundControl, Taxi},
+    remote::Parking,
     stands::StandBook,
 };
 use super::{
     Phase, StartMode,
     control::Control,
     motion::{Event, Motion, Profile},
-    path::{Leg, LegGround, Path, plan_leg},
+    path::{Leg, LegGround, Origin, Path, plan_leg},
     stats::Statistics,
     tail::{draw_delay, draw_taxi_in, draw_taxi_out, next_leg, off_block},
     view::{FlightView, Holding},
@@ -81,10 +83,15 @@ pub(crate) struct Operations {
     wakes: Vec<WakeCategory>,
     /// Wingspan of each tail's aircraft, for stands and taxi routes.
     wingspans: Vec<Meters>,
+    /// Whether each tail's airline flies cargo (its stands, plan M5 D120).
+    cargo: Vec<bool>,
     /// Stands taken at mapped airports (plan M4).
     stands: StandBook,
     /// The stand each tail stands on, while it is on one.
     parked: Vec<Option<(Id<Airport>, Id<Stand>)>>,
+    /// Where each tail on the ground is parked: its stand or remote (plan M5
+    /// D125).
+    parking: Vec<Parking>,
     /// Ground control at mapped airports (plan M4 PR 3).
     ground: GroundControl,
     /// Each tail's controlled taxi, while it taxies under control.
@@ -151,6 +158,7 @@ impl Operations {
         let mut turnarounds = Vec::with_capacity(schedule.tails().len());
         let mut wakes = Vec::with_capacity(schedule.tails().len());
         let mut wingspans = Vec::with_capacity(schedule.tails().len());
+        let mut cargoes = Vec::with_capacity(schedule.tails().len());
         for (_, tail) in schedule.tails() {
             let base = world
                 .airport(tail.base())
@@ -167,6 +175,7 @@ impl Operations {
             turnarounds.push(min_turnaround(aircraft, cargo));
             wakes.push(aircraft.wake());
             wingspans.push(aircraft.wingspan());
+            cargoes.push(cargo);
         }
         let sequenced: Vec<Id<Airport>> = traffic
             .targets()
@@ -198,11 +207,13 @@ impl Operations {
             flows: vec![Flow::default(); tail_count],
             wakes,
             wingspans,
+            cargo: cargoes,
             stands: StandBook::new(scenario),
             parked: vec![None; tail_count],
             ground: GroundControl::new(scenario),
             taxis: vec![None; tail_count],
             gate_blocked: vec![None; tail_count],
+            parking: vec![Parking::Stand; tail_count],
             requests: Vec::with_capacity(tail_count),
             wanted: Vec::new(),
             wanted_edges: Vec::new(),
@@ -246,15 +257,19 @@ impl Operations {
         let flight = self.flight(index, leg)?;
         let traffic = scenario.traffic().context("traffic")?;
         let aircraft = traffic.aircraft().get(flight.aircraft()).context("type")?;
-        let origin_stand = self.parked[index]
+        let origin = self.parked[index]
             .filter(|(airport, _)| *airport == flight.origin())
-            .map(|(_, stand)| stand);
+            .map(|(_, stand)| Origin::Stand(stand))
+            .or(match self.parking[index] {
+                Parking::Spot(node) => Some(Origin::Node(node)),
+                _ => None,
+            });
         plan_leg(
             scenario.world(),
             traffic.targets(),
             LegGround {
                 network: scenario.ground(),
-                origin_stand,
+                origin,
             },
             aircraft,
             flight.origin(),
@@ -304,18 +319,33 @@ impl Operations {
         Ok(())
     }
 
+    /// A tail on the ground before boarding: towed if due (D125), then on to
+    /// boarding when its time comes.
+    fn step_parked(&mut self, scenario: &Scenario, index: usize, now: SimTime) -> Result<()> {
+        if self.parking[index] != Parking::Stand {
+            let leg = self.tails[index].leg;
+            let origin = self.flight(index, leg)?.origin();
+            let airline = self.airline_of(index, leg)?;
+            if self.tend_parking(scenario, index, origin, airline, now) {
+                return Ok(());
+            }
+        }
+        if now >= self.tails[index].boarding_from {
+            if !matches!(self.parking[index], Parking::Spot(_)) {
+                self.stand_for_leg(scenario, index, self.tails[index].leg)?;
+            }
+            let planned = self.plan(scenario, index, self.tails[index].leg)?;
+            self.tails[index].motion = Some(Motion::boarding(&planned.profile));
+            self.install(index, planned);
+        }
+        Ok(())
+    }
+
     fn step_tail(&mut self, scenario: &Scenario, index: usize, now: SimTime) -> Result<()> {
         // Only the motion changes on most ticks; the rest of the tail's state
         // is read in place and rewritten only when a leg changes.
         match self.tails[index].motion {
-            None => {
-                if now >= self.tails[index].boarding_from {
-                    self.stand_for_leg(scenario, index, self.tails[index].leg)?;
-                    let planned = self.plan(scenario, index, self.tails[index].leg)?;
-                    self.tails[index].motion = Some(Motion::boarding(&planned.profile));
-                    self.install(index, planned);
-                }
-            }
+            None => self.step_parked(scenario, index, now)?,
             Some(motion) if motion.phase() == Phase::Boarding => {
                 if now >= self.tails[index].off_block {
                     let flight = *self.flight(index, self.tails[index].leg)?;
@@ -345,6 +375,7 @@ impl Operations {
                     }
                     let start = Motion::start(&self.profiles[index], out, back);
                     self.release_stand(index);
+                    self.parking[index] = Parking::Stand;
                     let tail = &mut self.tails[index];
                     tail.off_block = now;
                     tail.motion = Some(start);
@@ -362,15 +393,10 @@ impl Operations {
                     self.fly(index, leg, &mut motion, now, TICK.as_secs_f64())?
                 };
                 if before == Phase::Queue && motion.phase() != Phase::Queue {
-                    // Lining up: the holding position is free again.
-                    let origin = self.flight(index, leg)?.origin();
-                    self.ground.release(origin, u32::try_from(index)?);
-                    self.taxis[index] = None;
-                    let hold = self.paths[index]
-                        .as_ref()
-                        .and_then(Path::departure_nodes)
-                        .map(|(hold, _)| hold);
-                    self.lined_up(origin, hold, now);
+                    self.left_queue(index, leg, now)?;
+                }
+                if before == Phase::Landing && motion.phase() == Phase::Landing {
+                    self.still_rolling(index, now);
                 }
                 self.tails[index].motion = Some(motion);
                 // Most ticks have no event; only events need the flight.
@@ -406,11 +432,30 @@ impl Operations {
                         self.paths[index] = None;
                         let tail = self.tails[index];
                         self.tails[index] = self.next_tail_leg(index, &tail, add(now, TICK)?)?;
+                        self.plan_parking(index, now);
                     }
                     None => {}
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Tail `index` lines up on leg `leg`: its holding position is free
+    /// again, and the runway's pace learns from it.
+    fn left_queue(&mut self, index: usize, leg: usize, now: SimTime) -> Result<()> {
+        let origin = self.flight(index, leg)?.origin();
+        self.ground.release(origin, u32::try_from(index)?);
+        let waited = self.taxis[index]
+            .as_ref()
+            .and_then(Taxi::queued_since)
+            .map_or(0, |since| now.as_millis() - since);
+        self.taxis[index] = None;
+        let hold = self.paths[index]
+            .as_ref()
+            .and_then(Path::departure_nodes)
+            .map(|(hold, _)| hold);
+        self.lined_up(origin, hold, waited, now);
         Ok(())
     }
 

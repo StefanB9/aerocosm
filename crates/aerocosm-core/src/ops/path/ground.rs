@@ -49,23 +49,46 @@ pub(crate) struct Departure {
     pub(crate) stand_heading: Degrees,
 }
 
-/// Route from `stand` to the entry of `runway` for an aircraft of `wingspan`;
-/// `None` if there is no entry or no route.
+/// Where a departure starts on the ground.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Origin {
+    /// Its stand, pushing back where the stand faces the apron.
+    Stand(Id<Stand>),
+    /// A node on the taxiways, after boarding in remote parking (plan M5
+    /// D127): no pushback.
+    Node(Id<Node>),
+}
+
+/// Route from `origin` to the entry of `runway` for an aircraft of
+/// `wingspan`; `None` if there is no entry or no route.
 pub(crate) fn departure(
     ground: &AirportGround,
-    stand: Id<Stand>,
+    origin: Origin,
     runway: (RunwayDesignator, LatLon),
     wingspan: Meters,
 ) -> Option<Departure> {
     let (runway, threshold) = runway;
-    let stand = ground.stands().get(stand.as_usize())?;
+    let (from, parked) = match origin {
+        Origin::Stand(stand) => {
+            let stand = ground.stands().get(stand.as_usize())?;
+            (stand.node(), Some(stand.heading()))
+        }
+        Origin::Node(node) => (node, None),
+    };
     let entry = ground.departure_entry(runway, threshold)?;
-    let route = ground.route(stand.node(), entry.node(), wingspan)?;
+    let route = ground.route(from, entry.node(), wingspan)?;
     let whole = Polyline::new(route.points()).ok()?;
-    let pushback = pushback_length(ground, &route, &whole, stand.heading());
+    let pushback = parked.map_or(0.0, |heading| {
+        pushback_length(ground, &route, &whole, heading)
+    });
+    // From a node it faces along the route.
+    let heading = parked.or_else(|| {
+        let points = route.points();
+        Degrees::new(points.first()?.initial_bearing_to(*points.get(1)?).value()).ok()
+    })?;
     // Queue at the last holding position of this runway on the way, else
     // one node before the entry.
-    let nodes = route_nodes(ground, stand.node(), route.edges());
+    let nodes = route_nodes(ground, from, route.edges());
     let holds: Vec<Id<Node>> = ground
         .holding_positions()
         .iter()
@@ -85,8 +108,8 @@ pub(crate) fn departure(
         .or_else(|| (0..nodes.len()).rev().find(|&i| left[i] >= MIN_LINEUP))
         .unwrap_or_else(|| nodes.len().saturating_sub(2));
     let (to_hold, onto) = route.edges().split_at(split.min(route.edges().len()));
-    let start = ground.nodes()[stand.node().as_usize()].position();
-    let hold = nodes.get(split).copied().unwrap_or(stand.node());
+    let start = ground.nodes()[from.as_usize()].position();
+    let hold = nodes.get(split).copied().unwrap_or(from);
     let hold_point = ground.nodes()[hold.as_usize()].position();
     let pushed = if pushback > 0.0 {
         route
@@ -117,14 +140,14 @@ pub(crate) fn departure(
     let mut taxi_points = edge_points(ground, start, to_hold);
     taxi_points.extend(queue_points.iter().skip(1));
     Some(Departure {
-        joint: nodes.get(pushed).copied().unwrap_or(stand.node()),
+        joint: nodes.get(pushed).copied().unwrap_or(from),
         taxi: Polyline::new(&taxi_points).ok()?,
         lineup: Polyline::new(&lineup_points).ok()?,
         queue_points,
         hold,
         pushback,
         entry: ground.nodes()[entry.node().as_usize()].position(),
-        stand_heading: stand.heading(),
+        stand_heading: heading,
     })
 }
 
@@ -253,10 +276,7 @@ mod tests {
 
     fn frankfurt() -> Result<(World, GroundNetwork, Id<crate::world::Airport>)> {
         let world = data()?.world;
-        let network = GroundNetwork::from_json(
-            include_str!("../../../../../assets/ground/germany.ground.json"),
-            &world,
-        )?;
+        let network = GroundNetwork::from_definition(crate::test_data::ground()?, &world)?;
         let id = world.airport_by_ident("EDDF".parse()?).context("EDDF")?;
         Ok((world, network, id))
     }
@@ -264,10 +284,7 @@ mod tests {
     #[test]
     fn test_departures_hold_short_off_the_runway_at_munich() -> Result<()> {
         let world = data()?.world;
-        let network = GroundNetwork::from_json(
-            include_str!("../../../../../assets/ground/germany.ground.json"),
-            &world,
-        )?;
+        let network = GroundNetwork::from_definition(crate::test_data::ground()?, &world)?;
         let id = world.airport_by_ident("EDDM".parse()?).context("EDDM")?;
         let ground = network.airport(id).context("MUC layout")?;
         let (runway, end) = world
@@ -285,8 +302,12 @@ mod tests {
         let mut planned = 0;
         for index in 0..ground.stands().len() {
             let stand = Id::from_usize(index)?;
-            let Some(plan) = departure(ground, stand, ("26L".parse()?, end.threshold()), span)
-            else {
+            let Some(plan) = departure(
+                ground,
+                Origin::Stand(stand),
+                ("26L".parse()?, end.threshold()),
+                span,
+            ) else {
                 continue;
             };
             planned += 1;
@@ -317,7 +338,12 @@ mod tests {
         let mut planned = 0;
         for index in 0..ground.stands().len() {
             let stand = Id::from_usize(index)?;
-            let Some(plan) = departure(ground, stand, ("25C".parse()?, threshold), span) else {
+            let Some(plan) = departure(
+                ground,
+                Origin::Stand(stand),
+                ("25C".parse()?, threshold),
+                span,
+            ) else {
                 continue;
             };
             planned += 1;

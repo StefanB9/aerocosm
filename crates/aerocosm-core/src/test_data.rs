@@ -32,3 +32,11 @@ pub(crate) fn data() -> Result<Data> {
         traffic,
     })
 }
+
+/// The ground layouts of ICAO region E (northern Europe, Germany among it;
+/// plan M5 D117).
+pub(crate) fn ground() -> Result<crate::ground::GroundDefinition> {
+    crate::ground::GroundDefinition::from_asset(include_bytes!(
+        "../../../assets/ground/E.ground.bin"
+    ))
+}

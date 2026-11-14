@@ -5,13 +5,13 @@ use anyhow::{Context, Result};
 
 use super::{
     Leg, Path,
-    ground::{departure, landing_exit},
+    ground::{Origin, departure, landing_exit},
     reverse,
 };
 use crate::{
     AircraftType, Id, LatLon,
     geo::{Polyline, Route, Segment},
-    ground::{GroundNetwork, Node, Stand},
+    ground::{GroundNetwork, Node},
     ops::{
         motion::{FINAL_LENGTH, Profile, ProfileInputs, SHORT_FINAL},
         procedure::{arrival_points, climb_out_distance, departure_turn_point},
@@ -22,12 +22,12 @@ use crate::{
     world::{Airport, RunwayDesignator, RunwayEnd, World},
 };
 
-/// The ground layouts a leg is planned on, and the stand it leaves from.
+/// The ground layouts a leg is planned on, and where it leaves from.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LegGround<'a> {
     pub(crate) network: &'a GroundNetwork,
-    /// The stand at a mapped origin.
-    pub(crate) origin_stand: Option<Id<Stand>>,
+    /// The stand, or the node after remote boarding, at a mapped origin.
+    pub(crate) origin: Option<Origin>,
 }
 
 /// A runway end in use: threshold, heading, runway index and designator.
@@ -184,9 +184,9 @@ fn taxi_out(
     threshold: LatLon,
 ) -> Result<TaxiOut> {
     let layout = ground.network.airport(origin);
-    let stand = layout.zip(ground.origin_stand);
-    if let Some(((layout, stand), runway)) = stand.zip(runway)
-        && let Some(plan) = departure(layout, stand, (runway, threshold), wingspan)
+    let from = layout.zip(ground.origin);
+    if let Some(((layout, origin), runway)) = from.zip(runway)
+        && let Some(plan) = departure(layout, origin, (runway, threshold), wingspan)
     {
         return Ok(TaxiOut {
             taxi: plan.taxi,
@@ -199,12 +199,15 @@ fn taxi_out(
             routed: true,
         });
     }
-    let parked = stand.and_then(|(layout, id)| {
-        let stand = layout.stands().get(id.as_usize())?;
-        Some((
-            layout.nodes()[stand.node().as_usize()].position(),
-            stand.heading(),
-        ))
+    let parked = from.and_then(|(layout, origin)| match origin {
+        Origin::Stand(id) => {
+            let stand = layout.stands().get(id.as_usize())?;
+            Some((
+                layout.nodes()[stand.node().as_usize()].position(),
+                Some(stand.heading()),
+            ))
+        }
+        Origin::Node(node) => Some((layout.nodes().get(node.as_usize())?.position(), None)),
     });
     let start = parked.map_or(airport_point, |(point, _)| point);
     Ok(TaxiOut {
@@ -213,7 +216,7 @@ fn taxi_out(
         nodes: None,
         queue_points: Vec::new(),
         roll_start: threshold,
-        stand_heading: parked.map(|(_, heading)| heading),
+        stand_heading: parked.and_then(|(_, heading)| heading),
         pushback: 0.0,
         routed: false,
     })
@@ -331,6 +334,7 @@ pub(crate) fn plan_leg(
         taxi_in: Polyline::new(&[roll_end, to.location()])?,
         departure_runway: departure_runway.map(|(index, _)| index),
         arrival_runway: arrival_runway.map(|(index, _)| index),
+        departure_end: departure_runway.map(|(_, designator)| designator),
         routed_out: out.routed,
         push: out.pushback,
         stand_out: out.stand_heading,
@@ -365,7 +369,7 @@ mod tests {
     fn unmapped() -> LegGround<'static> {
         LegGround {
             network: &NO_GROUND,
-            origin_stand: None,
+            origin: None,
         }
     }
 
@@ -620,11 +624,9 @@ mod tests {
     static GROUND: std::sync::LazyLock<Result<GroundNetwork, String>> =
         std::sync::LazyLock::new(|| {
             let world = data().map_err(|e| format!("{e:#}"))?.world;
-            GroundNetwork::from_json(
-                include_str!("../../../../../assets/ground/germany.ground.json"),
-                &world,
-            )
-            .map_err(|e| format!("{e:#}"))
+            crate::test_data::ground()
+                .and_then(|ground| GroundNetwork::from_definition(ground, &world))
+                .map_err(|e| format!("{e:#}"))
         });
 
     #[test]
@@ -643,7 +645,7 @@ mod tests {
             &data.traffic,
             LegGround {
                 network,
-                origin_stand: Some(Id::from_usize(stand)?),
+                origin: Some(Origin::Stand(Id::from_usize(stand)?)),
             },
             a320(&data)?,
             frankfurt,

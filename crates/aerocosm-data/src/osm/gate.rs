@@ -198,6 +198,7 @@ mod tests {
                 heading: Degrees::new(0.0)?,
                 max_wingspan: Meters::new(36.0)?,
                 area: None,
+                cargo: false,
             }],
             holding_positions: vec![HoldingPositionDefinition {
                 node: 2,

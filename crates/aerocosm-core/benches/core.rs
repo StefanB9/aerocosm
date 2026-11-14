@@ -8,7 +8,7 @@ use std::hint::black_box;
 
 use aerocosm_core::{
     AircraftCatalog, LatLon, RngSeed, Scenario, SimConfig, SimTime, Simulation,
-    ground::{GroundDefinition, StandAreasDefinition},
+    ground::GroundDefinition,
     traffic::{model::derive, observed::ObservedTraffic},
     units::{Degrees, Meters},
     world::World,
@@ -72,13 +72,17 @@ fn world() -> Result<Scenario> {
     let observed =
         ObservedTraffic::from_asset(include_bytes!("../../../assets/traffic/observed.bin"))?;
     let (targets, airlines) = derive(&world, &observed, &aircraft)?.into_parts();
-    Scenario::with_traffic(world, aircraft, airlines, targets)?
-        .with_ground(GroundDefinition::from_json(include_str!(
-            "../../../assets/ground/germany.ground.json"
-        ))?)?
-        .with_stand_areas(StandAreasDefinition::from_json(include_str!(
-            "../../../assets/ground/stand-areas.json"
-        ))?)
+    Scenario::with_traffic(world, aircraft, airlines, targets)?.with_ground(
+        GroundDefinition::combine(
+            [
+                &include_bytes!("../../../assets/ground/E.ground.bin")[..],
+                &include_bytes!("../../../assets/ground/L.ground.bin")[..],
+            ]
+            .map(GroundDefinition::from_asset)
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?,
+        )?,
+    )
 }
 
 fn bench_operations(c: &mut Criterion) {

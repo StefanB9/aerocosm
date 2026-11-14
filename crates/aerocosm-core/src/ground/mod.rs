@@ -9,7 +9,7 @@ use crate::{
 };
 
 mod airport;
-mod areas;
+mod choice;
 mod definition;
 mod elements;
 
@@ -19,13 +19,11 @@ mod runways;
 mod taxi;
 
 pub use airport::AirportGround;
-pub use areas::{
-    AREAS_FORMAT_VERSION, AirportAreasDefinition, AreaDefinition, StandAreas, StandAreasDefinition,
-    StandRequest,
-};
+pub use choice::StandRequest;
 pub use definition::{
     AirportGroundDefinition, EdgeDefinition, EdgeKind, ExitDefinition, FORMAT_VERSION,
-    GroundDefinition, HoldingPositionDefinition, Point, StandDefinition,
+    GroundDefinition, HoldingPositionDefinition, Point, StandDefinition, ground_file,
+    ground_region,
 };
 pub use elements::{Edge, Exit, HoldingPosition, Node, Stand, stand_base};
 pub use route::GroundRoute;
@@ -168,10 +166,7 @@ mod tests {
     #[test]
     fn test_shipped_ground_file_loads() -> Result<()> {
         let world = data()?.world;
-        let network = GroundNetwork::from_json(
-            include_str!("../../../../assets/ground/germany.ground.json"),
-            &world,
-        )?;
+        let network = GroundNetwork::from_definition(crate::test_data::ground()?, &world)?;
         assert_eq!(network.attribution(), "© OpenStreetMap contributors");
         // Every major German airport has a layout with stands, holding
         // positions and exits.

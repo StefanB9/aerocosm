@@ -9,7 +9,7 @@ use super::{
     graph::Graph,
     local::{Plane, Xy, bearing, distance, distance_to_line, inside},
     names::ground_name,
-    overpass::OsmData,
+    overpass::{OsmData, Tags},
 };
 
 /// Lead-ins and stand nodes farther than this from a taxi lane stay
@@ -25,11 +25,6 @@ const CODES: [(f64, f64); 6] = [
     (65.0, 7.5),
     (80.0, 7.5),
 ];
-/// The largest wingspan of ICAO code `index` (0 = A … 5 = F), m.
-pub(crate) fn code_wingspan(index: usize) -> f64 {
-    CODES.get(index).map_or(CODES[5].0, |(span, _)| *span)
-}
-
 /// Stands mapped up to 5 % closer than the code's spacing still count.
 const MAPPING_TOLERANCE: f64 = 1.05;
 /// A stand within this distance of a terminal belongs to it.
@@ -350,6 +345,21 @@ pub(crate) struct Area {
     pub(crate) ring: Vec<Xy>,
 }
 
+/// Whether an apron's OSM tags mark it for cargo (plan M5 D120): `apron`
+/// or `usage` set to cargo, or the word in its name, ref or description.
+pub(crate) fn marks_cargo(tags: &Tags) -> bool {
+    let set = |key: &str| {
+        tags.get(key)
+            .is_some_and(|v| v.eq_ignore_ascii_case("cargo"))
+    };
+    set("apron")
+        || set("usage")
+        || ["name", "ref", "description"].iter().any(|key| {
+            tags.get(*key)
+                .is_some_and(|v| v.to_ascii_lowercase().contains("cargo"))
+        })
+}
+
 /// The apron containing `p`, else the nearest terminal within reach.
 pub(crate) fn area_of(p: Xy, aprons: &[Area], terminals: &[Area]) -> Option<GroundName> {
     if let Some(apron) = aprons.iter().find(|apron| inside(p, &apron.ring)) {
@@ -630,5 +640,21 @@ mod tests {
         );
         assert_eq!(area_of([200.0, 900.0], &aprons, &terminals), None);
         Ok(())
+    }
+
+    #[test]
+    fn test_marks_cargo_by_tag_or_name() {
+        let tags = |pairs: &[(&str, &str)]| -> Tags {
+            pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect()
+        };
+        assert!(marks_cargo(&tags(&[("apron", "cargo")])));
+        assert!(marks_cargo(&tags(&[("usage", "Cargo")])));
+        assert!(marks_cargo(&tags(&[("name", "CargoCity Süd")])));
+        assert!(marks_cargo(&tags(&[("description", "DHL cargo apron")])));
+        assert!(!marks_cargo(&tags(&[("name", "Vorfeld V")])));
+        assert!(!marks_cargo(&tags(&[])));
     }
 }
