@@ -94,6 +94,50 @@ types cover 70 % of typed flights; gravity over all scheduled pairs is 7.4 M rou
 - **Tests:** stand choice rules; guard tests per region; the ground integration test on a
   sample of airports from every continent.
 
+#### PR 3 design (agreed 2026-11-13)
+
+Findings: the main Overpass instance and Geofabrik are unreachable from the build container;
+the `maps.mail.ru` mirror answers (Frankfurt: 22 s, 1.4 MB), but not reliably; the planet file
+streams at about 18 MB/s. The 22 German layouts are 1.5 MB
+of JSON; stand choice uses curated airline areas (FRA, MUC) and curated size limits (CGN,
+LEJ). Under the 2019 world traffic, Frankfurt and Munich escape 5–8 % of taxis and share
+7–8 % of stands (PR 2, known issues).
+
+| # | Decision |
+|---|----------|
+| D116 | **Import every scheduled airport** (3,908). The query box is the old 5.5 × 5.7 km box round the reference point, grown to every runway end plus 0.03° (about 3.3 km; Denver spreads over 13 km). *As built:* the Overpass mirror answered 504 to most requests, so the world comes from the OSM planet file instead: `osmium` (a documented system tool, like `curl`) streams it twice, for the aeroway features and then for their nodes, without storing it; the importer reads the result in OSM's line-based OPL text format (no new dependency) and cuts each airport's box from it. The Overpass reader stays for single airports. Raw files stay outside the repository |
+| D117 | **Regional binary ground.** One asset per first letter of the airport ident (the ICAO region: E northern Europe, L southern Europe, K the United States, …), `assets/ground/<letter>.ground.bin`, in the M5 binary format (D104). `germany.ground.json` retires; tests take Germany from region E. The core accepts several ground definitions; the runner reads a directory of regions |
+| D118 | **Quality gate at world scale.** The M4 gate (D66) unchanged: enough stands for the movement target, and stands linked to every runway end in use with the prevailing wind. The importer reports passed and rejected layouts per region with the reason; the snapshot in `docs/data-sources.md` records the totals |
+| D119 | **Stand sizes from geometry only.** The spacing rule of M4 decides the ICAO code; `stand-sizes.json` (CGN, LEJ) retires (D95) |
+| D120 | **Generic stand choice.** Among free stands that fit: the tightest fit (15 m steps, as M4), then the nearest to a stand the same airline holds now (250 m steps; airlines gather in their own areas by behaviour, not by list), then the nearest to the runway exit. Cargo airlines prefer and passenger airlines avoid aprons OpenStreetMap marks as cargo (apron tags or names), where any are marked. `stand-areas.json` and the core's stand areas retire |
+| D121 | **M4 limits restored** as acceptance: escapes and stand shares each under 2 % of taxis, no taxi over 75 minutes. Where the generic choice does not meet them at Frankfurt and Munich, general behaviour is added (e.g. towing aircraft with long ground times to free stands); each addition is diagnosed and shown to the user first |
+| D122 | **Scale measured.** Layouts are built once at scenario start; start-up time, memory and tick time with ground at every gated airport are measured and recorded (the 8 ms target is PR 5's) |
+| D123 | **Tests.** Stand choice rules on fixtures; a guard test per region asset; the ground integration test runs the world with every region and checks the mapped airports, reported per region (a sample of the busiest gated airport per region letter if the full world is too slow for the suite) |
+| D124 | **Viewer and runner.** Until PR 4 streams ground per airport, the viewer embeds regions E and L; the runner's `--ground` takes the directory of region files; `--stand-areas` retires |
+
+Findings after the world import (agreed 2026-11-13): 641 of 3,908 scheduled airports pass the
+gate. In a 4-hour morning with ground everywhere, 11.5 % of taxis share a stand and 4.2 %
+escape a deadlock. Overnight fleets exceed the stands OSM maps (no remote or maintenance
+parking): at 04:00 UTC Munich holds 429 aircraft on 189 stands, Frankfurt 469 on 284.
+
+| # | Decision |
+|---|----------|
+| D125 | **Remote parking.** An aircraft whose next off-block is more than 2 hours after it reaches its stand is towed off to remote parking (unmapped, not simulated on the taxiways) once its turnaround allows, freeing the stand; it is towed back to a free stand an hour before off-block. If no stand is free it waits remote, counted as a stand wait; the warm start puts such aircraft remote from the outset |
+| D126 | **Holding positions by rule.** Where OSM maps no holding position for a runway end in use, the importer places one on each taxiway joining that runway, at the Annex 14 distance from the centreline for the runway's code. Mapped holding positions always win |
+| D127 | **Remote boarding at the peak** (agreed after D125 left 2.3–3.5 % shares in region E, mostly Oslo and Copenhagen). An arrival that finds no stand within 30 minutes at its waiting spot deplanes there and is towed to remote parking; a departure that finds no stand within 30 minutes of its tow-back boards remote and joins the taxiways at a free waiting spot, without pushback. A stand is shared only when neither a stand nor a spot is free; waiting spots are offered only where a stand that fits can be reached from them |
+| D128 | **A gap in arrivals for crossings** (agreed after a 97-minute wait to cross Frankfurt's mixed-mode 25R, D113). Once an aircraft has waited 3 minutes to cross a runway and keeps asking, no further approaches to it are cleared, and the crossing no longer waits for booked slots of landings not yet cleared, only for those cleared. Arrivals absorb the gap as holding. A landing occupies the runway until it vacates, not a fixed minute. Departures queueing where OSM maps no holding position are paced by their runway end, and a runway's pace is also learnt from a departure's own wait at the hold |
+
+*As built (PR 3):* 836 of 3,908 scheduled airports pass the gate (15 MB of region assets).
+The integration test runs region E (northern Europe, 260 airports under ground control)
+with M4's limits; a guard test loads every region and checks a hub on each continent (the
+world-wide integration run of D123 stays a measurement, below, as it takes minutes per seed).
+M4's limits hold for stand shares, separation and the longest taxi on seeds 3, 7 and 11;
+escapes are 1.4 %, 2.0 % and 1.1 %, so seed 7 fails the one-in-fifty limit by one escape,
+diagnosed in `docs/known-issues.md` and left for a follow-up. Scale (D122), the world for 4
+hours from 04:00 UTC with ground everywhere, release build on 4 cores: start-up (model,
+schedule, ground networks) about 13 s, 7.4 ms per tick on average, 399 MB peak memory,
+escapes 2.1 % and stand shares 1.4 % of 14,610 taxis.
+
 ### PR 4 — Viewer for the globe
 
 - World basemap with LOD, floating origin (D106), camera from globe to stand, ground
