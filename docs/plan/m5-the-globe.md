@@ -192,6 +192,24 @@ rasteriser, the viewer's own systems a few per cent; SwiftShader in headless Chr
 
 - World benchmark (D107), 7-day world run, `docs/known-issues.md` and the definition of done.
 
+*Detail (agreed 2026-11-14, D134–D139).* Measured before planning (release build, 4 cores,
+ground everywhere, seed 3): a tick costs 10–12 ms in the hours from 06:00, 12:00 and 16:00
+UTC (12,200–14,800 airborne, 3,100–3,900 taxis an hour), above D107's 8 ms. A sampled
+profile of the midday hour: half the tick is ground control (the survey of who stands where
+29 %, the deadlock search 11 %) and half the tails (parked aircraft 19 %, taxiing 10 %,
+flying 6 %). The cost is not the traffic: five passes a tick go through every tail of the
+fleet and the survey clears the lists of every junction of every airport, whether or not
+anything taxis there.
+
+| # | Decision |
+|---|----------|
+| D134 | **Escapes accepted for M5** at the world's rate (2.1 %, M4: 2.3 %). The fix (a junction cleared only to the first in line, one clearance for a short stub) follows M5; until then the ground test's seed 7 stays over its limit by one escape, as recorded in `docs/known-issues.md` |
+| D135 | **World benchmark.** The benchmark's scenario takes all 21 ground regions and starts in the busiest hour; the target is a step under 8 ms on the 4-core container. PR 5 optimises until it holds |
+| D136 | **Optimise without changing behaviour.** Ground control keeps the tails that taxi and the airports they taxi at, in tail order, instead of searching the fleet each tick; a parked tail is looked at again only when something is due. The same seed gives the same run before and after (checked on the statistics of a world run). If that does not reach 8 ms, further measures are diagnosed and shown first |
+| D137 | **Longest taxi reported.** Statistics keep the longest taxi per airport and network, including taxis still under way; the runner reports it. "No stuck aircraft" is M4's limit: no taxi over 75 minutes in the 7-day run |
+| D138 | **Frame-time readout.** A key toggles a small readout in the viewer, native and web: frame time (average and worst of the last seconds), ticks run per frame and the simulation's share of the frame. Its text is a pure, tested function. The user measures on real hardware; the numbers are recorded here |
+| D139 | **Acceptance run.** The world for 7 days, seed 3, ground everywhere: flights a day, German validation (D114), escapes, stand shares, longest taxi, tick time and memory, each against the definition of done, recorded here and in `docs/known-issues.md` |
+
 ## Definition of done
 
 - Every airport with scheduled service is in the network; real airlines fly it; the world
