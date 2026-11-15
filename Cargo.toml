@@ -87,6 +87,23 @@ panic = "immediate-abort"
 rpath = false
 strip = true
 
+[profile.wasm-release]
+inherits = "release"
+opt-level = "s"
+strip = false
+
+[profile.wasm-release.package.aerocosm-core]
+opt-level = 3
+
+[profile.wasm-release.package.glam]
+opt-level = 3
+
+[profile.wasm-release.package.lyon_tessellation]
+opt-level = 3
+
+[profile.wasm-release.package.ruzstd]
+opt-level = 3
+
 # Release settings for benchmarks: `cargo bench --profile bench-unwind`.
 # Bench targets need unwinding; with build-std, release's immediate-abort
 # builds `core` twice with conflicting panic strategies (E0152).

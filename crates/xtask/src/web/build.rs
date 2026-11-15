@@ -2,6 +2,7 @@
 //! page (plan D23).
 
 use std::{
+    ffi::OsString,
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -17,15 +18,30 @@ use crate::lock::locked_version;
 const RENDERERS: [&str; 2] = ["webgpu", "webgl2"];
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
 const VIEWER: &str = "aerocosm-viewer";
-/// The ground layouts, at the same path in the repository and in the build.
-const GROUND: &str = "assets/ground";
+
+/// Binaryen optimisation flags for release builds. `wasm-bindgen` consumes
+/// Rust's `target_features` custom section, so the features emitted by `rustc`
+/// and `wasm-bindgen` must be enabled explicitly.
+const WASM_OPT_FLAGS: [&str; 11] = [
+    "-Os",
+    "--strip-debug",
+    "--strip-producers",
+    "--enable-bulk-memory",
+    "--enable-mutable-globals",
+    "--enable-multivalue",
+    "--enable-nontrapping-float-to-int",
+    "--enable-reference-types",
+    "--enable-sign-ext",
+    "--enable-simd",
+    "-o",
+];
 
 /// Side effects of a build, so the build logic can be tested with a fake.
 pub(crate) trait Host {
     /// Runs a program to completion, failing on a non-zero exit.
-    fn run(&mut self, program: &str, args: &[String]) -> Result<()>;
+    fn run(&mut self, program: &str, args: &[OsString]) -> Result<()>;
     /// Runs a program and returns its standard output.
-    fn output(&mut self, program: &str, args: &[String]) -> Result<String>;
+    fn output(&mut self, program: &str, args: &[OsString]) -> Result<String>;
     /// Reads a text file.
     fn read_to_string(&mut self, path: &Path) -> Result<String>;
     /// Removes a directory if present and creates it empty.
@@ -36,12 +52,31 @@ pub(crate) trait Host {
     fn list_dir(&mut self, path: &Path) -> Result<Vec<String>>;
 }
 
+/// Formats command-line arguments for human-readable logging.
+fn join_args(args: &[OsString]) -> String {
+    let mut rendered = String::new();
+    for (index, arg) in args.iter().enumerate() {
+        if index > 0 {
+            rendered.push(' ');
+        }
+        rendered.push_str(&arg.to_string_lossy());
+    }
+    rendered
+}
+
+/// Normalises `path` to the host platform's native separator without altering
+/// Windows prefixes (`C:\`, `\\server\share`, `\\?\`) or literal backslashes on
+/// Unix.
+fn normalise_path(path: &Path) -> PathBuf {
+    path.components().collect()
+}
+
 /// The real machine.
 pub(crate) struct SystemHost;
 
 impl Host for SystemHost {
-    fn run(&mut self, program: &str, args: &[String]) -> Result<()> {
-        info!(program, args = %args.join(" "), "running");
+    fn run(&mut self, program: &str, args: &[OsString]) -> Result<()> {
+        info!(program, args = %join_args(args), "running");
         let status = Command::new(program)
             .args(args)
             .status()
@@ -52,7 +87,7 @@ impl Host for SystemHost {
         Ok(())
     }
 
-    fn output(&mut self, program: &str, args: &[String]) -> Result<String> {
+    fn output(&mut self, program: &str, args: &[OsString]) -> Result<String> {
         let output = Command::new(program)
             .args(args)
             .output()
@@ -101,7 +136,7 @@ impl Host for SystemHost {
 /// Cargo profile for the wasm builds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Profile {
-    /// Optimised; what gets deployed.
+    /// Optimised with `wasm-release` and `wasm-opt`; what gets deployed.
     Release,
     /// Fast to build, large and slow to run.
     Dev,
@@ -110,7 +145,7 @@ pub(crate) enum Profile {
 impl Profile {
     const fn name(self) -> &'static str {
         match self {
-            Self::Release => "release",
+            Self::Release => "wasm-release",
             Self::Dev => "dev",
         }
     }
@@ -118,7 +153,7 @@ impl Profile {
     /// Cargo's output directory for the profile (`dev` builds land in `debug`).
     const fn artifact_dir(self) -> &'static str {
         match self {
-            Self::Release => "release",
+            Self::Release => "wasm-release",
             Self::Dev => "debug",
         }
     }
@@ -144,14 +179,15 @@ fn bindgen_version(output: &str) -> Option<&str> {
 
 /// Builds every renderer variant into `options.out`, after checking that the
 /// `wasm-bindgen` CLI matches the crate locked in `Cargo.lock` (they must agree
-/// exactly).
+/// exactly) and, on release builds, that `wasm-opt` is available.
 pub(crate) fn build(host: &mut impl Host, options: &BuildOptions) -> Result<()> {
     let lock = host.read_to_string(Path::new("Cargo.lock"))?;
     let expected = locked_version(&lock, "wasm-bindgen")
         .context("Cargo.lock has no wasm-bindgen entry")?
         .to_owned();
+    let version_flag = [OsString::from("--version")];
     let printed = host
-        .output("wasm-bindgen", &["--version".to_owned()])
+        .output("wasm-bindgen", &version_flag)
         .context("wasm-bindgen CLI not found; see README (Prerequisites)")?;
     let actual = bindgen_version(&printed)
         .with_context(|| format!("unexpected wasm-bindgen --version output {printed:?}"))?;
@@ -161,51 +197,68 @@ pub(crate) fn build(host: &mut impl Host, options: &BuildOptions) -> Result<()> 
              install wasm-bindgen-cli --version {expected} --locked`"
         );
     }
+    if options.profile == Profile::Release {
+        host.output("wasm-opt", &version_flag)
+            .context("wasm-opt CLI not found; install Binaryen for release web builds")?;
+    }
 
-    host.reset_dir(&options.out)?;
-    host.copy(Path::new("web/index.html"), &options.out.join("index.html"))?;
+    let out = normalise_path(&options.out);
+    let index_src = PathBuf::from_iter(["web", "index.html"]);
+    let ground_src = PathBuf::from_iter(["assets", "ground"]);
+
+    host.reset_dir(&out)?;
+    host.copy(&index_src, &out.join("index.html"))?;
     // The ground layouts, fetched by the viewer at start (plan M5 D132), with
     // their licence.
-    let ground = options.out.join(GROUND);
-    host.reset_dir(&ground)?;
-    for name in host.list_dir(Path::new(GROUND))? {
-        host.copy(&Path::new(GROUND).join(&name), &ground.join(&name))?;
+    let ground_out = out.join(&ground_src);
+    host.reset_dir(&ground_out)?;
+    for name in host.list_dir(&ground_src)? {
+        host.copy(&ground_src.join(&name), &ground_out.join(&name))?;
     }
     for renderer in RENDERERS {
         // Separate target directories keep both variants' build caches.
-        let target_dir = Path::new("target/web-build").join(renderer);
-        let to_string = |path: &Path| path.display().to_string();
+        let target_dir = PathBuf::from_iter(["target", "web-build", renderer]);
         let cargo_args = [
-            "build",
-            "-p",
-            VIEWER,
-            "--target",
-            WASM_TARGET,
-            "--profile",
-            options.profile.name(),
-            "--no-default-features",
-            "--features",
-            renderer,
-            "--target-dir",
-        ]
-        .into_iter()
-        .map(str::to_owned)
-        .chain([to_string(&target_dir)])
-        .collect::<Vec<_>>();
+            OsString::from("build"),
+            OsString::from("-p"),
+            OsString::from(VIEWER),
+            OsString::from("--target"),
+            OsString::from(WASM_TARGET),
+            OsString::from("--profile"),
+            OsString::from(options.profile.name()),
+            OsString::from("--no-default-features"),
+            OsString::from("--features"),
+            OsString::from(renderer),
+            OsString::from("--target-dir"),
+            target_dir.clone().into_os_string(),
+        ];
         host.run(&options.cargo, &cargo_args)?;
 
         let wasm = target_dir
             .join(WASM_TARGET)
             .join(options.profile.artifact_dir())
             .join(format!("{VIEWER}.wasm"));
-        let bindgen_args = ["--target", "web", "--no-typescript", "--out-dir"]
-            .into_iter()
-            .map(str::to_owned)
-            .chain([to_string(&options.out.join(renderer)), to_string(&wasm)])
-            .collect::<Vec<_>>();
+        let out_dir = out.join(renderer);
+        let bindgen_args = [
+            OsString::from("--target"),
+            OsString::from("web"),
+            OsString::from("--no-typescript"),
+            OsString::from("--out-dir"),
+            out_dir.clone().into_os_string(),
+            wasm.into_os_string(),
+        ];
         host.run("wasm-bindgen", &bindgen_args)?;
+
+        if options.profile == Profile::Release {
+            let bg_wasm = out_dir.join(format!("{VIEWER}_bg.wasm"));
+            let mut opt_args = Vec::with_capacity(WASM_OPT_FLAGS.len() + 2);
+            opt_args.extend(WASM_OPT_FLAGS.into_iter().map(OsString::from));
+            opt_args.push(bg_wasm.clone().into_os_string());
+            opt_args.push(bg_wasm.into_os_string());
+            host.run("wasm-opt", &opt_args)?;
+        }
     }
-    info!(out = %options.out.display(), "browser build ready");
+    info!(out = %out.display(), "browser build ready");
     Ok(())
 }
 
@@ -213,24 +266,40 @@ pub(crate) fn build(host: &mut impl Host, options: &BuildOptions) -> Result<()> 
 mod tests {
     use super::*;
 
+    /// Builds a platform-native path string from `/`-separated segments.
+    fn native(slash_path: &str) -> String {
+        slash_path
+            .split('/')
+            .collect::<PathBuf>()
+            .display()
+            .to_string()
+    }
+
     /// Records every call; answers from canned values.
     #[derive(Default)]
     struct FakeHost {
         calls: Vec<String>,
         lock: String,
         bindgen_version: String,
+        has_wasm_opt: bool,
     }
 
     impl Host for FakeHost {
-        fn run(&mut self, program: &str, args: &[String]) -> Result<()> {
-            self.calls.push(format!("run {program} {}", args.join(" ")));
+        fn run(&mut self, program: &str, args: &[OsString]) -> Result<()> {
+            self.calls
+                .push(format!("run {program} {}", join_args(args)));
             Ok(())
         }
 
-        fn output(&mut self, program: &str, args: &[String]) -> Result<String> {
+        fn output(&mut self, program: &str, args: &[OsString]) -> Result<String> {
             self.calls
-                .push(format!("output {program} {}", args.join(" ")));
-            Ok(self.bindgen_version.clone())
+                .push(format!("output {program} {}", join_args(args)));
+            match program {
+                "wasm-bindgen" => Ok(self.bindgen_version.clone()),
+                "wasm-opt" if self.has_wasm_opt => Ok("wasm-opt version 123\n".to_owned()),
+                "wasm-opt" => bail!("wasm-opt missing"),
+                _ => bail!("unexpected program {program}"),
+            }
         }
 
         fn read_to_string(&mut self, path: &Path) -> Result<String> {
@@ -263,6 +332,7 @@ mod tests {
         FakeHost {
             lock: "[[package]]\nname = \"wasm-bindgen\"\nversion = \"0.2.130\"\n".to_owned(),
             bindgen_version: format!("wasm-bindgen {bindgen}\n"),
+            has_wasm_opt: true,
             ..FakeHost::default()
         }
     }
@@ -279,38 +349,73 @@ mod tests {
     fn test_build_runs_both_variants_in_order() -> Result<()> {
         let mut host = host("0.2.130");
         build(&mut host, &options(Profile::Release)).context("build")?;
+        let flags = WASM_OPT_FLAGS.join(" ");
+        let webgpu_bg = native("target/web/webgpu/aerocosm-viewer_bg.wasm");
+        let webgl2_bg = native("target/web/webgl2/aerocosm-viewer_bg.wasm");
         let expected = [
-            "read Cargo.lock",
-            "output wasm-bindgen --version",
-            "reset target/web",
-            "copy web/index.html target/web/index.html",
-            "reset target/web/assets/ground",
-            "list assets/ground",
-            "copy assets/ground/E.ground.bin target/web/assets/ground/E.ground.bin",
-            "copy assets/ground/LICENSE.txt target/web/assets/ground/LICENSE.txt",
-            "run cargo build -p aerocosm-viewer --target wasm32-unknown-unknown --profile release \
-             --no-default-features --features webgpu --target-dir target/web-build/webgpu",
-            "run wasm-bindgen --target web --no-typescript --out-dir target/web/webgpu \
-             target/web-build/webgpu/wasm32-unknown-unknown/release/aerocosm-viewer.wasm",
-            "run cargo build -p aerocosm-viewer --target wasm32-unknown-unknown --profile release \
-             --no-default-features --features webgl2 --target-dir target/web-build/webgl2",
-            "run wasm-bindgen --target web --no-typescript --out-dir target/web/webgl2 \
-             target/web-build/webgl2/wasm32-unknown-unknown/release/aerocosm-viewer.wasm",
+            "read Cargo.lock".to_owned(),
+            "output wasm-bindgen --version".to_owned(),
+            "output wasm-opt --version".to_owned(),
+            format!("reset {}", native("target/web")),
+            format!(
+                "copy {} {}",
+                native("web/index.html"),
+                native("target/web/index.html")
+            ),
+            format!("reset {}", native("target/web/assets/ground")),
+            format!("list {}", native("assets/ground")),
+            format!(
+                "copy {} {}",
+                native("assets/ground/E.ground.bin"),
+                native("target/web/assets/ground/E.ground.bin")
+            ),
+            format!(
+                "copy {} {}",
+                native("assets/ground/LICENSE.txt"),
+                native("target/web/assets/ground/LICENSE.txt")
+            ),
+            format!(
+                "run cargo build -p aerocosm-viewer --target wasm32-unknown-unknown --profile \
+                 wasm-release --no-default-features --features webgpu --target-dir {}",
+                native("target/web-build/webgpu")
+            ),
+            format!(
+                "run wasm-bindgen --target web --no-typescript --out-dir {} {}",
+                native("target/web/webgpu"),
+                native(
+                    "target/web-build/webgpu/wasm32-unknown-unknown/wasm-release/aerocosm-viewer.\
+                     wasm"
+                )
+            ),
+            format!("run wasm-opt {flags} {webgpu_bg} {webgpu_bg}"),
+            format!(
+                "run cargo build -p aerocosm-viewer --target wasm32-unknown-unknown --profile \
+                 wasm-release --no-default-features --features webgl2 --target-dir {}",
+                native("target/web-build/webgl2")
+            ),
+            format!(
+                "run wasm-bindgen --target web --no-typescript --out-dir {} {}",
+                native("target/web/webgl2"),
+                native(
+                    "target/web-build/webgl2/wasm32-unknown-unknown/wasm-release/aerocosm-viewer.\
+                     wasm"
+                )
+            ),
+            format!("run wasm-opt {flags} {webgl2_bg} {webgl2_bg}"),
         ];
         assert_eq!(host.calls, expected);
         Ok(())
     }
 
     #[test]
-    fn test_build_dev_profile_uses_debug_artifacts() -> Result<()> {
+    fn test_build_dev_profile_uses_debug_artifacts_and_skips_wasm_opt() -> Result<()> {
         let mut host = host("0.2.130");
+        host.has_wasm_opt = false;
         build(&mut host, &options(Profile::Dev)).context("build")?;
         assert!(host.calls.iter().any(|c| c.contains("--profile dev")));
-        assert!(
-            host.calls
-                .iter()
-                .any(|c| c.contains("/wasm32-unknown-unknown/debug/aerocosm-viewer.wasm"))
-        );
+        let debug_wasm = native("wasm32-unknown-unknown/debug/aerocosm-viewer.wasm");
+        assert!(host.calls.iter().any(|c| c.contains(&debug_wasm)));
+        assert!(host.calls.iter().all(|c| !c.contains("wasm-opt")));
         Ok(())
     }
 
@@ -334,8 +439,33 @@ mod tests {
     }
 
     #[test]
+    fn test_build_refuses_missing_wasm_opt_before_building() -> Result<()> {
+        let mut host = host("0.2.130");
+        host.has_wasm_opt = false;
+        let error = build(&mut host, &options(Profile::Release))
+            .err()
+            .context("must fail")?;
+        let message = format!("{error:#}");
+        assert!(message.contains("wasm-opt"), "{message}");
+        assert!(
+            host.calls.iter().all(|c| !c.starts_with("run ")),
+            "nothing built: {:?}",
+            host.calls
+        );
+        Ok(())
+    }
+
+    #[test]
     fn test_bindgen_version_parsing() {
         assert_eq!(bindgen_version("wasm-bindgen 0.2.130\n"), Some("0.2.130"));
         assert_eq!(bindgen_version("something else"), None);
+    }
+
+    #[test]
+    fn test_normalise_path_uses_platform_components() {
+        assert_eq!(
+            normalise_path(Path::new("target/web")),
+            PathBuf::from_iter(["target", "web"])
+        );
     }
 }

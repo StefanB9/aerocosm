@@ -15,7 +15,7 @@ rustflags = ["-Ctarget-cpu=native", "-C", "link-arg=-Wl,--icf=all"]
 # `[build]` rustflags add `target-cpu=native`, which names the host's x86 CPU and is
 # meaningless for wasm ("not a recognized processor" on every crate).
 [target.wasm32-unknown-unknown]
-rustflags = ["-Z", "location-detail=none"]
+rustflags = ["-C", "target-feature=+simd128", "-Z", "location-detail=none"]
 
 # Project tooling is Rust: `cargo xtask <task>` (see crates/xtask).
 [alias]
