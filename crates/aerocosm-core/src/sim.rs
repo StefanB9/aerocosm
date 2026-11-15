@@ -204,6 +204,45 @@ impl Simulation {
         Ok(())
     }
 
+    /// Advances by one tick like [`Simulation::step`], with the same results,
+    /// and returns where the tick's wall time went by `clock` (plan M5 D136):
+    /// for benchmarks; a simulation without traffic reports nothing.
+    pub fn step_timed(&mut self, clock: &impl crate::WallClock) -> Result<crate::ops::PhaseTimes> {
+        let next = self
+            .time
+            .checked_add(TICK)
+            .with_context(|| format!("cannot advance simulation past {}", self.time))?;
+        let mut times = crate::ops::PhaseTimes::default();
+        if let Some(operations) = &mut self.operations {
+            let mut marks = crate::ops::timing::ClockTimer::new(clock);
+            operations
+                .step_with(&self.scenario, &mut marks)
+                .context("flight operations failed")?;
+            times = marks.finish();
+        }
+        self.time = next;
+        self.ticks += 1;
+        Ok(times)
+    }
+
+    /// A hash of the simulation's state (plan M5 D137): the time, every
+    /// flight as the views show it and the network statistics, so that two
+    /// runs that differ anywhere a user could see differ here. FNV-1a over
+    /// the values' debug text, which formats floats exactly.
+    pub fn fingerprint(&self) -> u64 {
+        use std::fmt::Write as _;
+        let mut hash = Fnv::default();
+        // Writing into the hash cannot fail.
+        let _ = write!(hash, "{:?}|{}", self.time, self.ticks);
+        for flight in self.flights() {
+            let _ = write!(hash, "|{flight:?}");
+        }
+        if let Some(statistics) = self.statistics() {
+            let _ = write!(hash, "|{:?}", statistics.network());
+        }
+        hash.0
+    }
+
     /// Advances by `count` ticks.
     pub fn run_ticks(&mut self, count: u32) -> Result<()> {
         for _ in 0..count {
@@ -221,6 +260,24 @@ impl Simulation {
             ran += 1;
         }
         Ok(ran)
+    }
+}
+
+/// The 64-bit FNV-1a hash of the text written to it.
+struct Fnv(u64);
+
+impl Default for Fnv {
+    fn default() -> Self {
+        Self(0xcbf2_9ce4_8422_2325)
+    }
+}
+
+impl std::fmt::Write for Fnv {
+    fn write_str(&mut self, text: &str) -> std::fmt::Result {
+        for byte in text.bytes() {
+            self.0 = (self.0 ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+        }
+        Ok(())
     }
 }
 
@@ -417,6 +474,79 @@ mod tests {
         a.run_ticks(300)?;
         b.run_ticks(300)?;
         assert_eq!(a, b);
+        Ok(())
+    }
+
+    /// The world with region E's ground, where aircraft taxi under control.
+    fn with_ground() -> Result<Simulation> {
+        let data = data()?;
+        let scenario =
+            Scenario::with_traffic(data.world, data.aircraft, data.airlines, data.traffic)?
+                .with_ground(crate::test_data::ground()?)?;
+        let config = SimConfig::new("2026-07-08T10:00:00Z".parse()?, RngSeed::new(9));
+        Simulation::new(config, scenario)
+    }
+
+    /// A clock that advances a microsecond on every reading.
+    struct SteppingClock(std::cell::Cell<u64>);
+
+    impl crate::WallClock for SteppingClock {
+        fn now(&self) -> crate::WallInstant {
+            let micros = self.0.get();
+            self.0.set(micros + 1);
+            crate::WallInstant::from_elapsed(std::time::Duration::from_micros(micros))
+        }
+    }
+
+    #[test]
+    fn test_step_timed_gives_the_results_of_step() -> Result<()> {
+        let mut plain = with_ground()?;
+        let mut timed = with_ground()?;
+        let clock = SteppingClock(std::cell::Cell::new(0));
+        for _ in 0..120 {
+            plain.step()?;
+            timed.step_timed(&clock)?;
+        }
+        assert_eq!(plain, timed);
+        Ok(())
+    }
+
+    #[test]
+    fn test_step_timed_splits_the_tick_by_part() -> Result<()> {
+        let mut sim = with_ground()?;
+        let clock = SteppingClock(std::cell::Cell::new(0));
+        // Warm start puts nobody on the taxiways: pushbacks and roll-outs
+        // take a few minutes.
+        sim.run_ticks(210)?;
+        let mut times = crate::ops::PhaseTimes::default();
+        for _ in 0..30 {
+            times += sim.step_timed(&clock)?;
+        }
+        // Every reading after the first of a tick is attributed to one part.
+        let readings = clock.0.get();
+        assert_eq!(times.total().as_micros(), u128::from(readings) - 30);
+        for (part, time) in [
+            ("ground control", times.ground_control),
+            ("taxiing", times.taxiing),
+            ("flying", times.flying),
+            ("parked", times.parked),
+        ] {
+            assert!(!time.is_zero(), "{part}: {times:?}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_fingerprint_follows_the_state() -> Result<()> {
+        let mut a = germany(StartMode::Warm)?;
+        let mut b = germany(StartMode::Warm)?;
+        assert_eq!(a.fingerprint(), b.fingerprint());
+        a.run_ticks(30)?;
+        b.run_ticks(30)?;
+        assert_eq!(a.fingerprint(), b.fingerprint());
+        b.step()?;
+        assert_ne!(a.fingerprint(), b.fingerprint());
+        assert_ne!(simulation()?.fingerprint(), a.fingerprint());
         Ok(())
     }
 

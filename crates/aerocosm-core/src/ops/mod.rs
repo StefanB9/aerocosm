@@ -12,6 +12,7 @@ mod stats;
 mod tail;
 mod taxi;
 mod timeline;
+pub(crate) mod timing;
 mod view;
 
 pub(crate) use fleet::Operations;
@@ -31,6 +32,7 @@ pub fn active_runways_now(
 }
 pub use stats::{AirportStats, Statistics};
 pub use taxi::{TaxiGoal, TaxiRoute, TaxiState, VIA_NAMES};
+pub use timing::PhaseTimes;
 pub use view::{Callsign, FlightView, Holding};
 
 /// What an aircraft is doing on a leg, in the order it happens.
