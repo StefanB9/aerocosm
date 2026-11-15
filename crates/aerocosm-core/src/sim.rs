@@ -511,10 +511,19 @@ mod tests {
         Ok(())
     }
 
+    /// The process's monotonic clock: timed tails take real time.
+    struct RealClock(std::time::Instant);
+
+    impl crate::WallClock for RealClock {
+        fn now(&self) -> crate::WallInstant {
+            crate::WallInstant::from_elapsed(self.0.elapsed())
+        }
+    }
+
     #[test]
     fn test_step_timed_splits_the_tick_by_part() -> Result<()> {
         let mut sim = with_ground()?;
-        let clock = SteppingClock(std::cell::Cell::new(0));
+        let clock = RealClock(std::time::Instant::now());
         // Warm start puts nobody on the taxiways: pushbacks and roll-outs
         // take a few minutes.
         sim.run_ticks(210)?;
