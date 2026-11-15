@@ -20,6 +20,8 @@ use crate::host::Host;
 
 /// The committed history.
 pub(crate) const HISTORY: &str = "benchmarks/history.jsonl";
+/// Every run's record, recorded or not, outside the repository.
+pub(crate) const LAST_RUN: &str = "target/bench-runs.jsonl";
 /// The runner the world scenarios run in, built in release.
 const RUNNER: &str = "target/release/aerocosm";
 /// The hours whose ticks are measured (plan M5 D135).
@@ -230,9 +232,12 @@ pub(crate) fn run(host: &mut impl Host, options: &Options) -> Result<Outcome> {
         groups: groups.iter().map(|g| g.name().to_owned()).collect(),
         results: combine(&runs)?,
     };
+    // Kept before the history is touched: a run takes half an hour.
+    let line = record.to_line()?;
+    host.append(Path::new(LAST_RUN), &line)?;
     let recorded = clean && !options.quick;
     if recorded {
-        host.append(Path::new(HISTORY), &record.to_line()?)?;
+        host.append(Path::new(HISTORY), &line)?;
     }
     Ok(Outcome { record, recorded })
 }
@@ -349,8 +354,9 @@ mod tests {
         let mut host = FakeHost::new(false);
         let outcome = run(&mut host, &options(&[], false))?;
         assert!(outcome.recorded);
-        assert_eq!(host.appended.len(), 1);
-        assert!(host.appended[0].starts_with("benchmarks/history.jsonl: {\"format\":1"));
+        assert_eq!(host.appended.len(), 2);
+        assert!(host.appended[0].starts_with("target/bench-runs.jsonl: {\"format\":1"));
+        assert!(host.appended[1].starts_with("benchmarks/history.jsonl: {\"format\":1"));
         let record = &outcome.record;
         assert_eq!(record.commit, "abc123");
         assert_eq!(record.machine.cpu, "X");
@@ -388,7 +394,8 @@ mod tests {
     fn test_dirty_or_quick_runs_are_not_recorded() -> Result<()> {
         let mut host = FakeHost::new(true);
         assert!(!run(&mut host, &options(&[Group::Micro], false))?.recorded);
-        assert_eq!(host.appended, Vec::<String>::new());
+        assert_eq!(host.appended.len(), 1);
+        assert!(host.appended[0].starts_with("target/bench-runs.jsonl"));
         // Only the micro group: nothing built for the runner.
         assert!(!host.calls.iter().any(|c| c.contains("build --release")));
 

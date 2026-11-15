@@ -88,6 +88,10 @@ impl Host for SystemHost {
 
     fn append(&mut self, path: &Path, text: &str) -> Result<()> {
         use std::io::Write as _;
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("cannot create {}", parent.display()))?;
+        }
         let mut file = fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -95,5 +99,23 @@ impl Host for SystemHost {
             .with_context(|| format!("cannot open {}", path.display()))?;
         file.write_all(text.as_bytes())
             .with_context(|| format!("cannot write {}", path.display()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+
+    use super::*;
+
+    #[test]
+    fn test_append_creates_the_file_and_its_directory() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("xtask-append-{}", std::process::id()));
+        let file = root.join("benchmarks/history.jsonl");
+        SystemHost.append(&file, "one\n")?;
+        SystemHost.append(&file, "two\n")?;
+        assert_eq!(SystemHost.read_to_string(&file)?, "one\ntwo\n");
+        fs::remove_dir_all(&root)?;
+        Ok(())
     }
 }
