@@ -219,6 +219,32 @@ and the clean-tree rule in xtask; each bench target runs in a quick mode in the 
 (a few ticks, one frame), so benches cannot rot. The first record (this PR's commit, this
 container) is committed with the PR.
 
+*As built (PR 5):* the world scenarios live in the runner, `aerocosm bench
+<startup|tick-HH|day>`, which already reads the assets from disk; `cargo xtask bench` runs
+each in its own process. They settle 30 simulated minutes, not 60 ticks: warm start leaves
+the taxiways empty for minutes. The tick split times every sixteenth tail, rotating per tick,
+less the clock's own cost (the cheapest of 16 back-to-back readings): timing every tail
+inflated the parts by a quarter; now they come within about 10 % of the timed ticks'
+own mean, recorded beside them. The viewer became a library with a thin binary so that its
+benches can use it; its `bench` module prepares inputs and keeps the internals private, and
+the headless viewer (Bevy's render plugin without a backend, no winit, a 1440×900 window
+entity) runs every viewer plugin. Left out: schedule generation for Germany (the German world
+alone has too few observed airports to fit the traffic model; the world's schedule is timed
+in `startup/simulation`) and junction tests (internal to the core). The old world tick with
+regions E and L retired. Criterion benches compile with `--all-targets`; the runner's
+scenarios and the headless viewer run in the test suite; `cargo xtask bench --quick` runs
+everything briefly. Each run's record is also kept in `target/bench-runs.jsonl`.
+
+First record (commit 0deba8d, this container: 4 cores of a 2.1 GHz Xeon, no GPU): start-up
+10.9 s, of which `Simulation::new` 10.3 s; 408 MiB peak. Ticks (median / 95th percentile /
+worst, 12,100–14,400 airborne, 610–780 taxiing): 8.3 / 12.1 / 24 ms at 00:00, 7.3 / 10.4 /
+21 ms at 06:00, 8.7 / 12.5 / 29 ms at 12:00, 8.5 / 12.5 / 26 ms at 16:00 UTC. Of a timed
+tick of 8.7–10.3 ms, ground control takes 4.2–5.0 ms, parked tails 2.6–2.8, flying 1.2–1.8,
+taxiing 0.8–1.1. A simulated day: 843 s (102 ticks a second), 97,672 flights, memory 390 to
+429 MiB. The viewer's CPU work per frame (median): 15 ms at the world view and over Europe,
+21 ms at Frankfurt's stands, with about 259,000 entities. Noise: the same ticks vary by about
+a quarter from run to run on this shared machine.
+
 ### PR 6 — Scale and acceptance
 
 - Benchmark step, then optimisation as needed, 7-day world run, `docs/known-issues.md` and
