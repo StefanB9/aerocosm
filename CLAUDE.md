@@ -12,6 +12,7 @@ aerocosm/                              (workspace root)
 ├── docs/plan/                         Approved plans
 ├── docs/data-sources.md               Dataset sources, licences, snapshot, regeneration steps
 ├── docs/known-issues.md               Open problems with their cause and intended fix
+├── benchmarks/history.jsonl           Benchmark records, one per `cargo xtask bench` run (M5 D141)
 ├── assets/                            Committed data (each file is loaded by a guard test)
 │   ├── aircraft/types.json            Hand-curated aircraft catalog (incl. freighters; aliases
 │   │                                  for close variants, plan M5 D111)
@@ -27,7 +28,7 @@ aerocosm/                              (workspace root)
 ├── web/index.html                     Browser loader: picks the WebGPU or WebGL2 build
 └── crates/
     ├── aerocosm-core/                 (library — deterministic simulation, no I/O, no UI)
-    │   ├── benches/core.rs            Criterion micro-benchmarks
+    │   ├── benches/core.rs            Criterion micro-benchmarks (geometry, Frankfurt's ground)
     │   ├── tests/schedule.rs          Schedule generation on the shipped data
     │   ├── tests/ground.rs            Ground control on the shipped data: spacing, flow,
     │   │                              determinism
@@ -58,7 +59,8 @@ aerocosm/                              (workspace root)
     │       │                          separation, landing timelines, runway state, arrival
     │       │                          delay split); fleet/flow.rs applies it per tail, with
     │       │                          ground delays at off-block; fleet/stands.rs (stand
-    │       │                          bookkeeping); stats.rs (punctuality); fleet/ground/
+    │       │                          bookkeeping); stats.rs (punctuality); timing.rs (tick split for
+    │       │                          benchmarks, plan M5 D136); fleet/ground/
     │       │                          (plan M4 PR 4, PR 6: ground controller: control.rs
     │       │                          survey, clearances at junctions, deadlocks, pushback
     │       │                          approval; drive.rs stops and see-and-avoid; tight.rs
@@ -97,9 +99,13 @@ aerocosm/                              (workspace root)
     │       │                          (holding positions, exits), prune.rs (unroutable
     │       │                          stands), quality gate, queries
     │       └── geometry/              clip (rings, lines), Douglas–Peucker simplify
-    ├── aerocosm-viewer/               (binary — Bevy 0.20 viewer, native and wasm)
+    ├── aerocosm-viewer/               (library + binary — Bevy 0.20 viewer, native and wasm)
+    │   ├── benches/micro.rs           Criterion: the viewer's pure logic (plan M5 D139)
+    │   ├── benches/frames.rs          Frame times, headless: no window, no GPU (plan M5 D140)
     │   └── src/
-    │       ├── main.rs, data.rs       App assembly; embedded data (world, basemap) and fonts
+    │       ├── lib.rs, main.rs        App assembly (`run`); the binary only calls it
+    │       ├── bench.rs               Inputs for the benches: headless viewer, micro inputs
+    │       ├── data.rs                Embedded data (world, basemap) and fonts
     │       ├── start.rs               Opening view: the world, or `--view lat,lon,scale`
     │       ├── loading.rs             Ground region files via the asset server (disk, HTTP);
     │       │                          builds the simulation once all are in (plan M5 D132)
@@ -120,12 +126,16 @@ aerocosm/                              (workspace root)
     │       │                          to build and drop, M5 D132), route.rs (selected route)
     │       └── ui/                    Top bar, airport panel + boards + flow status (status.rs),
     │                                  flight panel with flow notes, labels
-    ├── xtask/                         (binary — project tooling: `cargo xtask web build|serve`)
+    ├── xtask/                         (binary — project tooling: `cargo xtask web build|serve`,
+    │                                  `cargo xtask bench [group…]|report`; host.rs: processes
+    │                                  and files behind a trait)
     └── aerocosm/                      (binary — headless CLI runner, tracing setup)
         └── src/
             ├── main.rs                Entry point
             ├── cli.rs                 clap argument definitions
-            └── run.rs                 `run` command (batch mode)
+            ├── run.rs                 `run` command (batch mode)
+            └── bench/                 `bench <scenario>`: world scenarios, one result per line
+                                       (plan M5 D135, D138)
 ```
 
 **Determinism:** the core never reads real time or global randomness. Time comes from
@@ -180,7 +190,9 @@ cargo fmt --all -- --check                    # Format check
 cargo run --release -p aerocosm -- run --world assets/world/world.bin --duration 24h   # Batch run of the world
 cargo run --release -p aerocosm-data -- import --ourairports <dir> --natural-earth <dir>   # Regenerate assets (docs/data-sources.md)
 cargo run --release -p aerocosm-data -- ground --opl <file>   # Regenerate the ground layouts (OSM, docs/data-sources.md)
-cargo bench -p aerocosm-core --bench core --profile bench-unwind   # Benchmarks (see below)
+cargo xtask bench                             # Benchmark suite → benchmarks/history.jsonl (README)
+cargo xtask bench report                      # Latest record against the previous one, same machine
+cargo bench -p aerocosm-core --bench core --profile bench-unwind   # Core micro-benchmarks alone
 cargo run -p aerocosm-viewer                  # Desktop viewer
 cargo xtask web build                         # Browser viewer → target/web (see below)
 cargo xtask web serve                         # Serve target/web on http://localhost:8080
