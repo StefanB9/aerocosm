@@ -5,7 +5,7 @@
 
 pub(crate) mod geometry;
 mod route;
-mod stream;
+pub(crate) mod stream;
 
 use aerocosm_core::{
     Id,

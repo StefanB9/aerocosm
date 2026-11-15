@@ -19,7 +19,16 @@ bevy = { workspace = true }
 lyon_tessellation = { workspace = true }
 
 [dev-dependencies]
+criterion = { workspace = true }
 proptest = { workspace = true }
+
+[[bench]]
+name = "frames"
+harness = false
+
+[[bench]]
+name = "micro"
+harness = false
 
 [lints]
 workspace = true
