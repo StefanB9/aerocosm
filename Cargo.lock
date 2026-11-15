@@ -106,6 +106,7 @@ dependencies = [
  "aerocosm-core",
  "anyhow",
  "clap",
+ "proptest",
  "tracing",
  "tracing-subscriber",
 ]

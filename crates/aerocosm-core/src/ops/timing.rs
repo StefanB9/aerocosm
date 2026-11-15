@@ -61,10 +61,22 @@ pub(crate) enum Part {
     Parked,
 }
 
-/// Receives the start of each part of a tick.
+/// One tail in this many is timed per tick, the others not at all: reading
+/// the clock at every tail would cost a sizeable share of the tick itself.
+/// The timed tails rotate from tick to tick, so over many ticks every tail is
+/// timed equally often.
+pub(crate) const SAMPLE: usize = 16;
+
+/// Pairs of readings that measure what a reading itself costs.
+const CALIBRATION: usize = 16;
+
+/// Receives the parts of a tick.
 pub(crate) trait Timer {
-    /// From now on the tick is in `part`.
+    /// From now on the tick is in `part` (a part of the whole fleet).
     fn enter(&mut self, part: Part);
+
+    /// Runs `step`, tail `index`'s work in `part`.
+    fn tail<R>(&mut self, index: usize, part: Part, step: impl FnOnce() -> R) -> R;
 }
 
 /// Times nothing.
@@ -73,61 +85,91 @@ pub(crate) struct NoTimer;
 impl Timer for NoTimer {
     #[inline]
     fn enter(&mut self, _part: Part) {}
+
+    #[inline]
+    fn tail<R>(&mut self, _index: usize, _part: Part, step: impl FnOnce() -> R) -> R {
+        step()
+    }
 }
 
-/// Attributes the time between readings of `clock` to the part entered at
-/// the earlier reading.
+/// Times the parts of the fleet exactly and every `SAMPLE`th tail, scaled
+/// up, with `clock`.
 pub(crate) struct ClockTimer<'a, C: WallClock> {
     clock: &'a C,
+    /// The tails timed this tick: those whose index has this remainder.
+    offset: usize,
+    /// What one reading of the clock adds to a timed tail: the cheapest of
+    /// a few back-to-back readings. Scaled up with the sample, it would
+    /// otherwise make cheap tails look expensive.
+    overhead: Duration,
     current: Option<(Part, WallInstant)>,
     times: PhaseTimes,
 }
 
 impl<'a, C: WallClock> ClockTimer<'a, C> {
-    pub(crate) const fn new(clock: &'a C) -> Self {
+    /// A timer for tick number `tick`.
+    pub(crate) fn new(clock: &'a C, tick: u64) -> Self {
+        let overhead = (0..CALIBRATION)
+            .map(|_| {
+                let start = clock.now();
+                clock.now().saturating_since(start)
+            })
+            .min()
+            .unwrap_or_default();
         Self {
             clock,
+            offset: usize::try_from(tick % SAMPLE as u64).unwrap_or(0),
+            overhead,
             current: None,
-            times: PhaseTimes {
-                flow_control: Duration::ZERO,
-                ground_control: Duration::ZERO,
-                taxiing: Duration::ZERO,
-                flying: Duration::ZERO,
-                parked: Duration::ZERO,
-            },
+            times: PhaseTimes::default(),
         }
     }
 
     /// The times so far, the last part ending now.
     pub(crate) fn finish(mut self) -> PhaseTimes {
-        self.close(self.clock.now());
+        self.close();
         self.times
     }
 
-    fn close(&mut self, now: WallInstant) {
+    fn slot(&mut self, part: Part) -> &mut Duration {
+        match part {
+            Part::FlowControl => &mut self.times.flow_control,
+            Part::GroundControl => &mut self.times.ground_control,
+            Part::Taxiing => &mut self.times.taxiing,
+            Part::Flying => &mut self.times.flying,
+            Part::Parked => &mut self.times.parked,
+        }
+    }
+
+    /// Ends the current part of the fleet, if any.
+    fn close(&mut self) {
         if let Some((part, since)) = self.current.take() {
-            let spent = now.saturating_since(since);
-            let slot = match part {
-                Part::FlowControl => &mut self.times.flow_control,
-                Part::GroundControl => &mut self.times.ground_control,
-                Part::Taxiing => &mut self.times.taxiing,
-                Part::Flying => &mut self.times.flying,
-                Part::Parked => &mut self.times.parked,
-            };
-            *slot += spent;
+            let spent = self.clock.now().saturating_since(since);
+            *self.slot(part) += spent;
         }
     }
 }
 
 impl<C: WallClock> Timer for ClockTimer<'_, C> {
     fn enter(&mut self, part: Part) {
-        // Consecutive tails in the same part share one reading.
-        if self.current.is_some_and(|(current, _)| current == part) {
-            return;
+        self.close();
+        self.current = Some((part, self.clock.now()));
+    }
+
+    fn tail<R>(&mut self, index: usize, part: Part, step: impl FnOnce() -> R) -> R {
+        self.close();
+        if index % SAMPLE != self.offset {
+            return step();
         }
-        let now = self.clock.now();
-        self.close(now);
-        self.current = Some((part, now));
+        let start = self.clock.now();
+        let value = step();
+        let spent = self
+            .clock
+            .now()
+            .saturating_since(start)
+            .saturating_sub(self.overhead);
+        *self.slot(part) += spent * u32::try_from(SAMPLE).unwrap_or(1);
+        value
     }
 }
 
@@ -149,19 +191,35 @@ mod tests {
     }
 
     #[test]
-    fn test_clock_timer_attributes_time_to_the_part_entered() {
+    fn test_clock_timer_times_parts_and_every_sampled_tail() {
         let clock = Stepping(Cell::new(0));
-        let mut timer = ClockTimer::new(&clock);
-        timer.enter(Part::GroundControl); // 0
-        timer.enter(Part::Flying); // 1
-        timer.enter(Part::Flying); // no reading
-        timer.enter(Part::Parked); // 2
-        timer.enter(Part::Flying); // 3
-        let spent = timer.finish(); // 4
+        // Tick 3: tails 3, 19, 35, … are timed. Calibration reads 2 × 16
+        // times and finds that a reading costs 1 ms.
+        let mut timer = ClockTimer::new(&clock, 3);
+        timer.enter(Part::FlowControl); // reads 32
+        timer.enter(Part::GroundControl); // reads 33 (end), 34 (start)
+        // Each tail's work takes 5 ms of the clock.
+        let mut ran = 0;
+        for index in 0..40 {
+            let part = if index == 19 {
+                Part::Parked
+            } else {
+                Part::Flying
+            };
+            ran += timer.tail(index, part, || {
+                clock.0.set(clock.0.get() + 5);
+                1
+            });
+        }
+        let spent = timer.finish();
+        assert_eq!(ran, 40, "every tail runs");
+        assert_eq!(spent.flow_control, Duration::from_millis(1));
+        // Closed by the first tail, reading 35.
         assert_eq!(spent.ground_control, Duration::from_millis(1));
-        assert_eq!(spent.flying, Duration::from_millis(2));
-        assert_eq!(spent.parked, Duration::from_millis(1));
-        assert_eq!(spent.total(), Duration::from_millis(4));
+        // A timed tail spans its work and one reading, less the reading's
+        // cost, and stands for 16 tails.
+        assert_eq!(spent.flying, Duration::from_millis(2 * 5 * 16));
+        assert_eq!(spent.parked, Duration::from_millis(5 * 16));
     }
 
     #[test]
@@ -175,9 +233,10 @@ mod tests {
         assert_eq!(sum.taxiing, Duration::from_millis(6));
         assert_eq!(sum.total(), Duration::from_millis(6));
         let clock = Stepping(Cell::new(0));
-        let mut timer = ClockTimer::new(&clock);
+        let mut timer = ClockTimer::new(&clock, 0);
         timer.enter(Part::FlowControl);
         NoTimer.enter(Part::Taxiing);
+        assert_eq!(NoTimer.tail(0, Part::Flying, || 7), 7);
         assert_eq!(timer.finish().flow_control, Duration::from_millis(1));
     }
 }

@@ -214,7 +214,7 @@ impl Simulation {
             .with_context(|| format!("cannot advance simulation past {}", self.time))?;
         let mut times = crate::ops::PhaseTimes::default();
         if let Some(operations) = &mut self.operations {
-            let mut marks = crate::ops::timing::ClockTimer::new(clock);
+            let mut marks = crate::ops::timing::ClockTimer::new(clock, self.ticks);
             operations
                 .step_with(&self.scenario, &mut marks)
                 .context("flight operations failed")?;
@@ -522,9 +522,6 @@ mod tests {
         for _ in 0..30 {
             times += sim.step_timed(&clock)?;
         }
-        // Every reading after the first of a tick is attributed to one part.
-        let readings = clock.0.get();
-        assert_eq!(times.total().as_micros(), u128::from(readings) - 30);
         for (part, time) in [
             ("ground control", times.ground_control),
             ("taxiing", times.taxiing),

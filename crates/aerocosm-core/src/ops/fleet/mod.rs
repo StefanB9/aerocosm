@@ -321,7 +321,7 @@ impl Operations {
         timer.enter(Part::GroundControl);
         self.control_ground(now);
         for index in 0..self.tails.len() {
-            timer.enter(match self.tails[index].motion {
+            let part = match self.tails[index].motion {
                 None => Part::Parked,
                 Some(motion) if motion.phase() == Phase::Boarding => Part::Parked,
                 Some(motion)
@@ -331,8 +331,9 @@ impl Operations {
                     Part::Taxiing
                 }
                 Some(_) => Part::Flying,
-            });
-            self.step_tail(scenario, index, now)
+            };
+            timer
+                .tail(index, part, || self.step_tail(scenario, index, now))
                 .with_context(|| format!("tail {index} at {now}"))?;
         }
         self.time = add(now, TICK)?;

@@ -19,6 +19,67 @@ pub(crate) struct Cli {
 pub(crate) enum Command {
     /// Run the simulation headless, as fast as possible, and report a summary.
     Run(RunArgs),
+    /// Run one benchmark scenario of the world and print its results, one
+    /// `bench <name> <value> <unit>` line each (plan M5 D135).
+    Bench(BenchArgs),
+}
+
+/// Options for [`Command::Bench`].
+#[derive(Debug, Clone, Args)]
+pub(crate) struct BenchArgs {
+    /// The scenario: startup, tick-HH (e.g. tick-12) or day.
+    pub(crate) scenario: crate::bench::world::ScenarioName,
+
+    /// Root random seed.
+    #[arg(long, default_value = "3", value_parser = clap::value_parser!(u64).map(RngSeed::new))]
+    pub(crate) seed: RngSeed,
+
+    /// Ticks run before measuring: warm start puts nobody on the taxiways,
+    /// and half an hour fills them.
+    #[arg(long, default_value = "1800")]
+    pub(crate) settle: u32,
+
+    /// Ticks measured one by one (default 600), or for `day` the ticks of
+    /// the run (default a day).
+    #[arg(long)]
+    pub(crate) ticks: Option<u32>,
+
+    /// Ticks timed by part after the measured ones.
+    #[arg(long, default_value = "100")]
+    pub(crate) split: u32,
+
+    /// The world asset.
+    #[arg(long, default_value = "assets/world/world.bin")]
+    pub(crate) world: PathBuf,
+
+    /// Aircraft catalog.
+    #[arg(long, default_value = "assets/aircraft/types.json")]
+    pub(crate) aircraft: PathBuf,
+
+    /// Observed traffic.
+    #[arg(long, default_value = "assets/traffic/observed.bin")]
+    pub(crate) observed: PathBuf,
+
+    /// Directory of the regional ground assets; every region is used.
+    #[arg(long, default_value = "assets/ground")]
+    pub(crate) ground: PathBuf,
+}
+
+impl BenchArgs {
+    /// How long the scenario runs.
+    pub(crate) fn lengths(&self) -> crate::bench::world::Lengths {
+        use crate::bench::world::{DAY_TICKS, Lengths, ScenarioName};
+        let default = if self.scenario == ScenarioName::Day {
+            DAY_TICKS
+        } else {
+            600
+        };
+        Lengths {
+            settle: self.settle,
+            ticks: self.ticks.unwrap_or(default),
+            split: self.split,
+        }
+    }
 }
 
 /// Options for [`Command::Run`].
@@ -78,6 +139,7 @@ mod tests {
         let cli = Cli::try_parse_from(command_line).context("arguments must parse")?;
         match cli.command {
             Command::Run(args) => Ok(args),
+            Command::Bench(_) => bail!("expected run"),
         }
     }
 
@@ -152,6 +214,39 @@ mod tests {
                 bail!("{argv:?} must be rejected");
             }
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_cli_bench_defaults() -> Result<()> {
+        use crate::bench::world::{DAY_TICKS, Lengths, ScenarioName};
+        let bench = |line: &[&str]| -> Result<BenchArgs> {
+            match Cli::try_parse_from(line)
+                .context("arguments must parse")?
+                .command
+            {
+                Command::Bench(args) => Ok(args),
+                Command::Run(_) => bail!("expected bench"),
+            }
+        };
+        let args = bench(&["aerocosm", "bench", "tick-12"])?;
+        assert_eq!(args.scenario, ScenarioName::Tick(12));
+        assert_eq!(args.seed, RngSeed::new(3));
+        assert_eq!(
+            args.lengths(),
+            Lengths {
+                settle: 1800,
+                ticks: 600,
+                split: 100
+            }
+        );
+        assert_eq!(
+            bench(&["aerocosm", "bench", "day"])?.lengths().ticks,
+            DAY_TICKS
+        );
+        let args = bench(&["aerocosm", "bench", "day", "--ticks", "10"])?;
+        assert_eq!(args.lengths().ticks, 10);
+        assert!(Cli::try_parse_from(["aerocosm", "bench", "noon"]).is_err());
         Ok(())
     }
 
