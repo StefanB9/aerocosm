@@ -269,6 +269,24 @@ passed by until something is due), with every world scenario's fingerprint uncha
 | D145 | **Frame-time readout.** A key toggles a small readout in the viewer, native and web: frame time (average and worst of the last seconds), ticks run per frame and the simulation's share of the frame. Its text is a pure, tested function. The user measures on real hardware; the numbers are recorded here |
 | D146 | **Acceptance run.** The world for 7 days, seed 3, ground everywhere: flights a day, German validation (D114), escapes, stand shares, longest taxi, tick time and memory, each against the definition of done, recorded here and in `docs/known-issues.md` |
 
+*As built (PR 6):* the optimisation of D142 keeps results identical: every world scenario's
+fingerprint, the simulated day's included, matches the PR 5 record. A first version left
+pushback approvals off the list of airports whose per-tick lists are emptied, and a lone
+aircraft's lists went stale; the fingerprints showed it at tick 37 and a test now checks the
+invariant. The simulated day takes 519 s instead of 843 s. The longest taxi (D144) is kept
+per airport and network and reported by the runner, with a warning above 75 minutes; the
+viewer's frame-time readout (D145) is on F3.
+
+Acceptance run (D146), the world for 7 days from Monday 2026-07-06, seed 3, ground at every
+gated airport, release build on this container's 4 cores: 704,209 flights (100,600 a day),
+peak 15,868 airborne, 6.6 ms per tick on average (151 ticks a second, 67 minutes in all),
+peak memory 447 MiB. Escapes 24,857 of 750,724 taxis (3.3 %), stand shares 14,117 (1.9 %),
+go-arounds 9,956; 70 % of departures and 60 % of arrivals on time. The first run found an
+arrival at Melbourne waiting at a spot for the whole week (a taxi route with no edges had no
+end node; fixed). In the second, 23 airports still have a taxi over 75 minutes (Phoenix 632)
+and escapes concentrate at a few airports (Ankara, Boston, O'Hare, Oakland, Madrid); agreed
+(2026-11-16): recorded in `docs/known-issues.md`, fixed in a milestone after M5.
+
 ## Definition of done
 
 - Every airport with scheduled service is in the network; real airlines fly it; the world
@@ -276,7 +294,9 @@ passed by until something is due), with every world scenario's fingerprint uncha
 - No hand-curated per-airport or per-airline input remains (D95).
 - German airports reproduce their ADV movements within the PR 2 tolerance (D105).
 - Ground control at every scheduled airport that passes the quality gate; a 7-day world
-  run with no stuck aircraft; escapes no worse than M4's rate.
+  run with no stuck aircraft; escapes no worse than M4's rate. *Not met (PR 6): 23 airports
+  have a taxi over 75 minutes and escapes are 3.3 %; recorded in `docs/known-issues.md` and
+  moved to a milestone after M5.*
 - A tick under 8 ms for the full world (D107).
 - The viewer, native and web, zooms from the globe to a stand anywhere.
 

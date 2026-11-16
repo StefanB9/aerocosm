@@ -5,7 +5,16 @@ happens, how often, why, and the intended fix.
 
 ## Ground control (plan M4 PR 4, PR 6, PR 7)
 
-### Escapes at about 2 % of taxis
+### Escapes at about 3 % of taxis over a world week
+
+**Over a week (plan M5 PR 6):** the 7-day world run (seed 3, from Monday 6 July, every
+gated airport under ground control) has 24,857 escapes in 750,724 taxis (3.3 %), worse than
+M4's 2.3 %; the PR 3 figures below come from a 4-hour European morning, when the American
+hubs are quiet. Escapes concentrate at a few airports: Ankara (escapes equal to 49 % of its
+movements), Boston (28 %), Chicago O'Hare (25 %, 3,768 escapes), Oakland (20 %), Madrid
+(18 %), Frankfurt (10 %); fifteen airports have two thirds of all escapes. **Decision
+(2026-11-16):** recorded; the fix moves to a milestone after M5, with the long taxis below.
+
 
 **What:** an aircraft that gives way in a waiting cycle for a minute, or waits half an hour
 outside a runway queue, is sent another way if there is one (D94) and otherwise cleared
@@ -36,6 +45,21 @@ cleared one for it (escapes 40/61/40, worse) and letting aircraft pass a waiting
 **Intended fix:** clear a junction only to the first aircraft in line for it; one clearance
 for both junctions of a short stub, the arrival holding before the first; published or
 curated one-way flows (D84).
+
+### Taxis over 75 minutes
+
+**What:** in the 7-day world run, 23 airports have a controlled taxi longer than M4's limit of
+75 minutes: Phoenix 632 minutes, Ankara 242, O'Hare 208, Stockholm Arlanda 168, Madrid 167,
+Portland 164, Boston 153, Seattle 152. At the end of the week an O'Hare taxi had been under
+way for 147 minutes. The runner reports the longest taxi per airport and warns above the
+limit (plan M5 D144).
+
+**Why:** not yet diagnosed; the same airports have the most escapes, so gridlock that the
+escapes do not resolve is likely. One cause is fixed (PR 6): an arrival whose waiting spot
+was its runway exit got a taxi without an end node and waited at Melbourne for the whole
+week.
+
+**Decision (2026-11-16):** recorded; diagnosis and fixes in a milestone after M5.
 
 ### Taxi delays at Frankfurt
 
@@ -71,7 +95,12 @@ smaller than their largest freighters (D119).
 
 **Decision:** reported as a statistic.
 
-### Benchmark above the 1 ms target
+### Benchmark above the 1 ms target (superseded)
+
+**Superseded by plan M5 D107 and D142:** the benchmark now measures the real world (`cargo
+xtask bench`, `benchmarks/history.jsonl`), with a target of 8 ms for the 95th percentile of
+a tick; see the plan's PR 6 notes for the figures.
+
 
 **What:** the 15k-aircraft benchmark takes about 3.8 ms per tick with ground control
 (PR 7; dev before PR 6: 3.5 ms), above the D74 target of 1 ms.
