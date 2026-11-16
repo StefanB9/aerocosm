@@ -11,7 +11,7 @@ use super::{
 use crate::{
     AircraftType, Id, LatLon,
     geo::{Polyline, Route, Segment},
-    ground::{GroundNetwork, Node},
+    ground::{GroundNetwork, Node, TAXI_SPEED},
     ops::{
         motion::{FINAL_LENGTH, Profile, ProfileInputs, SHORT_FINAL},
         procedure::{arrival_points, climb_out_distance, departure_turn_point},
@@ -22,12 +22,22 @@ use crate::{
     world::{Airport, RunwayDesignator, RunwayEnd, World},
 };
 
+/// What a runway end costs a flight beyond flying and taxiing, s, given
+/// the end and the ends its airport's mode allows.
+pub(crate) type RunwayCost<'a> = &'a dyn Fn(&RunwayEnd, &[RunwayDesignator]) -> f64;
+
 /// The ground layouts a leg is planned on, and where it leaves from.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub(crate) struct LegGround<'a> {
     pub(crate) network: &'a GroundNetwork,
     /// The stand, or the node after remote boarding, at a mapped origin.
     pub(crate) origin: Option<Origin>,
+    /// Per departure runway end at the origin, in how many seconds its next
+    /// free turn comes (plan M6 D151); `None`: at once everywhere.
+    pub(crate) turn_in: Option<RunwayCost<'a>>,
+    /// Per arrival runway end at the destination, what landing there costs
+    /// on the ground, s (plan M6 D152); `None`: the same everywhere.
+    pub(crate) landing_cost: Option<RunwayCost<'a>>,
 }
 
 /// A runway end in use: threshold, heading, runway index and designator.
@@ -39,6 +49,15 @@ const RUNWAY_MARGIN: f64 = 0.75;
 /// Departures prefer the parallel runway nearest a point this far along
 /// the course, m.
 const SIDE_PROBE: f64 = 5_000.0;
+/// A departure runway is as much worse per degree off the course (and per
+/// kilometre the course lies off its centreline) as this many seconds on
+/// the ground.
+const COURSE_WEIGHT: f64 = 2.0;
+/// A runway the aircraft finds no taxi route to counts as this far away, s.
+const UNROUTED: f64 = 1_800.0;
+/// Speed in the terminal area, for comparing the ways to the finals of
+/// two runways, m/s (about 400 kt).
+const TERMINAL_SPEED: f64 = 200.0;
 /// Turn radius of procedures: 210 kt at 25° of bank.
 const TURN_RADIUS: f64 = 2_550.0;
 /// A missed approach flies on this far past the threshold before turning,
@@ -63,7 +82,7 @@ fn runway_end(
     airport: Id<Airport>,
     aircraft: &AircraftType,
     use_: Use,
-    score: impl Fn(&RunwayEnd) -> f64,
+    score: impl Fn(&RunwayEnd, &[RunwayDesignator]) -> f64,
     fallback: Degrees,
 ) -> Result<End> {
     let place = world.airport(airport).context("airport id out of range")?;
@@ -75,7 +94,7 @@ fn runway_end(
                 Use::Departure => &mode.departures,
                 Use::Arrival => &mode.arrivals,
             };
-            mode_runway(runways, allowed, min_length, score)
+            mode_runway(runways, allowed, min_length, |end| score(end, allowed))
         });
     let choice: Option<RunwayChoice> =
         from_mode.or_else(|| runway_in_use(runways, prevailing_wind(place), min_length));
@@ -254,15 +273,27 @@ pub(crate) fn plan_leg(
     let ahead = from
         .location()
         .destination(direct, Meters::from_raw(SIDE_PROBE));
-    // Depart from the mode's runway closest to the course; land on the one
-    // whose final is nearest the origin.
+    let wingspan = aircraft.wingspan();
+    // Depart from the mode's runway it is off soonest from (plan M6 D151):
+    // the taxi there or the wait for its turn, whichever is longer, and
+    // the turn onto its course.
+    let taxi_to = |end: &RunwayEnd| {
+        let Some((layout, from)) = ground.network.airport(origin).zip(ground.origin) else {
+            return 0.0;
+        };
+        departure(layout, from, (end.designator(), end.threshold()), wingspan)
+            .map_or(UNROUTED, |plan| plan.taxi.length().value() / TAXI_SPEED)
+    };
     let (departure_point, departure_course, departure_runway) = runway_end(
         world,
         traffic,
         origin,
         aircraft,
         Use::Departure,
-        |end| departure_score(end, direct, ahead),
+        |end, allowed| {
+            let turn = ground.turn_in.map_or(0.0, |turn_in| turn_in(end, allowed));
+            taxi_to(end).max(turn) + COURSE_WEIGHT * departure_score(end, direct, ahead)
+        },
         direct,
     )?;
     let (arrival, arrival_course, arrival_runway) = runway_end(
@@ -271,17 +302,21 @@ pub(crate) fn plan_leg(
         destination,
         aircraft,
         Use::Arrival,
-        |end| {
-            end.threshold()
+        // Land on the one whose final is nearest the origin, unless the
+        // ground there costs more than the way round (plan M6 D152).
+        |end, allowed| {
+            let flown = end
+                .threshold()
                 .destination(reverse(end.true_heading()), Meters::from_raw(FINAL_LENGTH))
                 .distance_to(from.location())
                 .value()
+                / TERMINAL_SPEED;
+            flown + ground.landing_cost.map_or(0.0, |cost| cost(end, allowed))
         },
         direct,
     )?;
 
     let mut inputs = profile_inputs(aircraft, from, to);
-    let wingspan = aircraft.wingspan();
     let out = taxi_out(
         ground,
         origin,
@@ -370,6 +405,8 @@ mod tests {
         LegGround {
             network: &NO_GROUND,
             origin: None,
+            turn_in: None,
+            landing_cost: None,
         }
     }
 
@@ -646,6 +683,8 @@ mod tests {
             LegGround {
                 network,
                 origin: Some(Origin::Stand(Id::from_usize(stand)?)),
+                turn_in: None,
+                landing_cost: None,
             },
             a320(&data)?,
             frankfurt,
@@ -704,6 +743,131 @@ mod tests {
             gate.distance_to(muc_point).value() < 1.0,
             "provisional taxi-in"
         );
+        Ok(())
+    }
+
+    /// The departure runway end of a leg from Munich's stand `stand`.
+    fn munich_departure(
+        stand: usize,
+        to: &str,
+        turn_in: Option<RunwayCost<'_>>,
+    ) -> Result<(RunwayDesignator, f64)> {
+        let data = data()?;
+        let network = GROUND.as_ref().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let leg = plan_leg(
+            &data.world,
+            &data.traffic,
+            LegGround {
+                network,
+                origin: Some(Origin::Stand(Id::from_usize(stand)?)),
+                turn_in,
+                landing_cost: None,
+            },
+            a320(&data)?,
+            airport(&data, "EDDM")?,
+            airport(&data, to)?,
+        )?;
+        Ok((
+            leg.path.departure_end.context("a runway end")?,
+            leg.path.taxi_out.length().value(),
+        ))
+    }
+
+    #[test]
+    fn test_departures_take_the_runway_they_are_off_soonest_from() -> Result<()> {
+        let network = GROUND.as_ref().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let data = data()?;
+        let layout = network
+            .airport(airport(&data, "EDDM")?)
+            .context("MUC layout")?;
+        // From a stand much nearer one runway, flights north and south-west
+        // both take that runway (unmapped they split by side)…
+        let mut checked = 0;
+        for stand in (0..layout.stands().len()).step_by(7) {
+            let (north, north_taxi) = munich_departure(stand, "EDDH", None)?;
+            let (south, south_taxi) = munich_departure(stand, "LSZH", None)?;
+            if north != south {
+                // Near the middle the side of the course still decides, and
+                // neither taxi is much longer than the other.
+                assert!(
+                    (north_taxi - south_taxi).abs() < 2_000.0,
+                    "stand {stand}: {north_taxi:.0} m to {north}, {south_taxi:.0} m to {south}"
+                );
+                continue;
+            }
+            // …until that runway's queue is long: then the other.
+            let busy = |end: &RunwayEnd, _: &[RunwayDesignator]| {
+                if end.designator() == north {
+                    3_600.0
+                } else {
+                    0.0
+                }
+            };
+            let (other, _) = munich_departure(stand, "EDDH", Some(&busy))?;
+            assert_ne!(other, north, "stand {stand}");
+            // A queue shorter than the taxi there changes nothing.
+            let short = |end: &RunwayEnd, _: &[RunwayDesignator]| {
+                if end.designator() == north { 60.0 } else { 0.0 }
+            };
+            assert_eq!(munich_departure(stand, "EDDH", Some(&short))?.0, north);
+            checked += 1;
+        }
+        assert!(checked >= 5, "{checked} stands near one runway");
+        Ok(())
+    }
+
+    #[test]
+    fn test_arrivals_weigh_what_a_runway_costs_on_the_ground() -> Result<()> {
+        let data = data()?;
+        let (frankfurt, munich) = (airport(&data, "EDDF")?, airport(&data, "EDDM")?);
+        let lands_on = |cost: Option<RunwayCost<'_>>| -> Result<RunwayDesignator> {
+            let leg = plan_leg(
+                &data.world,
+                &data.traffic,
+                LegGround {
+                    landing_cost: cost,
+                    ..unmapped()
+                },
+                a320(&data)?,
+                frankfurt,
+                munich,
+            )?;
+            let index = leg.path.arrival_runway.context("a runway")?;
+            let threshold = leg.path.landing.point_at(Meters::default());
+            data.world.runways_of(munich)[index]
+                .ends()
+                .iter()
+                .min_by(|a, b| {
+                    let near = |end: &RunwayEnd| end.threshold().distance_to(threshold).value();
+                    near(a).total_cmp(&near(b))
+                })
+                .map(RunwayEnd::designator)
+                .context("an end")
+        };
+        let by_direction = lands_on(None)?;
+        // Ten minutes more on the ground there: the other parallel runway,
+        // of the same mode.
+        let seen = std::cell::RefCell::new(Vec::new());
+        let dear = |end: &RunwayEnd, allowed: &[RunwayDesignator]| {
+            seen.borrow_mut().clone_from(&allowed.to_vec());
+            if end.designator() == by_direction {
+                600.0
+            } else {
+                0.0
+            }
+        };
+        let other = lands_on(Some(&dear))?;
+        assert_ne!(other, by_direction);
+        assert!(seen.borrow().contains(&by_direction) && seen.borrow().contains(&other));
+        // A second does not outweigh the direction it comes from.
+        let slight = |end: &RunwayEnd, _: &[RunwayDesignator]| {
+            if end.designator() == by_direction {
+                1.0
+            } else {
+                0.0
+            }
+        };
+        assert_eq!(lands_on(Some(&slight))?, by_direction);
         Ok(())
     }
 

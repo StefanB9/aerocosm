@@ -278,6 +278,8 @@ impl Operations {
             LegGround {
                 network: scenario.ground(),
                 origin,
+                turn_in: None,
+                landing_cost: None,
             },
             aircraft,
             flight.origin(),
