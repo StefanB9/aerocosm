@@ -13,7 +13,8 @@ M4's 2.3 %; the PR 3 figures below come from a 4-hour European morning, when the
 hubs are quiet. Escapes concentrate at a few airports: Ankara (escapes equal to 49 % of its
 movements), Boston (28 %), Chicago O'Hare (25 %, 3,768 escapes), Oakland (20 %), Madrid
 (18 %), Frankfurt (10 %); fifteen airports have two thirds of all escapes. **Decision
-(2026-11-16):** recorded; the fix moves to a milestone after M5, with the long taxis below.
+(2026-11-16):** fixed in M6 (`docs/plan/m6-ground-flow.md`), with the long taxis below; the
+causes are listed there.
 
 
 **What:** an aircraft that gives way in a waiting cycle for a minute, or waits half an hour
@@ -54,12 +55,15 @@ Portland 164, Boston 153, Seattle 152. At the end of the week an O'Hare taxi had
 way for 147 minutes. The runner reports the longest taxi per airport and warns above the
 limit (plan M5 D144).
 
-**Why:** not yet diagnosed; the same airports have the most escapes, so gridlock that the
-escapes do not resolve is likely. One cause is fixed (PR 6): an arrival whose waiting spot
+**Why (diagnosed 2026-11-16, plan M6):** stands rated too small leave arrivals waiting at
+spots on the taxiways (Ankara: 6 of 62 stands fit an A320); departures chosen by direction of
+flight alone queue for one runway (Boston, Frankfurt, Madrid); the flat 5 m/s keeps long
+taxis on the network; and at Phoenix an aircraft stood for ten hours short of a junction,
+never asking for the taxiway lock it needed. One cause is fixed (PR 6): an arrival whose waiting spot
 was its runway exit got a taxi without an end node and waited at Melbourne for the whole
 week.
 
-**Decision (2026-11-16):** recorded; diagnosis and fixes in a milestone after M5.
+**Decision (2026-11-16):** fixed in M6 (`docs/plan/m6-ground-flow.md`).
 
 ### Taxi delays at Frankfurt
 
