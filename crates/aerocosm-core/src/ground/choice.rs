@@ -114,7 +114,7 @@ impl AirportGround {
                     .map(Stand::max_wingspan)
                     .filter(|limit| *limit < wingspan)
                     .unwrap_or(wingspan);
-                !self.stands_clear((stand, wingspan), (other, fits))
+                !self.neighbours_clear((stand, wingspan), (other, fits))
             })
             .count()
     }

@@ -105,7 +105,7 @@ impl StandBook {
         self.is_free(airport, stand)
             && layout.neighbours(stand).iter().all(|&other| {
                 self.span_on(airport, other)
-                    .is_none_or(|span| layout.stands_clear((stand, wingspan), (other, span)))
+                    .is_none_or(|span| layout.neighbours_clear((stand, wingspan), (other, span)))
             })
     }
 

@@ -211,7 +211,7 @@ impl AirportGround {
                     self.neighbours(stand)
                         .iter()
                         .filter(|other| !variants.contains(other))
-                        .all(|&other| self.stands_clear((stand, span), (other, span)))
+                        .all(|&other| self.neighbours_clear((stand, span), (other, span)))
                 };
                 let span = CODES
                     .iter()
@@ -455,6 +455,15 @@ impl AirportGround {
         if !self.neighbours(one.0).contains(&other.0) {
             return one.0 != other.0;
         }
+        self.neighbours_clear(one, other)
+    }
+
+    /// [`Self::stands_clear`] for a stand and one of its neighbours.
+    pub(crate) fn neighbours_clear(
+        &self,
+        one: (Id<Stand>, Meters),
+        other: (Id<Stand>, Meters),
+    ) -> bool {
         match (self.parked(one.0, one.1), self.parked(other.0, other.1)) {
             (Some(a), Some(b)) => a.keeps_clear_of(&b),
             _ => true,

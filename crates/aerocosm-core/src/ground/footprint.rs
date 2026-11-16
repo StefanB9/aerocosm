@@ -37,32 +37,30 @@ pub struct Parked {
 }
 
 impl Parked {
-    /// The centre of its footprint: a square as long as its wingspan (true
-    /// to about a tenth for airliners) reaching back from the stand point.
-    fn centre(&self) -> [f64; 2] {
-        let (sin, cos) = self.heading.to_radians().sin_cos();
-        let half = self.wingspan / 2.0;
-        [self.at[0] - sin * half, self.at[1] - cos * half]
-    }
-
-    /// The distance to `other`'s footprint centre along its own axes (the
-    /// larger of the two), m.
-    fn gap_to(&self, other: &Self) -> f64 {
-        let (sin, cos) = self.heading.to_radians().sin_cos();
-        let (mine, theirs) = (self.centre(), other.centre());
-        let delta = [theirs[0] - mine[0], theirs[1] - mine[1]];
-        let along = delta[0] * sin + delta[1] * cos;
-        let across = delta[0] * cos - delta[1] * sin;
-        along.abs().max(across.abs())
-    }
-
     /// Whether it and `other` keep the wingtip clearance of the larger of
     /// the two, allowing for mapping error: stands side by side are judged
     /// by their spacing, rows parked nose to nose by the gap between the
-    /// noses. Two squares are apart if they are along an axis of either.
+    /// noses. A footprint is a square as long as the wingspan (true to
+    /// about a tenth for airliners) reaching back from the stand point; two
+    /// squares are apart if they are along an axis of either.
     pub fn keeps_clear_of(&self, other: &Self) -> bool {
+        let mine = self.heading.to_radians().sin_cos();
+        let theirs = other.heading.to_radians().sin_cos();
+        let centre = |parked: &Self, (sin, cos): (f64, f64)| {
+            let half = parked.wingspan / 2.0;
+            [parked.at[0] - sin * half, parked.at[1] - cos * half]
+        };
+        let (here, there) = (centre(self, mine), centre(other, theirs));
+        let delta = [there[0] - here[0], there[1] - here[1]];
+        // The distance between the centres along the axes of one of them,
+        // the larger of the two.
+        let gap = |(sin, cos): (f64, f64)| {
+            let along = delta[0] * sin + delta[1] * cos;
+            let across = delta[0] * cos - delta[1] * sin;
+            along.abs().max(across.abs())
+        };
         let larger = self.wingspan.max(other.wingspan);
-        self.gap_to(other).max(other.gap_to(self)) * MAPPING_TOLERANCE
+        gap(mine).max(gap(theirs)) * MAPPING_TOLERANCE
             >= f64::midpoint(self.wingspan, other.wingspan) + wingtip_clearance(larger)
     }
 }
