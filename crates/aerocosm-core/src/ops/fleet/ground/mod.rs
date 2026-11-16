@@ -13,6 +13,9 @@ mod departure;
 mod drive;
 mod reroute;
 mod state;
+mod table;
+
+pub(super) use table::Table;
 mod tight;
 
 use super::Operations;
@@ -217,6 +220,11 @@ impl Airside {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(super) struct GroundControl {
     airports: Vec<Option<Airside>>,
+    /// The airports whose lists of the tick hold anything, and a flag per
+    /// airport for it: only those are emptied for the next survey (plan M5
+    /// D136).
+    surveyed: Vec<usize>,
+    is_surveyed: Vec<bool>,
 }
 
 impl GroundControl {
@@ -273,7 +281,73 @@ impl GroundControl {
                 });
             }
         }
-        Self { airports }
+        Self {
+            is_surveyed: vec![false; airports.len()],
+            surveyed: Vec::new(),
+            airports,
+        }
+    }
+
+    /// Notes that `airport`'s lists of the tick are written to.
+    pub(super) fn mark_surveyed(&mut self, airport: Id<Airport>) {
+        let index = airport.as_usize();
+        if let Some(flag) = self.is_surveyed.get_mut(index)
+            && !*flag
+        {
+            *flag = true;
+            self.surveyed.push(index);
+        }
+    }
+
+    /// Counts one more departure cleared to `runway` at `airport` this tick.
+    pub(super) fn count_departing(&mut self, airport: Id<Airport>, runway: RunwayDesignator) {
+        self.mark_surveyed(airport);
+        if let Some(airside) = self.airside_mut(airport) {
+            *airside.departing.entry(runway).or_insert(0) += 1;
+        }
+    }
+
+    /// The airports whose lists of the tick hold entries but that are not
+    /// marked to be emptied: always none (plan M5 D136).
+    #[cfg(test)]
+    pub(super) fn unmarked_with_entries(&self) -> Vec<usize> {
+        self.airports
+            .iter()
+            .enumerate()
+            .filter_map(|(index, airside)| Some((index, airside.as_ref()?)))
+            .filter(|(index, airside)| {
+                let written = !airside.taxiing.is_empty()
+                    || !airside.seen.is_empty()
+                    || airside.occupied.iter().any(|list| !list.is_empty())
+                    || airside.on_chain.iter().any(|list| !list.is_empty())
+                    || airside.departing.values().any(|count| *count > 0);
+                written && !self.is_surveyed.get(*index).copied().unwrap_or(false)
+            })
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    /// Empties the lists of the tick wherever they were written to.
+    pub(super) fn forget_survey(&mut self) {
+        for index in self.surveyed.drain(..) {
+            if let Some(flag) = self.is_surveyed.get_mut(index) {
+                *flag = false;
+            }
+            let Some(airside) = self.airports.get_mut(index).and_then(Option::as_mut) else {
+                continue;
+            };
+            airside.taxiing.clear();
+            airside.seen.clear();
+            for list in &mut airside.occupied {
+                list.clear();
+            }
+            for list in &mut airside.on_chain {
+                list.clear();
+            }
+            for count in airside.departing.values_mut() {
+                *count = 0;
+            }
+        }
     }
 
     fn airside(&self, airport: Id<Airport>) -> Option<&Airside> {
@@ -505,36 +579,39 @@ impl Operations {
                 .map_or(TaxiGoal::Spot, |s| TaxiGoal::Stand(s.name())),
             Target::Spot(_) => TaxiGoal::Spot,
         };
-        self.taxis[index] = Some(Taxi {
-            airport,
-            target,
-            goal,
-            stand: None,
-            push: 0.0,
-            edges: route.edges().to_vec(),
-            offset,
-            end_node,
-            passages,
-            runs,
-            next: 0,
-            locked: 0,
-            limit: offset,
-            leader: None,
-            end,
-            started: ms(now),
-            unimpeded: taxi_millis(end - offset),
-            waiting_since: None,
-            queued_at: None,
-            waiting_for: None,
-            deadlock_since: None,
-            queued: false,
-            waiting: None,
-            spot_since: 0,
-            escaped: false,
-            crossing: None,
-            reroutes: 0,
-            points: points.clone(),
-        });
+        self.taxis.set(
+            index,
+            Taxi {
+                airport,
+                target,
+                goal,
+                stand: None,
+                push: 0.0,
+                edges: route.edges().to_vec(),
+                offset,
+                end_node,
+                passages,
+                runs,
+                next: 0,
+                locked: 0,
+                limit: offset,
+                leader: None,
+                end,
+                started: ms(now),
+                unimpeded: taxi_millis(end - offset),
+                waiting_since: None,
+                queued_at: None,
+                waiting_for: None,
+                deadlock_since: None,
+                queued: false,
+                waiting: None,
+                spot_since: 0,
+                escaped: false,
+                crossing: None,
+                reroutes: 0,
+                points: points.clone(),
+            },
+        );
         Polyline::new(&points).ok()
     }
 

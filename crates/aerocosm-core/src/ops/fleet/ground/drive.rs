@@ -68,7 +68,7 @@ impl Operations {
             .as_ref()
             .is_some_and(|taxi| !taxi.escaped && overdue(taxi, now))
             && !self.reroute(scenario, index, motion, now)
-            && let Some(taxi) = self.taxis[index].as_mut()
+            && let Some(taxi) = self.taxis.get_mut(index)
         {
             taxi.escaped = true;
             let airport = taxi.airport;
@@ -85,7 +85,7 @@ impl Operations {
         let next = (along + TAXI_SPEED * dt).min(stop.at.max(along));
         self.claim_entered(index, along, next);
         motion.taxi_at(next, (next - along) / dt);
-        let taxi = self.taxis[index].as_mut()?;
+        let taxi = self.taxis.get_mut(index)?;
         taxi.limit = stop.at.max(along);
         taxi.leader = stop.by.filter(|_| stop.following);
         if next - along < 1e-3 && stop.by.is_some() {
@@ -113,7 +113,7 @@ impl Operations {
                 // The taxi stays on record until line-up: it still holds
                 // the holding position.
                 motion.queue_now();
-                if let Some(taxi) = self.taxis[index].as_mut() {
+                if let Some(taxi) = self.taxis.get_mut(index) {
                     taxi.queued_at = Some(end);
                 }
                 None
@@ -121,11 +121,11 @@ impl Operations {
             Target::Stand(_) => {
                 motion.arrive_now();
                 self.ground.release(airport, Self::owner(index));
-                self.taxis[index] = None;
+                self.taxis.clear(index);
                 Some(Event::Arrived)
             }
             Target::Spot(_) => {
-                if let Some(taxi) = self.taxis[index].as_mut() {
+                if let Some(taxi) = self.taxis.get_mut(index) {
                     taxi.waiting = Some(end);
                     taxi.spot_since = end;
                 }

@@ -117,22 +117,22 @@ impl Operations {
             .context("cannot build the taxi-out")?;
         // The pushback is approved with the taxilane clear where it ends and
         // nobody coming the other way (D82, D93).
-        if let Some(taxi) = self.taxis[index].as_mut() {
+        if let Some(taxi) = self.taxis.get_mut(index) {
             taxi.stand = parked.map(crate::ground::Stand::name);
             taxi.push = push;
             taxi.escaped = escape;
         }
         if !self.clear_way(index, push, push + PUSH_CLEAR, f64::INFINITY) {
             self.ground.release(origin, Self::owner(index));
-            self.taxis[index] = None;
+            self.taxis.clear(index);
             return Ok(Some(SimDuration::from_millis(GATE_RETRY)));
         }
         if escape {
             self.stats.ground_conflict(origin);
         }
         self.gate_blocked[index] = None;
-        if let (Some(airside), Some(runway)) = (self.ground.airside_mut(origin), runway) {
-            *airside.departing.entry(runway).or_insert(0) += 1;
+        if let Some(runway) = runway {
+            self.ground.count_departing(origin, runway);
         }
         if let Some(path) = self.paths[index].as_mut() {
             let length = path.set_taxi_out(polyline);
@@ -165,8 +165,9 @@ impl Operations {
         // this runway, at any of its holding positions (plan M4 D91): only
         // then does the interval show what the runway can take.
         let queued = waited >= DEPARTURE_INTERVAL
-            || self.taxis.iter().enumerate().any(|(k, taxi)| {
-                taxi.as_ref().is_some_and(|taxi| {
+            || self.taxis.filled().iter().any(|&k| {
+                let k = k as usize;
+                self.taxis.get(k).is_some_and(|taxi| {
                     taxi.airport == airport
                         && taxi.target == Target::Hold
                         && self

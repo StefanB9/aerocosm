@@ -17,7 +17,7 @@ impl Operations {
         phase: Phase,
         speed: f64,
     ) -> Option<TaxiState> {
-        let taxi = self.taxis.get(index)?.as_ref()?;
+        let taxi = self.taxis.get(index)?;
         let to = taxi.goal;
         match phase {
             Phase::Pushback => return Some(TaxiState::Pushback { stand: taxi.stand }),
@@ -68,7 +68,7 @@ impl Operations {
 
     /// Tail `index`'s taxi route while it pushes back or taxies (D86).
     pub(crate) fn taxi_route(&self, index: usize) -> Option<TaxiRoute> {
-        let taxi = self.taxis.get(index)?.as_ref()?;
+        let taxi = self.taxis.get(index)?;
         let motion = self.tails.get(index)?.motion.as_ref()?;
         if !matches!(
             motion.phase(),

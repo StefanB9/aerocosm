@@ -135,7 +135,7 @@ impl Operations {
                 return Some((exit, polyline));
             }
             self.ground.release(airport, owner);
-            self.taxis[index] = None;
+            self.taxis.clear(index);
         }
         // No way off is clear: it waits on the runway at the first exit
         // nobody stands near (else its planned one), and the next arrival
@@ -253,7 +253,7 @@ impl Operations {
         let stand = self.find_stand(scenario, index, airport, airline, (near, Some(here)), false);
         if stand.is_none() && escape {
             self.ground.release(airport, Self::owner(index));
-            self.taxis[index] = None;
+            self.taxis.clear(index);
             self.parking[index] = super::super::remote::Parking::Remote(None);
             return true;
         }
@@ -266,7 +266,7 @@ impl Operations {
             )
         });
         let (Some(stand), Some(route)) = (stand, route) else {
-            if let Some(taxi) = self.taxis[index].as_mut() {
+            if let Some(taxi) = self.taxis.get_mut(index) {
                 taxi.waiting = Some(ms(now) + RETRY);
             }
             return false;
@@ -293,7 +293,7 @@ impl Operations {
         );
         // Taxiing on from a spot it reached regardless, it still is: it may
         // stand where another does.
-        if let Some(taxi) = self.taxis[index].as_mut() {
+        if let Some(taxi) = self.taxis.get_mut(index) {
             taxi.escaped = escaped;
         }
         if let (Some(path), Some(polyline)) = (self.paths[index].as_mut(), polyline) {

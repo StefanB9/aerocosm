@@ -31,12 +31,17 @@ impl Operations {
     /// waiting aircraft on as far as the way allows, the most urgent first;
     /// ties by how long they have waited, then tail index.
     pub(in crate::ops::fleet) fn control_ground(&mut self, now: SimTime) {
-        self.survey_ground();
-        self.report_blocked_runways(now);
-        self.find_deadlocks(now);
+        // The tails that taxi, in tail order: none starts or ends a taxi
+        // while the controller works.
+        let mut taxiing = std::mem::take(&mut self.taxiing);
+        taxiing.clear();
+        taxiing.extend(self.taxis.filled().iter().map(|&tail| tail as usize));
+        self.survey_ground(&taxiing);
+        self.report_blocked_runways(&taxiing, now);
+        self.find_deadlocks(&taxiing, now);
         let mut requests = std::mem::take(&mut self.requests);
         requests.clear();
-        for index in 0..self.taxis.len() {
+        for &index in &taxiing {
             if let Some(urgency) = self.request(index) {
                 let since = self.taxis[index]
                     .as_ref()
@@ -50,13 +55,14 @@ impl Operations {
             self.advance(index, now);
         }
         self.requests = requests;
+        self.taxiing = taxiing;
     }
 
     /// Tells the tower which runways a landing stands on, unable to vacate:
     /// the next arrival goes around (plan M4 D90).
-    fn report_blocked_runways(&mut self, now: SimTime) {
+    fn report_blocked_runways(&mut self, taxiing: &[usize], now: SimTime) {
         let until = time_of(ms(now) + crate::TICK.as_millis());
-        for index in 0..self.taxis.len() {
+        for &index in taxiing {
             let Some(key) = self.blocking_runway(index) else {
                 continue;
             };
@@ -105,40 +111,28 @@ impl Operations {
             // While it pushes back it blocks the taxilane where it ends up.
             Phase::Pushback => self
                 .taxis
-                .get(index)?
-                .as_ref()
+                .get(index)
                 .map(|taxi| taxi.push.max(motion.along())),
             Phase::TaxiOut | Phase::TaxiIn => Some(motion.along()),
             // Motion counts the queue from zero; it stands at its route's end.
-            Phase::Queue => self.taxis.get(index)?.as_ref().map(|taxi| taxi.end),
+            Phase::Queue => self.taxis.get(index).map(|taxi| taxi.end),
             _ => None,
         }
     }
 
     /// Where every taxiing aircraft is this tick (on which chains, in which
     /// junctions), and frees the junctions and chains they have left.
-    fn survey_ground(&mut self) {
-        for airside in self.ground.airports.iter_mut().flatten() {
-            airside.taxiing.clear();
-            airside.seen.clear();
-            for list in &mut airside.occupied {
-                list.clear();
-            }
-            for list in &mut airside.on_chain {
-                list.clear();
-            }
-            for count in airside.departing.values_mut() {
-                *count = 0;
-            }
-        }
-        for index in 0..self.taxis.len() {
+    fn survey_ground(&mut self, taxiing: &[usize]) {
+        self.ground.forget_survey();
+        for &index in taxiing {
             let Some(along) = self.along_of(index) else {
                 continue;
             };
             let owner = Self::owner(index);
-            let Some(taxi) = self.taxis[index].as_mut() else {
+            let Some(taxi) = self.taxis.get_mut(index) else {
                 continue;
             };
+            self.ground.mark_surveyed(taxi.airport);
             let Some(airside) = self.ground.airside_mut(taxi.airport) else {
                 continue;
             };
@@ -227,10 +221,10 @@ impl Operations {
     /// for each other to give way (D83); after `DEADLOCK_AFTER` it is
     /// cleared regardless. Marks those queueing behind a departure at its
     /// holding position too: the runway moves that queue.
-    fn find_deadlocks(&mut self, now: SimTime) {
+    fn find_deadlocks(&mut self, taxiing: &[usize], now: SimTime) {
         /// Cycles longer than this are not looked for.
         const LONGEST: usize = 16;
-        for index in 0..self.taxis.len() {
+        for &index in taxiing {
             let mut cycle = false;
             let mut gives_way = true;
             let mine = (self.urgency(index), index);
@@ -257,7 +251,7 @@ impl Operations {
                             .along_of(current)
                             .is_some_and(|along| along >= taxi.end - FOLLOW)
                 });
-            if let Some(taxi) = self.taxis[index].as_mut() {
+            if let Some(taxi) = self.taxis.get_mut(index) {
                 taxi.deadlock_since = if cycle && gives_way {
                     Some(taxi.deadlock_since.unwrap_or(ms(now)))
                 } else {
@@ -346,7 +340,7 @@ impl Operations {
     /// hold or `LOCK_AHEAD`, as far as nobody has locked them the other way.
     fn extend_locks(&mut self, index: usize, along: f64, now: SimTime) {
         let owner = Self::owner(index);
-        let Some(taxi) = self.taxis[index].as_mut() else {
+        let Some(taxi) = self.taxis.get_mut(index) else {
             return;
         };
         let Some(airside) = self.ground.airside_mut(taxi.airport) else {
@@ -437,7 +431,7 @@ impl Operations {
             if let Some(key) = key.filter(|_| runway_busy && !in_way) {
                 self.hold_short(index, key, now);
             }
-            if let Some(taxi) = self.taxis[index].as_mut() {
+            if let Some(taxi) = self.taxis.get_mut(index) {
                 taxi.waiting_since.get_or_insert(ms(now));
                 taxi.waiting_for = blocker.filter(|_| in_way);
             }
@@ -446,7 +440,7 @@ impl Operations {
         if let Some(key) = key {
             self.control.crossing(key, until);
         }
-        let Some(taxi) = self.taxis[index].as_mut() else {
+        let Some(taxi) = self.taxis.get_mut(index) else {
             return;
         };
         let airport = taxi.airport;
@@ -509,9 +503,7 @@ impl Operations {
     /// metres from where it is, or is on it.
     fn soon_on(&self, tail: u32, chain: u32, within: f64) -> bool {
         let k = tail as usize;
-        let (Some(taxi), Some(along)) =
-            (self.taxis.get(k).and_then(Option::as_ref), self.along_of(k))
-        else {
+        let (Some(taxi), Some(along)) = (self.taxis.get(k), self.along_of(k)) else {
             return false;
         };
         taxi.runs
@@ -527,7 +519,7 @@ impl Operations {
         let airside = self.ground.airside(airport)?;
         airside.taxiing.iter().find_map(|&other| {
             let k = other as usize;
-            let taxi = self.taxis.get(k)?.as_ref().filter(|_| k != index)?;
+            let taxi = self.taxis.get(k).filter(|_| k != index)?;
             let along = self.along_of(k)?;
             let moving = self.tails[k]
                 .motion
@@ -660,9 +652,11 @@ impl Operations {
         {
             return false;
         }
-        let Some(taxi) = self.taxis[index].as_mut() else {
+        let Some(taxi) = self.taxis.get_mut(index) else {
             return false;
         };
+        // Written to below: emptied with the rest before the next survey.
+        self.ground.mark_surveyed(taxi.airport);
         if let Some(airside) = self.ground.airside_mut(taxi.airport) {
             for run in taxi.runs.iter().take_while(|run| run.from < horizon) {
                 airside.lock(owner, run.chain, run.forward);
@@ -695,7 +689,7 @@ impl Operations {
     /// Tail `index` holds short of runway `key` and asks to cross; take-offs
     /// give way once it has waited long enough (plan M4 D77).
     fn hold_short(&mut self, index: usize, key: RunwayKey, now: SimTime) {
-        let Some(taxi) = self.taxis[index].as_mut() else {
+        let Some(taxi) = self.taxis.get_mut(index) else {
             return;
         };
         let since = match taxi.crossing {

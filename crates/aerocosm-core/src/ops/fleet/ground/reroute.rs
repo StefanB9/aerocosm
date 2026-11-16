@@ -57,10 +57,10 @@ impl Operations {
             extension,
         };
         let Some(polyline) = self.start_taxi(scenario, index, airport, start, now) else {
-            self.taxis[index] = Some(old);
+            self.taxis.set(index, old);
             return false;
         };
-        let Some(taxi) = self.taxis[index].as_mut() else {
+        let Some(taxi) = self.taxis.get_mut(index) else {
             return false;
         };
         taxi.passages = splice_passages(&old.passages, &taxi.passages, at);

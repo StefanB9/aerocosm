@@ -14,8 +14,8 @@ use start::Rotation;
 
 use self::{
     flow::Flow,
-    ground::{GroundControl, Taxi},
-    remote::Parking,
+    ground::{GroundControl, Table, Taxi},
+    remote::{Parking, next_look},
     stands::StandBook,
 };
 use super::{
@@ -96,11 +96,16 @@ pub(crate) struct Operations {
     /// Ground control at mapped airports (plan M4 PR 3).
     ground: GroundControl,
     /// Each tail's controlled taxi, while it taxies under control.
-    taxis: Vec<Option<Taxi>>,
+    taxis: Table<Taxi>,
     /// Since when each tail waits at its stand for a taxi plan, ms.
     gate_blocked: Vec<Option<i64>>,
     /// Clearance requests of the tick, reused (urgency, since, tail).
     requests: Vec<(u8, i64, usize)>,
+    /// When each tail is next looked at: a parked one when something is due,
+    /// any other every tick.
+    look_at: Vec<SimTime>,
+    /// The tails that taxi under control, this tick; reused.
+    taxiing: Vec<usize>,
     /// Points refused aircraft wait for, this tick: (airport, tail, point).
     /// Nobody less urgent is cleared onto them (D81).
     wanted: Vec<(usize, u32, u32)>,
@@ -212,10 +217,12 @@ impl Operations {
             stands: StandBook::new(scenario),
             parked: vec![None; tail_count],
             ground: GroundControl::new(scenario),
-            taxis: vec![None; tail_count],
+            taxis: Table::new(tail_count),
             gate_blocked: vec![None; tail_count],
             parking: vec![Parking::Stand; tail_count],
             requests: Vec::with_capacity(tail_count),
+            taxiing: Vec::new(),
+            look_at: vec![start; tail_count],
             wanted: Vec::new(),
             wanted_edges: Vec::new(),
             stats: {
@@ -321,6 +328,10 @@ impl Operations {
         timer.enter(Part::GroundControl);
         self.control_ground(now);
         for index in 0..self.tails.len() {
+            // Most of the fleet is parked with nothing due (plan M5 D136).
+            if self.look_at[index] > now {
+                continue;
+            }
             let part = match self.tails[index].motion {
                 None => Part::Parked,
                 Some(motion) if motion.phase() == Phase::Boarding => Part::Parked,
@@ -335,6 +346,12 @@ impl Operations {
             timer
                 .tail(index, part, || self.step_tail(scenario, index, now))
                 .with_context(|| format!("tail {index} at {now}"))?;
+            let tail = &self.tails[index];
+            self.look_at[index] = if tail.motion.is_none() {
+                next_look(self.parking[index], tail.boarding_from, tail.off_block)
+            } else {
+                now
+            };
         }
         self.time = add(now, TICK)?;
         Ok(())
@@ -471,7 +488,7 @@ impl Operations {
             .as_ref()
             .and_then(Taxi::queued_since)
             .map_or(0, |since| now.as_millis() - since);
-        self.taxis[index] = None;
+        self.taxis.clear(index);
         let hold = self.paths[index]
             .as_ref()
             .and_then(Path::departure_nodes)
