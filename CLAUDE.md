@@ -70,7 +70,8 @@ aerocosm/                              (workspace root)
     │       ├── ground/                Airport ground layouts (plan M4): file format, validated
     │       │                          networks (nodes, edges, stands, holding positions incl.
     │       │                          intermediate, exits), route.rs (A*), choice.rs (generic
-    │       │                          stand choice, M5 D120), taxi.rs (entries, exits, typical taxi times for
+    │       │                          stand choice, M5 D120), footprint.rs (parked aircraft
+    │       │                          keep clear by their sizes, M6 D148), taxi.rs (entries, exits, typical taxi times for
     │       │                          schedules), junctions/ (plan M4 D93: intersections,
     │       │                          chains, passages, who yields and where it holds),
     │       │                          runways.rs (runway nodes, waiting spots)
@@ -87,8 +88,8 @@ aerocosm/                              (workspace root)
     ├── aerocosm-data/                 (library + binary — offline import pipeline)
     │   └── src/
     │       ├── lib.rs                 import_all, import_globe: readers in, assets out (pure)
-    │       ├── main.rs, cli.rs        Commands (import, ground, queries, globe, wind-requests,
-    │       │                          observed): file I/O and report logging
+    │       ├── main.rs, cli.rs        Commands (import, ground, rerate, queries, globe,
+    │       │                          wind-requests, observed): file I/O and report logging
     │       ├── zones.rs, wind.rs      Time zones (airportsdata), prevailing wind (NASA POWER)
     │       ├── opensky.rs             OpenSky flight lists → observed traffic (OpenFlights names)
     │       ├── ourairports/           CSV records, airport/runway conversion, surfaces,
@@ -97,7 +98,8 @@ aerocosm/                              (workspace root)
     │       ├── osm/                   Overpass JSON or the planet's aeroways in OPL (opl.rs)
     │       │                          → ground layouts by region: graph, stands, runways
     │       │                          (holding positions, exits), prune.rs (unroutable
-    │       │                          stands), quality gate, queries
+    │       │                          stands), quality gate, queries, rerate.rs (stand sizes
+    │       │                          recomputed from the assets)
     │       └── geometry/              clip (rings, lines), Douglas–Peucker simplify
     ├── aerocosm-viewer/               (library + binary — Bevy 0.20 viewer, native and wasm)
     │   ├── benches/micro.rs           Criterion: the viewer's pure logic (plan M5 D139)
@@ -190,6 +192,7 @@ cargo fmt --all -- --check                    # Format check
 cargo run --release -p aerocosm -- run --world assets/world/world.bin --duration 24h   # Batch run of the world
 cargo run --release -p aerocosm-data -- import --ourairports <dir> --natural-earth <dir>   # Regenerate assets (docs/data-sources.md)
 cargo run --release -p aerocosm-data -- ground --opl <file>   # Regenerate the ground layouts (OSM, docs/data-sources.md)
+cargo run --release -p aerocosm-data -- rerate   # Recompute stand sizes in the ground assets (plan M6 D149)
 cargo xtask bench                             # Benchmark suite → benchmarks/history.jsonl (README)
 cargo xtask bench report                      # Latest record against the previous one, same machine
 cargo bench -p aerocosm-core --bench core --profile bench-unwind   # Core micro-benchmarks alone

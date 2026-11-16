@@ -32,9 +32,9 @@ pub struct StandRequest {
 impl AirportGround {
     /// The best stand for `request` among those `free` reports free, with
     /// their variants: one on the apron for its kind of traffic (where any
-    /// is mapped for cargo), then one where it blocks the fewest stands
-    /// beside it for aircraft like itself (plan M6 D148), then the tightest
-    /// fit, then the nearest to a
+    /// is mapped for cargo), then one built for its size (the tightest), or
+    /// else one where it blocks the fewest stands beside it for aircraft
+    /// like itself (plan M6 D148), then the nearest to a
     /// stand `mate` reports held by the same airline, then the nearest to
     /// where it comes from. `None` if nothing fits.
     pub fn choose_stand(
@@ -63,9 +63,22 @@ impl AirportGround {
                 continue;
             }
             let at = position(stand);
+            // A stand built for it: the tightest. One it only fits with
+            // stands beside it empty: where it blocks the fewest.
+            let built_for = self.natural_wingspan(id);
+            let built_for = if stand.max_wingspan() < built_for {
+                stand.max_wingspan()
+            } else {
+                built_for
+            };
+            let spare = (built_for - request.wingspan).value();
             // SAFETY: small non-negative numbers of steps.
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let waste = ((stand.max_wingspan() - request.wingspan).value() / WASTE_STEP) as u32;
+            let (blocked, waste) = if spare >= 0.0 {
+                (0, (spare / WASTE_STEP) as u32)
+            } else {
+                (self.blocked_by(id, request.wingspan), 0)
+            };
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let cluster = mates
                 .iter()
@@ -74,7 +87,7 @@ impl AirportGround {
                 .map_or(0, |d| (d / CLUSTER_STEP) as u32);
             let key = (
                 stand.cargo() != request.cargo && self.has_cargo_stands(),
-                self.blocked_by(id, request.wingspan),
+                blocked,
                 waste,
                 cluster,
                 at.distance_to(request.near).value(),
@@ -183,7 +196,7 @@ mod tests {
             ("A1", [50.0301, 8.5601], 40.0, false),
             ("B1", [50.0400, 8.5900], 40.0, false),
             ("B2", [50.0400, 8.5900 + east(45.0)], 40.0, false),
-            ("B3", [50.0400, 8.5900 + east(90.0)], 80.0, false),
+            ("B3", [50.0400, 8.5900 + east(160.0)], 80.0, false),
         ])?;
         // The airline holds B1: B2 beside it, though A1 is nearer the exit.
         let b1_held = |id: Id<Stand>| id.index() == 1;
@@ -273,6 +286,32 @@ mod tests {
         // An A320 blocks nobody in the row: the nearest.
         let narrow = ground.choose_stand(&request(34.1, false)?, NONE, ALL);
         assert_eq!(name(&ground, narrow), Some("A1".to_owned()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_choose_stand_keeps_small_aircraft_off_stands_built_for_large() -> Result<()> {
+        // A row of narrow-body gates 42 m apart and two wide-body stands
+        // 80 m apart nearer the exit, all rated for what fits with the
+        // neighbours empty.
+        let ground = ground(&[
+            ("W1", [50.0310, 8.5610], 80.0, false),
+            ("W2", [50.0310, 8.5610 + east(80.0)], 80.0, false),
+            ("N1", [50.0450, 8.5900], 80.0, false),
+            ("N2", [50.0450, 8.5900 + east(42.0)], 65.0, false),
+            ("N3", [50.0450, 8.5900 + east(84.0)], 80.0, false),
+        ])?;
+        assert!((ground.natural_wingspan(Id::new(0)).value() - 65.0).abs() < 1e-9);
+        assert!((ground.natural_wingspan(Id::new(3)).value() - 36.0).abs() < 1e-9);
+        // An A320 takes a gate built for it, the wide-body a wide stand.
+        let narrow = ground.choose_stand(&request(34.1, false)?, NONE, ALL);
+        assert_eq!(name(&ground, narrow), Some("N1".to_owned()));
+        let wide = ground.choose_stand(&request(64.8, false)?, NONE, ALL);
+        assert_eq!(name(&ground, wide), Some("W1".to_owned()));
+        // With the wide stands taken the wide-body goes to the row's end.
+        let row = |id: Id<Stand>| id.index() > 1;
+        let wide = ground.choose_stand(&request(64.8, false)?, NONE, row);
+        assert_eq!(name(&ground, wide), Some("N1".to_owned()));
         Ok(())
     }
 }

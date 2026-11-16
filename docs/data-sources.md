@@ -13,7 +13,7 @@ overrides the baseline where it has data. Every feature works on the baseline al
 | Data | Baseline (committed) | Premium (planned, local only) |
 |------|----------------------|-------------------------------|
 | Airports, runways | OurAirports | Navigraph (AIRAC) |
-| Stands, taxiways | OpenStreetMap, stand sizes from their spacing, generic stand choice (plan M5 D119, D120) | Navigraph gates and airport data, where available |
+| Stands, taxiways | OpenStreetMap, stand sizes from their spacing and the aircraft parked beside them, generic stand choice (plan M5 D119, D120; M6 D148) | Navigraph gates and airport data, where available |
 | Departure and arrival procedures | Simplified procedures (plan M3 D59) | Navigraph SIDs, STARs, approaches |
 | Airways, waypoints, airspace | — (direct routes) | Navigraph |
 
@@ -282,11 +282,18 @@ scheduled and charter movements per airport, are constants in the tests (plan M5
     - Names come from `ref` or `name`, else from a named stop node on the line. Unnamed stands
       are left out; repeated names get a `-2` suffix.
     - A `parking_position` node ending a lead-in of the same name is that stand, not another.
-    - The wingspan limit is the largest ICAO aerodrome code (A–F, Annex 14) whose parked
-      footprint keeps the wingtip clearance to every stand that is not a variant of the same
-      stand (`05A`, `05B` of `05`), with 5 % allowance for mapping error. The footprint is a
-      square as long as the code's wingspan reaching back from the stand point, so stands side
-      by side are judged by their spacing and rows parked nose to nose by the gap between them.
+    - The wingspan limit is the largest ICAO aerodrome code (A–F, Annex 14) that fits with the
+      stands beside it empty (plan M6 D148): an aircraft that size may reach over the gate on
+      either side but over no more than four stands. Stands nearer than 17 m to each other are
+      alternative centrelines of one gate and count once; those of the stand's own gate and
+      its variants by name (`05A`, `05B` of `05`) do not count. Which stands are free beside a
+      parked aircraft the simulation decides from the aircraft's actual sizes: their
+      footprints (a square as long as the wingspan reaching back from the stand point) keep
+      the wingtip clearance of the larger one's code, with 5 % allowance for mapping error, so
+      stands side by side are judged by their spacing and rows parked nose to nose by the gap
+      between them.
+    - `cargo run --release -p aerocosm-data -- rerate` applies this rule to the stands in the
+      existing assets, without the planet file (plan M6 D149).
     - No curated bounds (plan M5 D119): where the spacing misjudges an apron, the code stands.
       EDDP follows the same knowledge base's per-bay wingspan limits for the DHL hub apron 4
       (bays A–E, stands 401–487) and an estimate of code C for the airline stands of apron 1.

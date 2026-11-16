@@ -8,7 +8,7 @@ use super::{
     AirportGroundDefinition,
     definition::{EdgeDefinition, Point, StandDefinition},
     elements::{Edge, Exit, HoldingPosition, Node, Stand, stand_base},
-    footprint::Parked,
+    footprint::{CODES, Parked},
 };
 use crate::{
     CoreError, Id, LatLon,
@@ -46,6 +46,9 @@ pub struct AirportGround {
     /// For each stand, the others near enough for parked aircraft to get
     /// in each other's way (plan M6 D148), ascending.
     pub(super) neighbours: Vec<Vec<Id<Stand>>>,
+    /// For each stand, the largest code wingspan it takes with every stand
+    /// beside it in use by an aircraft that size: what it was built for.
+    pub(super) natural: Vec<Meters>,
     pub(super) holding_positions: Vec<HoldingPosition>,
     pub(super) intermediate_holds: Vec<Id<Node>>,
     pub(super) exits: Vec<Exit>,
@@ -172,7 +175,7 @@ impl AirportGround {
         let aprons = Self::build_aprons(&check, definition.aprons)?;
         let variants = Self::find_variants(&nodes, &stands)?;
         let neighbours = Self::find_neighbours(&nodes, &stands)?;
-        Ok(Self {
+        let mut ground = Self {
             airport,
             origin,
             east,
@@ -183,11 +186,65 @@ impl AirportGround {
             stands,
             variants,
             neighbours,
+            natural: Vec::new(),
             holding_positions,
             intermediate_holds,
             exits,
             aprons,
-        })
+        };
+        ground.limit_stands_by_access();
+        ground.natural = ground.natural_sizes();
+        Ok(ground)
+    }
+
+    /// What each stand was built for: the largest code wingspan that keeps
+    /// clear of the same on every stand beside it, its variants excepted.
+    fn natural_sizes(&self) -> Vec<Meters> {
+        (0..self.stands.len())
+            .map(|index| {
+                let Ok(stand) = Id::<Stand>::from_usize(index) else {
+                    return Meters::from_raw(CODES[0].0);
+                };
+                let variants = self.variants(stand);
+                let fits = |span: f64| {
+                    let span = Meters::from_raw(span);
+                    self.neighbours(stand)
+                        .iter()
+                        .filter(|other| !variants.contains(other))
+                        .all(|&other| self.stands_clear((stand, span), (other, span)))
+                };
+                let span = CODES
+                    .iter()
+                    .rev()
+                    .find(|(span, _)| fits(*span))
+                    .map_or(CODES[0].0, |(span, _)| *span);
+                Meters::from_raw(span)
+            })
+            .collect()
+    }
+
+    /// Lowers each stand's wingspan limit to what the taxiways between the
+    /// runways and it admit (plan M6 D148): a stand whose neighbours leave
+    /// room for a wide-body is no use to one that cannot taxi there.
+    fn limit_stands_by_access(&mut self) {
+        let mut limits: Vec<Meters> = self.edges.iter().filter_map(Edge::max_wingspan).collect();
+        limits.sort_by(|a, b| a.value().total_cmp(&b.value()));
+        limits.dedup();
+        let exits: Vec<Id<Node>> = self.exits.iter().map(Exit::node).collect();
+        if exits.is_empty() {
+            return;
+        }
+        for limit in limits {
+            // Anything wider than the limit.
+            let wider = Meters::from_raw(limit.value() + 0.01);
+            let reached = self.reachable_from_any(&exits, wider);
+            for stand in &mut self.stands {
+                let cut_off = !reached.get(stand.node.as_usize()).copied().unwrap_or(false);
+                if cut_off && stand.max_wingspan > limit {
+                    stand.max_wingspan = limit;
+                }
+            }
+        }
     }
 
     fn build_aprons(check: &Checker<'_>, rings: Vec<Vec<Point>>) -> Result<Vec<Vec<LatLon>>> {
@@ -372,6 +429,15 @@ impl AirportGround {
             .map_or(&[], Vec::as_slice)
     }
 
+    /// The largest code wingspan `stand` takes with every stand beside it
+    /// in use by an aircraft that size: what it was built for.
+    pub fn natural_wingspan(&self, stand: Id<Stand>) -> Meters {
+        self.natural
+            .get(stand.as_usize())
+            .copied()
+            .unwrap_or(Meters::from_raw(CODES[0].0))
+    }
+
     /// An aircraft of `wingspan` parked on `stand`.
     fn parked(&self, stand: Id<Stand>, wingspan: Meters) -> Option<Parked> {
         let stand = self.stands.get(stand.as_usize())?;
@@ -471,6 +537,26 @@ mod tests {
         assert_eq!(ground.exits()[0].node(), Id::new(2));
         assert_eq!(ground.aprons()[0].len(), 3);
         assert_eq!(ground.intermediate_holds(), &[Id::new(1)]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_a_stand_takes_no_more_than_its_taxiways_admit() -> Result<()> {
+        // The sample's stand is rated for 80 m here, but the only taxiway
+        // between it and the runway admits 65 m.
+        let mut definition = sample()?;
+        definition.stands[0].max_wingspan = Meters::new(80.0)?;
+        let ground = AirportGround::new(definition, &world()?)?;
+        assert!((ground.stands()[0].max_wingspan().value() - 65.0).abs() < 1e-9);
+        // Without limits on the way nothing changes; nor for a stand that
+        // already takes less.
+        let mut open = sample()?;
+        open.stands[0].max_wingspan = Meters::new(80.0)?;
+        open.edges[1].max_wingspan = None;
+        let ground = AirportGround::new(open, &world()?)?;
+        assert!((ground.stands()[0].max_wingspan().value() - 80.0).abs() < 1e-9);
+        let ground = AirportGround::new(sample()?, &world()?)?;
+        assert!((ground.stands()[0].max_wingspan().value() - 36.0).abs() < 1e-9);
         Ok(())
     }
 

@@ -65,6 +65,51 @@ The patterns diagnosed in M4 (short stubs, order inversion at a runway entry;
 - Viewer: stands drawn and labelled from the new limit where they show a size.
 - Measured: stand waits, shares, escapes and longest taxi at the diagnosis's airports.
 
+*As built (PR 1):*
+
+- **The stall (D150)** is one rule in `control.rs`: an aircraft asks for a taxiway lock when
+  the place it would stop for it is within the look-ahead. Statistics count a *stall* when a
+  taxi has stood five minutes with nobody to wait for; the runner warns of any and the region
+  E test requires none. In the world run Phoenix's longest taxi fell from 632 to 70 minutes
+  and no stall was counted.
+- **Parked aircraft (D148).** `ground/footprint.rs` holds the rule between two parked
+  aircraft: their footprints keep the wingtip clearance of the larger one's code along an
+  axis of either, with the mapping tolerance. The layout knows each stand's neighbours
+  (within 165 m), the stand book the wingspan parked on each stand; a stand has room when it
+  is free and its occupied neighbours keep clear. Stand choice ranks, after the apron, by how
+  many neighbours the aircraft would block for one like itself, so wide-bodies go to stands
+  with room before they take three narrow-body gates. Variants by name stay as they were, an
+  exclusion of their own, rather than folding into the rule: same-named alternatives can lie
+  farther apart than their footprints reach.
+- **A stand's own limit (D148, decided in the PR from the assets' spacing).** Gates lie 39–45 m
+  apart at most airports; 2,040 stands lie 36–39 m from their neighbour and 3,500 nearer than
+  17 m (alternative centrelines under names of their own). The limit is the largest code that
+  blocks at most the gate on either side and four stands in all, stands within 17 m of each
+  other counting as one gate and those within 17 m of the stand itself not at all. A gate in
+  a row 40 m apart is thus rated code E; the choice above keeps wide-bodies off such rows
+  while better stands are free. Nothing in the assets bounds a stand's depth.
+- **Re-rating (D149):** `aerocosm-data rerate`; 34,933 of 38,554 limits changed, stands that
+  take a narrow-body rose from 24,159 to 36,703. The format is unchanged.
+- The viewer does not show stand sizes; nothing changed there.
+
+Measured (36 h, seed 3 from 2026-07-06, against the diagnosis run):
+
+| | Before | After |
+|---|---|---|
+| Stand waits | 8,378 | 1,355 |
+| Stand shares | 2,909 | 604 |
+| Escapes | 4,743 | 4,751 |
+| Stalls | (not counted) | 0 |
+| Longest taxi, min | 632 | 282 (O'Hare) |
+| Airports with a taxi over 75 min | 17 | 13 |
+
+Ankara: stand waits 464 → 0, escapes 236 → 25, taxi delay 25.7 → 3.4 min. Charlotte: stand
+waits 441 → 0, escapes 194 → 54. Denver and Atlanta: stand waits to 0. The escapes saved
+there are made up for at the airports with runway queues, which grew a little with more
+aircraft reaching their stands and leaving on time (O'Hare 572 → 672, Madrid 287 → 356,
+Frankfurt 180 → 244): PR 2's subject. Stand waits remain at Seattle (364), O'Hare (239),
+Phoenix (123) and Haneda (117), at peaks when the stands usable at once are taken.
+
 ## PR 2 — Runway choice (D151, D152)
 
 - Core: departure runway chosen at pushback planning; the leg's departure procedure follows

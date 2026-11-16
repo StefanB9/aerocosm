@@ -97,6 +97,12 @@ Frankfurt and Munich from 7–8 % to nearly none. Most remaining shares are arri
 planned exit has no way off at touchdown, and airports whose stands the spacing rule rates
 smaller than their largest freighters (D119).
 
+**After plan M6 PR 1:** stands are free or taken by the sizes of the aircraft actually parked
+beside them (D148). In a 36-hour world run stand shares fell from 2,909 to 604 (0.4 % of
+taxis) and stand waits from 8,378 to 1,355. The remaining waits are peaks at Seattle (364),
+O'Hare (239), Phoenix (123) and Tokyo Haneda (117), where the stands that can be used at once
+are full.
+
 **Decision:** reported as a statistic.
 
 ### Benchmark above the 1 ms target (superseded)
