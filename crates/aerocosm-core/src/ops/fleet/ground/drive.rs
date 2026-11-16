@@ -101,13 +101,13 @@ impl Operations {
             return None;
         }
         let end = ms(now) + TICK.as_millis();
-        let (airport, target, delay) = (
-            taxi.airport,
-            taxi.target,
-            end - taxi.started - taxi.unimpeded,
+        let (airport, target, took) = (taxi.airport, taxi.target, end - taxi.started);
+        let delay = took - taxi.unimpeded;
+        self.stats.taxied(
+            airport,
+            SimDuration::from_millis(delay.max(0)),
+            SimDuration::from_millis(took),
         );
-        self.stats
-            .taxied(airport, SimDuration::from_millis(delay.max(0)));
         match target {
             Target::Hold => {
                 // The taxi stays on record until line-up: it still holds

@@ -28,6 +28,9 @@ pub struct AirportStats {
     taxi_delay: i64,
     /// Time taxiing aircraft waited for a clearance, ms (plan M4 D88).
     clearance_wait: i64,
+    /// The longest controlled taxi, from pushback or the runway to its
+    /// stand or holding position, ms (plan M5 D144).
+    longest_taxi: i64,
     /// Arrivals sent to a waiting spot for want of a stand.
     stand_waits: u32,
     /// Taxis that went ahead without a conflict-free plan (D75).
@@ -128,6 +131,11 @@ impl AirportStats {
         millis / 60_000.0
     }
 
+    /// The longest controlled taxi that ended.
+    pub fn longest_taxi(&self) -> SimDuration {
+        SimDuration::from_millis(self.longest_taxi)
+    }
+
     /// Average time a taxi waited for clearances.
     pub fn average_clearance_wait(&self) -> SimDuration {
         average(self.clearance_wait, self.taxis)
@@ -177,6 +185,7 @@ impl AirportStats {
         self.taxis += other.taxis;
         self.taxi_delay += other.taxi_delay;
         self.clearance_wait += other.clearance_wait;
+        self.longest_taxi = self.longest_taxi.max(other.longest_taxi);
         self.stand_waits += other.stand_waits;
         self.ground_conflicts += other.ground_conflicts;
         self.reroutes += other.reroutes;
@@ -244,11 +253,13 @@ impl Statistics {
         }
     }
 
-    /// A take-off or landing at `airport` at `time`.
-    pub(crate) fn taxied(&mut self, airport: Id<Airport>, delay: SimDuration) {
+    /// A controlled taxi at `airport` ended: its delay over taxiing
+    /// unimpeded, and how long it took.
+    pub(crate) fn taxied(&mut self, airport: Id<Airport>, delay: SimDuration, took: SimDuration) {
         if let Some(stats) = self.airports.get_mut(airport.as_usize()) {
             stats.taxis += 1;
             stats.taxi_delay += delay.as_millis();
+            stats.longest_taxi = stats.longest_taxi.max(took.as_millis());
         }
     }
 
@@ -336,11 +347,23 @@ mod tests {
     }
 
     #[test]
+    fn test_longest_taxi_per_airport_and_network() {
+        let mut stats = Statistics::new(3);
+        stats.taxied(Id::new(0), minutes(1), minutes(12));
+        stats.taxied(Id::new(0), minutes(2), minutes(30));
+        stats.taxied(Id::new(1), minutes(0), minutes(45));
+        assert_eq!(stats.airport(Id::new(0)).longest_taxi(), minutes(30));
+        assert_eq!(stats.airport(Id::new(1)).longest_taxi(), minutes(45));
+        assert_eq!(stats.airport(Id::new(2)).longest_taxi(), SimDuration::ZERO);
+        assert_eq!(stats.network().longest_taxi(), minutes(45));
+    }
+
+    #[test]
     fn test_ground_control_counts() {
         let mut stats = Statistics::new(2);
         let airport = Id::new(0);
-        stats.taxied(airport, SimDuration::from_secs(60));
-        stats.taxied(airport, SimDuration::from_secs(180));
+        stats.taxied(airport, SimDuration::from_secs(60), minutes(5));
+        stats.taxied(airport, SimDuration::from_secs(180), minutes(5));
         stats.waited_for_stand(airport);
         stats.ground_conflict(airport);
         stats.ground_conflict(Id::new(9));
@@ -371,8 +394,8 @@ mod tests {
     fn test_clearance_waits_add_up_per_airport_and_taxi() {
         let mut stats = Statistics::new(2);
         let airport = Id::new(0);
-        stats.taxied(airport, SimDuration::ZERO);
-        stats.taxied(airport, SimDuration::ZERO);
+        stats.taxied(airport, SimDuration::ZERO, minutes(5));
+        stats.taxied(airport, SimDuration::ZERO, minutes(5));
         stats.waited_for_clearance(airport, SimDuration::from_secs(90));
         stats.waited_for_clearance(airport, SimDuration::from_secs(150));
         stats.waited_for_clearance(Id::new(9), SimDuration::from_secs(60));

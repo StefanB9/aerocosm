@@ -6,7 +6,8 @@ use std::{
 };
 
 use aerocosm_core::{
-    AircraftCatalog, Scenario, SimConfig, SimTime, Simulation, TICK, WallClock, WallInstant,
+    AircraftCatalog, Scenario, SimConfig, SimDuration, SimTime, Simulation, TICK, WallClock,
+    WallInstant,
     ground::GroundDefinition,
     ops::{AirportStats, StartMode},
     traffic::{model::derive, observed::ObservedTraffic},
@@ -41,6 +42,9 @@ pub(crate) struct RunSummary {
     pub(crate) movements: Vec<AirportReport>,
     /// Network punctuality and delays; `None` without traffic.
     pub(crate) network: Option<AirportStats>,
+    /// The longest controlled taxi still under way at the end: where and how
+    /// long (plan M5 D144).
+    pub(crate) longest_under_way: Option<(String, SimDuration)>,
 }
 
 impl RunSummary {
@@ -158,6 +162,12 @@ pub(crate) fn run(
         network: simulation
             .statistics()
             .map(aerocosm_core::ops::Statistics::network),
+        longest_under_way: simulation
+            .longest_taxi_under_way()
+            .and_then(|(airport, took)| {
+                let ident = simulation.world().airport(airport)?.ident().to_string();
+                Some((ident, took))
+            }),
         movements,
     })
 }
@@ -186,7 +196,7 @@ impl WallClock for SystemClock {
 mod tests {
     use std::{cell::Cell, time::Duration};
 
-    use aerocosm_core::{RngSeed, SimDuration, world::World};
+    use aerocosm_core::{RngSeed, world::World};
     use anyhow::{Context, Result};
 
     use super::*;
@@ -341,6 +351,25 @@ mod tests {
     }
 
     #[test]
+    fn test_run_reports_the_longest_taxi() -> Result<()> {
+        let args = RunArgs {
+            start: "2026-07-08T10:00:00Z".parse()?,
+            ..args(SimDuration::from_minutes(10))?
+        };
+        let scenario = add_ground(
+            germany()?,
+            [&include_bytes!("../../../assets/ground/E.ground.bin")[..]],
+        )?;
+        let summary = run(&args, scenario, &clock())?;
+        let network = summary.network.context("network statistics")?;
+        assert!(network.longest_taxi() > SimDuration::ZERO);
+        let (airport, took) = summary.longest_under_way.context("taxiing at the end")?;
+        assert!(airport.starts_with('E'), "{airport}");
+        assert!(took <= SimDuration::from_minutes(10));
+        Ok(())
+    }
+
+    #[test]
     fn test_run_cold_start_begins_with_nothing_airborne() -> Result<()> {
         let args = RunArgs {
             start: "2026-07-08T10:00:00Z".parse()?,
@@ -370,6 +399,7 @@ mod tests {
             peak_airborne: 0,
             movements: Vec::new(),
             network: None,
+            longest_under_way: None,
         };
         assert!((summary.ticks_per_second() - 4000.0).abs() < 1e-9);
         let instant = RunSummary {
