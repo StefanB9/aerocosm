@@ -7,6 +7,7 @@ pub(super) mod board;
 mod flow;
 mod ground;
 mod remote;
+mod runways;
 mod stands;
 mod start;
 
@@ -36,7 +37,7 @@ use crate::{
     schedule::{Schedule, ScheduledFlight, Tail, min_turnaround},
     time::{LocalDate, Zone},
     units::{Meters, MetersPerSecond},
-    world::{Airport, AirportKind},
+    world::{Airport, AirportKind, RunwayDesignator, RunwayEnd},
 };
 
 /// Old landing slots are forgotten every this many milliseconds.
@@ -99,6 +100,9 @@ pub(crate) struct Operations {
     taxis: Table<Taxi>,
     /// Since when each tail waits at its stand for a taxi plan, ms.
     gate_blocked: Vec<Option<i64>>,
+    /// When each tail last chose its runways again at the gate, ms (plan
+    /// M6 D151).
+    rechosen: Vec<i64>,
     /// Clearance requests of the tick, reused (urgency, since, tail).
     requests: Vec<(u8, i64, usize)>,
     /// When each tail is next looked at: a parked one when something is due,
@@ -219,6 +223,7 @@ impl Operations {
             ground: GroundControl::new(scenario),
             taxis: Table::new(tail_count),
             gate_blocked: vec![None; tail_count],
+            rechosen: vec![i64::MIN; tail_count],
             parking: vec![Parking::Stand; tail_count],
             requests: Vec::with_capacity(tail_count),
             taxiing: Vec::new(),
@@ -262,6 +267,18 @@ impl Operations {
     }
 
     fn plan(&self, scenario: &Scenario, index: usize, leg: usize) -> Result<Leg> {
+        self.plan_at(scenario, index, leg, None)
+    }
+
+    /// Plans leg `leg` of tail `index`. At the gate at `at_gate`, about to
+    /// push back, the departure runways' queues count (plan M6 D151).
+    fn plan_at(
+        &self,
+        scenario: &Scenario,
+        index: usize,
+        leg: usize,
+        at_gate: Option<SimTime>,
+    ) -> Result<Leg> {
         let flight = self.flight(index, leg)?;
         let traffic = scenario.traffic().context("traffic")?;
         let aircraft = traffic.aircraft().get(flight.aircraft()).context("type")?;
@@ -272,14 +289,22 @@ impl Operations {
                 Parking::Spot(node) => Some(Origin::Node(node)),
                 _ => None,
             });
+        let current = self.paths[index].as_ref().filter(|_| at_gate.is_some());
+        let leaving = current.and_then(Path::departure_end);
+        let from = flight.origin();
+        let turn_in = |end: &RunwayEnd, _: &[RunwayDesignator]| {
+            at_gate.map_or(0.0, |now| {
+                let wait = self.turn_in(from, end.designator(), now);
+                runways::stay(wait, leaving == Some(end.designator()))
+            })
+        };
         plan_leg(
             scenario.world(),
             traffic.targets(),
             LegGround {
                 network: scenario.ground(),
                 origin,
-                turn_in: None,
-                landing_cost: None,
+                turn_in: at_gate.is_some().then_some(&turn_in),
             },
             aircraft,
             flight.origin(),
@@ -388,6 +413,7 @@ impl Operations {
             None => self.step_parked(scenario, index, now)?,
             Some(motion) if motion.phase() == Phase::Boarding => {
                 if now >= self.tails[index].off_block {
+                    self.rechoose_departure(scenario, index, now)?;
                     let flight = *self.flight(index, self.tails[index].leg)?;
                     let (origin, destination) = (
                         self.is_major(flight.origin()),

@@ -88,7 +88,7 @@ const CLEAR_OF_RUNWAY: f64 = 60.0;
 /// Shortest and longest expected take-off interval from one holding
 /// position, ms; between them it is learnt from line-ups.
 const DEPARTURE_INTERVAL: i64 = 60_000;
-const MAX_INTERVAL: i64 = 300_000;
+const MAX_INTERVAL: i64 = 900_000;
 /// Routes cost this many times an edge's length more against the direction
 /// traffic has recently taken it…
 const AGAINST_FLOW: f64 = 3.0;
@@ -307,6 +307,21 @@ impl GroundControl {
         self.mark_surveyed(airport);
         if let Some(airside) = self.airside_mut(airport) {
             *airside.departing.entry(runway).or_insert(0) += 1;
+        }
+    }
+
+    /// Makes `runway` at `airport` look busy: a departure every `pace` ms,
+    /// the last one at `last`.
+    #[cfg(test)]
+    pub(super) fn set_pace(
+        &mut self,
+        airport: Id<Airport>,
+        runway: RunwayDesignator,
+        last: i64,
+        pace: i64,
+    ) {
+        if let Some(airside) = self.airside_mut(airport) {
+            airside.pace.insert(runway, (last, pace));
         }
     }
 

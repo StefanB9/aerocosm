@@ -22,8 +22,8 @@ use crate::{
     world::{Airport, RunwayDesignator, RunwayEnd, World},
 };
 
-/// What a runway end costs a flight beyond flying and taxiing, s, given
-/// the end and the ends its airport's mode allows.
+/// What a runway end costs a flight in seconds, given the end and the ends
+/// its airport's mode allows.
 pub(crate) type RunwayCost<'a> = &'a dyn Fn(&RunwayEnd, &[RunwayDesignator]) -> f64;
 
 /// The ground layouts a leg is planned on, and where it leaves from.
@@ -35,9 +35,6 @@ pub(crate) struct LegGround<'a> {
     /// Per departure runway end at the origin, in how many seconds its next
     /// free turn comes (plan M6 D151); `None`: at once everywhere.
     pub(crate) turn_in: Option<RunwayCost<'a>>,
-    /// Per arrival runway end at the destination, what landing there costs
-    /// on the ground, s (plan M6 D152); `None`: the same everywhere.
-    pub(crate) landing_cost: Option<RunwayCost<'a>>,
 }
 
 /// A runway end in use: threshold, heading, runway index and designator.
@@ -55,9 +52,6 @@ const SIDE_PROBE: f64 = 5_000.0;
 const COURSE_WEIGHT: f64 = 2.0;
 /// A runway the aircraft finds no taxi route to counts as this far away, s.
 const UNROUTED: f64 = 1_800.0;
-/// Speed in the terminal area, for comparing the ways to the finals of
-/// two runways, m/s (about 400 kt).
-const TERMINAL_SPEED: f64 = 200.0;
 /// Turn radius of procedures: 210 kt at 25° of bank.
 const TURN_RADIUS: f64 = 2_550.0;
 /// A missed approach flies on this far past the threshold before turning,
@@ -255,16 +249,16 @@ fn departure_score(end: &RunwayEnd, direct: Degrees, ahead: LatLon) -> f64 {
     angle_between(end.true_heading(), direct) + off / 1000.0
 }
 
-/// Plans `aircraft` flying from `origin` to `destination` with the runways
-/// in use at both ends and simple procedures between them.
-pub(crate) fn plan_leg(
+/// The runway ends a leg between the airports `between` takes off from
+/// and lands on.
+fn leg_runways(
     world: &World,
     traffic: &TrafficTargets,
     ground: LegGround<'_>,
     aircraft: &AircraftType,
-    origin: Id<Airport>,
-    destination: Id<Airport>,
-) -> Result<Leg> {
+    between: (Id<Airport>, Id<Airport>),
+) -> Result<(End, End)> {
+    let (origin, destination) = between;
     let from = world.airport(origin).context("origin out of range")?;
     let to = world
         .airport(destination)
@@ -284,7 +278,7 @@ pub(crate) fn plan_leg(
         departure(layout, from, (end.designator(), end.threshold()), wingspan)
             .map_or(UNROUTED, |plan| plan.taxi.length().value() / TAXI_SPEED)
     };
-    let (departure_point, departure_course, departure_runway) = runway_end(
+    let departure = runway_end(
         world,
         traffic,
         origin,
@@ -296,25 +290,43 @@ pub(crate) fn plan_leg(
         },
         direct,
     )?;
-    let (arrival, arrival_course, arrival_runway) = runway_end(
+    let arrival = runway_end(
         world,
         traffic,
         destination,
         aircraft,
         Use::Arrival,
-        // Land on the one whose final is nearest the origin, unless the
-        // ground there costs more than the way round (plan M6 D152).
-        |end, allowed| {
-            let flown = end
-                .threshold()
+        // Land on the one whose final is nearest the origin.
+        |end, _| {
+            end.threshold()
                 .destination(reverse(end.true_heading()), Meters::from_raw(FINAL_LENGTH))
                 .distance_to(from.location())
                 .value()
-                / TERMINAL_SPEED;
-            flown + ground.landing_cost.map_or(0.0, |cost| cost(end, allowed))
         },
         direct,
     )?;
+    Ok((departure, arrival))
+}
+
+/// Plans `aircraft` flying from `origin` to `destination` with the runways
+/// in use at both ends and simple procedures between them.
+pub(crate) fn plan_leg(
+    world: &World,
+    traffic: &TrafficTargets,
+    ground: LegGround<'_>,
+    aircraft: &AircraftType,
+    origin: Id<Airport>,
+    destination: Id<Airport>,
+) -> Result<Leg> {
+    let from = world.airport(origin).context("origin out of range")?;
+    let to = world
+        .airport(destination)
+        .context("destination out of range")?;
+    let (
+        (departure_point, departure_course, departure_runway),
+        (arrival, arrival_course, arrival_runway),
+    ) = leg_runways(world, traffic, ground, aircraft, (origin, destination))?;
+    let wingspan = aircraft.wingspan();
 
     let mut inputs = profile_inputs(aircraft, from, to);
     let out = taxi_out(
@@ -406,7 +418,6 @@ mod tests {
             network: &NO_GROUND,
             origin: None,
             turn_in: None,
-            landing_cost: None,
         }
     }
 
@@ -684,7 +695,6 @@ mod tests {
                 network,
                 origin: Some(Origin::Stand(Id::from_usize(stand)?)),
                 turn_in: None,
-                landing_cost: None,
             },
             a320(&data)?,
             frankfurt,
@@ -761,7 +771,6 @@ mod tests {
                 network,
                 origin: Some(Origin::Stand(Id::from_usize(stand)?)),
                 turn_in,
-                landing_cost: None,
             },
             a320(&data)?,
             airport(&data, "EDDM")?,
@@ -813,61 +822,6 @@ mod tests {
             checked += 1;
         }
         assert!(checked >= 5, "{checked} stands near one runway");
-        Ok(())
-    }
-
-    #[test]
-    fn test_arrivals_weigh_what_a_runway_costs_on_the_ground() -> Result<()> {
-        let data = data()?;
-        let (frankfurt, munich) = (airport(&data, "EDDF")?, airport(&data, "EDDM")?);
-        let lands_on = |cost: Option<RunwayCost<'_>>| -> Result<RunwayDesignator> {
-            let leg = plan_leg(
-                &data.world,
-                &data.traffic,
-                LegGround {
-                    landing_cost: cost,
-                    ..unmapped()
-                },
-                a320(&data)?,
-                frankfurt,
-                munich,
-            )?;
-            let index = leg.path.arrival_runway.context("a runway")?;
-            let threshold = leg.path.landing.point_at(Meters::default());
-            data.world.runways_of(munich)[index]
-                .ends()
-                .iter()
-                .min_by(|a, b| {
-                    let near = |end: &RunwayEnd| end.threshold().distance_to(threshold).value();
-                    near(a).total_cmp(&near(b))
-                })
-                .map(RunwayEnd::designator)
-                .context("an end")
-        };
-        let by_direction = lands_on(None)?;
-        // Ten minutes more on the ground there: the other parallel runway,
-        // of the same mode.
-        let seen = std::cell::RefCell::new(Vec::new());
-        let dear = |end: &RunwayEnd, allowed: &[RunwayDesignator]| {
-            seen.borrow_mut().clone_from(&allowed.to_vec());
-            if end.designator() == by_direction {
-                600.0
-            } else {
-                0.0
-            }
-        };
-        let other = lands_on(Some(&dear))?;
-        assert_ne!(other, by_direction);
-        assert!(seen.borrow().contains(&by_direction) && seen.borrow().contains(&other));
-        // A second does not outweigh the direction it comes from.
-        let slight = |end: &RunwayEnd, _: &[RunwayDesignator]| {
-            if end.designator() == by_direction {
-                1.0
-            } else {
-                0.0
-            }
-        };
-        assert_eq!(lands_on(Some(&slight))?, by_direction);
         Ok(())
     }
 
