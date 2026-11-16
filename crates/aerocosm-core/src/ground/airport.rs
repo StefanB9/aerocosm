@@ -8,6 +8,7 @@ use super::{
     AirportGroundDefinition,
     definition::{EdgeDefinition, Point, StandDefinition},
     elements::{Edge, Exit, HoldingPosition, Node, Stand, stand_base},
+    footprint::Parked,
 };
 use crate::{
     CoreError, Id, LatLon,
@@ -17,6 +18,11 @@ use crate::{
 
 /// Variants of a stand lie within this distance of it, m.
 const VARIANT_REACH: f64 = 60.0;
+/// The largest aircraft parked on stands farther apart than this keep
+/// clear of each other whatever their headings, m: 80 m of wingspan and
+/// 7.5 m of clearance between the footprints' centres, which lie up to
+/// 40 m behind each stand point.
+const NEIGHBOUR_REACH: f64 = 165.0;
 /// Metres per degree of latitude, for the flat frame of route estimates.
 pub(super) const METRES_PER_DEGREE: f64 = 111_195.0;
 
@@ -37,6 +43,9 @@ pub struct AirportGround {
     /// For each stand, its variants nearby: only one of them is used at a
     /// time.
     pub(super) variants: Vec<Vec<Id<Stand>>>,
+    /// For each stand, the others near enough for parked aircraft to get
+    /// in each other's way (plan M6 D148), ascending.
+    pub(super) neighbours: Vec<Vec<Id<Stand>>>,
     pub(super) holding_positions: Vec<HoldingPosition>,
     pub(super) intermediate_holds: Vec<Id<Node>>,
     pub(super) exits: Vec<Exit>,
@@ -162,6 +171,7 @@ impl AirportGround {
         let intermediate_holds = Self::build_holds(&check, definition.intermediate_holds)?;
         let aprons = Self::build_aprons(&check, definition.aprons)?;
         let variants = Self::find_variants(&nodes, &stands)?;
+        let neighbours = Self::find_neighbours(&nodes, &stands)?;
         Ok(Self {
             airport,
             origin,
@@ -172,6 +182,7 @@ impl AirportGround {
             links,
             stands,
             variants,
+            neighbours,
             holding_positions,
             intermediate_holds,
             exits,
@@ -235,6 +246,21 @@ impl AirportGround {
             }
         }
         Ok(variants)
+    }
+
+    /// Stands within `NEIGHBOUR_REACH` of each other.
+    fn find_neighbours(nodes: &[Node], stands: &[Stand]) -> Result<Vec<Vec<Id<Stand>>>> {
+        let mut neighbours = vec![Vec::new(); stands.len()];
+        for (i, stand) in stands.iter().enumerate() {
+            let here = nodes[stand.node.as_usize()].xy;
+            for (j, other) in stands.iter().enumerate() {
+                let there = nodes[other.node.as_usize()].xy;
+                if i != j && (there[0] - here[0]).hypot(there[1] - here[1]) <= NEIGHBOUR_REACH {
+                    neighbours[i].push(Id::from_usize(j).context("too many stands")?);
+                }
+            }
+        }
+        Ok(neighbours)
     }
 
     fn build_edge(check: &Checker<'_>, nodes: &[Node], edge: &EdgeDefinition) -> Result<Edge> {
@@ -336,6 +362,37 @@ impl AirportGround {
         self.variants
             .get(stand.as_usize())
             .map_or(&[], Vec::as_slice)
+    }
+
+    /// The stands near `stand`: aircraft parked on any other stand keep
+    /// clear of one on it whatever their sizes (plan M6 D148).
+    pub fn neighbours(&self, stand: Id<Stand>) -> &[Id<Stand>] {
+        self.neighbours
+            .get(stand.as_usize())
+            .map_or(&[], Vec::as_slice)
+    }
+
+    /// An aircraft of `wingspan` parked on `stand`.
+    fn parked(&self, stand: Id<Stand>, wingspan: Meters) -> Option<Parked> {
+        let stand = self.stands.get(stand.as_usize())?;
+        Some(Parked {
+            at: self.nodes.get(stand.node.as_usize())?.xy,
+            heading: stand.heading.value(),
+            wingspan: wingspan.value(),
+        })
+    }
+
+    /// Whether an aircraft on the stand `one` and another on the stand
+    /// `other`, each given with its wingspan, keep clear of each other
+    /// (plan M6 D148).
+    pub fn stands_clear(&self, one: (Id<Stand>, Meters), other: (Id<Stand>, Meters)) -> bool {
+        if !self.neighbours(one.0).contains(&other.0) {
+            return one.0 != other.0;
+        }
+        match (self.parked(one.0, one.1), self.parked(other.0, other.1)) {
+            (Some(a), Some(b)) => a.keeps_clear_of(&b),
+            _ => true,
+        }
     }
 
     /// All runway holding positions.

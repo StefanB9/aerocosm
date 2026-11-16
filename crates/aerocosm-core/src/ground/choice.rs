@@ -12,10 +12,10 @@ const WASTE_STEP: f64 = 15.0;
 /// many metres: an apron's width, so that the airline gathers on one.
 const CLUSTER_STEP: f64 = 250.0;
 
-/// How a stand ranks for a request, lowest first: on the wrong apron, unused
-/// wingspan steps, distance steps to the airline's stands, distance to where
-/// the aircraft comes from.
-type Rank = (bool, u32, u32, f64);
+/// How a stand ranks for a request, lowest first: on the wrong apron, the
+/// neighbouring stands it would block, unused wingspan steps, distance steps
+/// to the airline's stands, distance to where the aircraft comes from.
+type Rank = (bool, usize, u32, u32, f64);
 
 /// What a stand is wanted for.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -32,7 +32,9 @@ pub struct StandRequest {
 impl AirportGround {
     /// The best stand for `request` among those `free` reports free, with
     /// their variants: one on the apron for its kind of traffic (where any
-    /// is mapped for cargo), then the tightest fit, then the nearest to a
+    /// is mapped for cargo), then one where it blocks the fewest stands
+    /// beside it for aircraft like itself (plan M6 D148), then the tightest
+    /// fit, then the nearest to a
     /// stand `mate` reports held by the same airline, then the nearest to
     /// where it comes from. `None` if nothing fits.
     pub fn choose_stand(
@@ -72,6 +74,7 @@ impl AirportGround {
                 .map_or(0, |d| (d / CLUSTER_STEP) as u32);
             let key = (
                 stand.cargo() != request.cargo && self.has_cargo_stands(),
+                self.blocked_by(id, request.wingspan),
                 waste,
                 cluster,
                 at.distance_to(request.near).value(),
@@ -81,6 +84,26 @@ impl AirportGround {
             }
         }
         best.map(|(_, id)| id)
+    }
+
+    /// How many stands beside `stand` an aircraft of `wingspan` on it keeps
+    /// one like itself off (or the largest that fits there, if smaller);
+    /// its variants never count, they are blocked anyway.
+    fn blocked_by(&self, stand: Id<Stand>, wingspan: Meters) -> usize {
+        let variants = self.variants(stand);
+        self.neighbours(stand)
+            .iter()
+            .filter(|other| !variants.contains(other))
+            .filter(|&&other| {
+                let fits = self
+                    .stands()
+                    .get(other.as_usize())
+                    .map(Stand::max_wingspan)
+                    .filter(|limit| *limit < wingspan)
+                    .unwrap_or(wingspan);
+                !self.stands_clear((stand, wingspan), (other, fits))
+            })
+            .count()
     }
 
     /// Whether any stand lies on an apron mapped for cargo.
@@ -159,8 +182,8 @@ mod tests {
         let ground = ground(&[
             ("A1", [50.0301, 8.5601], 40.0, false),
             ("B1", [50.0400, 8.5900], 40.0, false),
-            ("B2", [50.0401, 8.5901], 40.0, false),
-            ("B3", [50.0402, 8.5902], 80.0, false),
+            ("B2", [50.0400, 8.5900 + east(45.0)], 40.0, false),
+            ("B3", [50.0400, 8.5900 + east(90.0)], 80.0, false),
         ])?;
         // The airline holds B1: B2 beside it, though A1 is nearer the exit.
         let b1_held = |id: Id<Stand>| id.index() == 1;
@@ -202,6 +225,54 @@ mod tests {
         let wide_parked = |id: Id<Stand>| id.index() != 0;
         let chosen = ground.choose_stand(&request(35.8, false)?, NONE, wide_parked);
         assert_eq!(name(&ground, chosen), Some("06".to_owned()));
+        Ok(())
+    }
+
+    /// Degrees of longitude for `metres` east at the test stands' latitude.
+    fn east(metres: f64) -> f64 {
+        metres / (111_195.0 * 50.035_f64.to_radians().cos())
+    }
+
+    #[test]
+    fn test_stands_keep_clear_by_the_aircraft_parked() -> Result<()> {
+        let ground = ground(&[
+            ("A1", [50.0350, 8.5700], 80.0, false),
+            ("A2", [50.0350, 8.5700 + east(38.0)], 80.0, false),
+            ("A3", [50.0350, 8.5700 + east(76.0)], 80.0, false),
+            ("Z9", [50.0450, 8.5900], 80.0, false),
+        ])?;
+        let (a1, a2, a3, z9) = (Id::new(0), Id::new(1), Id::new(2), Id::new(3));
+        let (wide, narrow) = (Meters::new(64.8)?, Meters::new(34.1)?);
+        assert_eq!(ground.neighbours(a1), &[a2, a3]);
+        assert_eq!(ground.neighbours(z9), &[] as &[Id<Stand>]);
+        // A wide-body on A1 takes A2 with it, not A3; two A320s fit.
+        assert!(!ground.stands_clear((a1, wide), (a2, narrow)));
+        assert!(ground.stands_clear((a1, wide), (a3, narrow)));
+        assert!(ground.stands_clear((a1, narrow), (a2, narrow)));
+        // Far apart, or unknown: clear.
+        assert!(ground.stands_clear((a1, wide), (z9, wide)));
+        assert!(ground.stands_clear((a1, wide), (Id::new(77), wide)));
+        Ok(())
+    }
+
+    #[test]
+    fn test_choose_stand_blocks_as_few_gates_as_it_can() -> Result<()> {
+        let ground = ground(&[
+            ("A1", [50.0350, 8.5700], 80.0, false),
+            ("A2", [50.0350, 8.5700 + east(38.0)], 80.0, false),
+            ("A3", [50.0350, 8.5700 + east(76.0)], 80.0, false),
+            ("Z9", [50.0450, 8.5900], 80.0, false),
+        ])?;
+        // A wide-body: the stand on its own, though the row is nearer; at
+        // the row's end rather than its middle once that is taken.
+        let wide = ground.choose_stand(&request(64.8, false)?, NONE, ALL);
+        assert_eq!(name(&ground, wide), Some("Z9".to_owned()));
+        let row = |id: Id<Stand>| id.index() != 3;
+        let wide = ground.choose_stand(&request(64.8, false)?, NONE, row);
+        assert_eq!(name(&ground, wide), Some("A1".to_owned()));
+        // An A320 blocks nobody in the row: the nearest.
+        let narrow = ground.choose_stand(&request(34.1, false)?, NONE, ALL);
+        assert_eq!(name(&ground, narrow), Some("A1".to_owned()));
         Ok(())
     }
 }
