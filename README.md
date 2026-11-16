@@ -197,7 +197,8 @@ ticks as fit.
    500 at the start, rising through the morning).
 4. **Speed:** click each speed button — the active one is highlighted and the clock rate
    changes; `Pause` stops it; Space toggles pause and resumes the previous speed; `,` and `.`
-   step through the speeds.
+   step through the speeds. F3 shows the frame-time readout: the average and worst frame of
+   the last two seconds, ticks per frame and the simulation's share of the frame.
 5. **Zoom:** scroll over Frankfurt — the point under the pointer stays put. Regional airports,
    then airfields and smaller towns, appear progressively; labels never overlap.
 6. **Runways:** keep zooming into Frankfurt — four runways appear to scale (07L/25R, 07C/25C,

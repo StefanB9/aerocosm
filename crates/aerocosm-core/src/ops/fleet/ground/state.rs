@@ -9,6 +9,22 @@ use crate::ops::{
 const HOLDING_SPEED: f64 = 0.5;
 
 impl Operations {
+    /// The airport and duration of the longest controlled taxi now under
+    /// way, up to its stand or holding position.
+    pub(crate) fn longest_taxi_under_way(
+        &self,
+    ) -> Option<(crate::Id<crate::world::Airport>, crate::SimDuration)> {
+        let now = self.time.as_millis();
+        self.taxis
+            .filled()
+            .iter()
+            .filter_map(|&index| self.taxis.get(index as usize))
+            .filter(|taxi| taxi.queued_at.is_none())
+            .map(|taxi| (taxi.airport, now - taxi.started))
+            .max_by_key(|(airport, took)| (*took, std::cmp::Reverse(airport.as_usize())))
+            .map(|(airport, took)| (airport, crate::SimDuration::from_millis(took)))
+    }
+
     /// Tail `index`'s taxi state in `phase`, moving at `speed` m/s; `None`
     /// off the ground of a controlled airport.
     pub(in crate::ops::fleet) fn taxi_state(
@@ -17,7 +33,7 @@ impl Operations {
         phase: Phase,
         speed: f64,
     ) -> Option<TaxiState> {
-        let taxi = self.taxis.get(index)?.as_ref()?;
+        let taxi = self.taxis.get(index)?;
         let to = taxi.goal;
         match phase {
             Phase::Pushback => return Some(TaxiState::Pushback { stand: taxi.stand }),
@@ -68,7 +84,7 @@ impl Operations {
 
     /// Tail `index`'s taxi route while it pushes back or taxies (D86).
     pub(crate) fn taxi_route(&self, index: usize) -> Option<TaxiRoute> {
-        let taxi = self.taxis.get(index)?.as_ref()?;
+        let taxi = self.taxis.get(index)?;
         let motion = self.tails.get(index)?.motion.as_ref()?;
         if !matches!(
             motion.phase(),

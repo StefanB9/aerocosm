@@ -61,6 +61,17 @@ fn tow_back_time(off_block: SimTime) -> SimTime {
     off_block.checked_sub(TOW_BACK).unwrap_or(off_block)
 }
 
+/// The first time anything can happen to an aircraft parked as `parking`
+/// that boards from `boarding_from` for `off_block` (plan M5 D136): until
+/// then the fleet's tick passes it by. A time already past means every tick.
+pub(super) fn next_look(parking: Parking, boarding_from: SimTime, off_block: SimTime) -> SimTime {
+    match parking {
+        Parking::Stand | Parking::Spot(_) => boarding_from,
+        Parking::TowOff(at) => at.min(boarding_from),
+        Parking::Remote(_) => tow_back_time(off_block).min(boarding_from),
+    }
+}
+
 impl Operations {
     /// After tail `index` reached its stand at `now`: tow-off planned if its
     /// next off-block is far enough away.
@@ -161,6 +172,35 @@ mod tests {
         // A turnaround stays on its stand.
         assert_eq!(tow_off_time(at(0)?, at(119)?), None);
         assert_eq!(tow_back_time(at(600)?), at(540)?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parked_aircraft_are_looked_at_when_something_is_due() -> Result<()> {
+        // On a stand or a waiting spot: when boarding starts.
+        assert_eq!(next_look(Parking::Stand, at(300)?, at(340)?), at(300)?);
+        assert_eq!(
+            next_look(Parking::Spot(crate::Id::new(3)), at(300)?, at(340)?),
+            at(300)?
+        );
+        // Due to be towed off: then, or at boarding if that is earlier.
+        assert_eq!(
+            next_look(Parking::TowOff(at(30)?), at(300)?, at(340)?),
+            at(30)?
+        );
+        assert_eq!(
+            next_look(Parking::TowOff(at(30)?), at(20)?, at(60)?),
+            at(20)?
+        );
+        // Remote: when it is towed back, an hour before off-block.
+        assert_eq!(
+            next_look(Parking::Remote(None), at(300)?, at(340)?),
+            at(280)?
+        );
+        assert_eq!(
+            next_look(Parking::Remote(Some(at(1)?)), at(250)?, at(340)?),
+            at(250)?
+        );
         Ok(())
     }
 

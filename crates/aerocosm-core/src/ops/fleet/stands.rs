@@ -269,6 +269,23 @@ mod tests {
         Ok((scenario, operations))
     }
 
+    #[test]
+    fn test_survey_lists_are_emptied_wherever_written() -> Result<()> {
+        // Pushbacks approved after the survey write to their airport's
+        // lists: those airports must be emptied before the next survey too.
+        let (scenario, mut operations) = mapped(StartMode::Warm, 1)?;
+        for _ in 0..300 {
+            operations.step(&scenario)?;
+            assert_eq!(
+                operations.ground.unmarked_with_entries(),
+                Vec::<usize>::new(),
+                "at {}",
+                operations.time
+            );
+        }
+        Ok(())
+    }
+
     fn frankfurt(scenario: &Scenario) -> Result<Id<Airport>> {
         scenario
             .world()

@@ -243,6 +243,13 @@ impl Simulation {
         hash.0
     }
 
+    /// The airport and duration of the longest controlled taxi now under
+    /// way, up to its stand or holding position (plan M5 D144); `None` if
+    /// nobody taxis under control.
+    pub fn longest_taxi_under_way(&self) -> Option<(Id<Airport>, crate::SimDuration)> {
+        self.operations.as_ref()?.longest_taxi_under_way()
+    }
+
     /// Advances by `count` ticks.
     pub fn run_ticks(&mut self, count: u32) -> Result<()> {
         for _ in 0..count {
@@ -539,6 +546,26 @@ mod tests {
         ] {
             assert!(!time.is_zero(), "{part}: {times:?}");
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_longest_taxi_under_way_grows_while_taxiing() -> Result<()> {
+        let mut sim = with_ground()?;
+        assert_eq!(
+            sim.longest_taxi_under_way(),
+            None,
+            "warm start: nobody taxis"
+        );
+        sim.run_ticks(300)?;
+        let (airport, longest) = sim.longest_taxi_under_way().context("taxiing")?;
+        assert!(sim.world().airport(airport).is_some());
+        assert!(longest > crate::SimDuration::ZERO);
+        assert!(longest <= crate::SimDuration::from_secs(300));
+        assert!(
+            sim.statistics()
+                .is_some_and(|s| s.network().longest_taxi() > crate::SimDuration::ZERO)
+        );
         Ok(())
     }
 
