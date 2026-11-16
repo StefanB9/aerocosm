@@ -134,10 +134,17 @@ fn assemble(app: &mut App, view: StartView) -> Result<()> {
 }
 
 /// Advances the simulation by the real time elapsed, at the selected speed.
-fn drive_simulation(time: Res<Time<Real>>, mut driver: ResMut<SimDriver>) {
+fn drive_simulation(
+    time: Res<Time<Real>>,
+    mut driver: ResMut<SimDriver>,
+    mut last: ResMut<driver::Advance>,
+) {
     let start = Instant::now();
-    if let Err(error) = driver.advance(time.elapsed(), || start.elapsed()) {
-        error!("{error:#}");
-        driver.set_speed(aerocosm_core::SimSpeed::Paused);
+    match driver.advance(time.elapsed(), || start.elapsed()) {
+        Ok(frame) => *last = frame,
+        Err(error) => {
+            error!("{error:#}");
+            driver.set_speed(aerocosm_core::SimSpeed::Paused);
+        }
     }
 }

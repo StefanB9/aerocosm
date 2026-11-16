@@ -6,6 +6,7 @@ mod flight;
 mod format;
 pub(crate) mod labels;
 mod panel;
+mod readout;
 mod status;
 
 use aerocosm_core::SimSpeed;
@@ -49,6 +50,7 @@ impl Plugin for UiPlugin {
             panel::PanelPlugin,
             flight::FlightPanelPlugin,
             boards::BoardsPlugin,
+            readout::ReadoutPlugin,
         ))
         .add_systems(Startup, spawn_chrome.after(crate::data::setup_fonts))
         .add_systems(
@@ -248,7 +250,7 @@ fn spawn_footer(commands: &mut Commands, fonts: &Fonts) {
         text(
             fonts,
             "Drag to pan · scroll or pinch to zoom · click an airport or aircraft · F follow · \
-             Space pause · , . speed · Home reset",
+             Space pause · , . speed · Home reset · F3 frame times",
             12.0,
             theme::TEXT_MUTED,
         ),

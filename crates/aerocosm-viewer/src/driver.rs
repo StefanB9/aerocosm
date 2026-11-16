@@ -29,6 +29,15 @@ pub(crate) struct SimDriver {
 }
 
 /// A wall clock reading taken from Bevy's real-time clock for one frame.
+/// What one frame's advance did, for the frame-time readout (plan M5 D145).
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Advance {
+    /// Ticks run.
+    pub(crate) ticks: u32,
+    /// Wall time they took.
+    pub(crate) spent: Duration,
+}
+
 struct FrameClock(Duration);
 
 impl WallClock for FrameClock {
@@ -81,19 +90,22 @@ impl SimDriver {
         &mut self,
         elapsed: Duration,
         mut now: impl FnMut() -> Duration,
-    ) -> Result<()> {
+    ) -> Result<Advance> {
         let due = self.pacer.ticks_due(&FrameClock(elapsed));
         let budget = Duration::from_millis(FRAME_BUDGET_MS);
         let start = now();
+        let mut frame = Advance::default();
         for _ in 0..due {
             self.simulation
                 .run_ticks(1)
                 .with_context(|| format!("simulation stopped at {}", self.simulation.time()))?;
-            if now().saturating_sub(start) >= budget {
+            frame.ticks += 1;
+            frame.spent = now().saturating_sub(start);
+            if frame.spent >= budget {
                 break;
             }
         }
-        Ok(())
+        Ok(frame)
     }
 }
 
@@ -178,6 +190,20 @@ mod tests {
         assert!(run >= 1 && run * 10 <= 10 + FRAME_BUDGET_MS, "{run}");
         driver.advance(Duration::from_secs(2), ticking(Duration::ZERO))?;
         assert_eq!(driver.simulation().ticks(), run + 60);
+        Ok(())
+    }
+
+    #[test]
+    fn test_advance_reports_ticks_run_and_time_spent() -> Result<()> {
+        let mut driver = driver()?;
+        driver.advance(Duration::ZERO, ticking(Duration::ZERO))?;
+        // Each reading of the frame clock is a millisecond later.
+        let frame = driver.advance(Duration::from_secs(1), ticking(Duration::from_millis(1)))?;
+        assert_eq!(frame.ticks, 25);
+        assert_eq!(frame.spent, Duration::from_millis(25));
+        driver.set_speed(SimSpeed::Paused);
+        let idle = driver.advance(Duration::from_secs(2), ticking(Duration::from_millis(1)))?;
+        assert_eq!((idle.ticks, idle.spent), (0, Duration::ZERO));
         Ok(())
     }
 
