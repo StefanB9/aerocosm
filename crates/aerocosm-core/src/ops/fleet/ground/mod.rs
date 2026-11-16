@@ -554,11 +554,7 @@ impl Operations {
             .junctions
             .passages(layout, from, route.edges(), offset);
         let route_end = offset + route.length().value();
-        let end_node = route.edges().last().and_then(|&(e, forward)| {
-            layout
-                .edge(e)
-                .map(|e| if forward { e.to() } else { e.from() })
-        });
+        let end_node = end_of_route(layout, &route, from);
         let mut points = base;
         points.extend(route.points().iter().skip(usize::from(!points.is_empty())));
         let more: f64 = extension
@@ -623,5 +619,42 @@ impl Operations {
     /// Whether tail `index` is on a controlled taxi in `phase`.
     pub(super) fn controlled(&self, index: usize, phase: Phase) -> bool {
         matches!(phase, Phase::TaxiOut | Phase::TaxiIn) && self.taxis[index].is_some()
+    }
+}
+
+/// Where `route` from `from` ends: its last edge's far node, or `from` for a
+/// route with no edges (a waiting spot at the runway exit, say).
+fn end_of_route(layout: &AirportGround, route: &GroundRoute, from: Id<Node>) -> Option<Id<Node>> {
+    match route.edges().last() {
+        Some(&(edge, forward)) => layout
+            .edge(edge)
+            .map(|e| if forward { e.to() } else { e.from() }),
+        None => Some(from),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::{Context, Result};
+
+    use super::*;
+    use crate::{test_data::data, units::Meters};
+
+    #[test]
+    fn test_a_route_without_edges_ends_where_it_starts() -> Result<()> {
+        let world = data()?.world;
+        let network =
+            crate::ground::GroundNetwork::from_definition(crate::test_data::ground()?, &world)?;
+        let frankfurt = world.airport_by_ident("EDDF".parse()?).context("EDDF")?;
+        let layout = network.airport(frankfurt).context("EDDF's ground")?;
+        let wingspan = Meters::new(36.0)?;
+        let a = layout.stands()[0].node();
+        let b = layout.stands()[1].node();
+        let empty = layout.route(a, a, wingspan).context("route to itself")?;
+        assert_eq!(empty.edges().len(), 0);
+        assert_eq!(end_of_route(layout, &empty, a), Some(a));
+        let route = layout.route(a, b, wingspan).context("route")?;
+        assert_eq!(end_of_route(layout, &route, a), Some(b));
+        Ok(())
     }
 }
