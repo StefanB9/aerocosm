@@ -11,7 +11,7 @@ use std::{
 };
 
 use aerocosm_core::{
-    ground::{ground_file, ground_region},
+    ground::{GroundDefinition, ground_file, ground_region},
     traffic::TrafficTargets,
     units::Degrees,
     world::{World, WorldDefinition, codes::AirportIdent},
@@ -20,7 +20,10 @@ use aerocosm_data::{
     GlobeSources, import_all, import_globe,
     natural_earth::NaturalEarthSources,
     opensky::{Aggregator, read_openflights},
-    osm::{OsmInput, OsmSource, ground_airports, import_ground, overpass_query, query_box},
+    osm::{
+        OsmInput, OsmSource, ground_airports, import_ground, overpass_query, query_box,
+        rerate_stands,
+    },
     ourairports::{OurAirportsSources, read_closed_airports},
     wind::parse_wind,
     world_model,
@@ -32,7 +35,8 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 use crate::cli::{
-    Cli, Command, GlobeArgs, GroundArgs, ImportArgs, ObservedArgs, QueriesArgs, WindRequestsArgs,
+    Cli, Command, GlobeArgs, GroundArgs, ImportArgs, ObservedArgs, QueriesArgs, RerateArgs,
+    WindRequestsArgs,
 };
 
 /// Where each input dataset file is expected.
@@ -84,6 +88,7 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Import(args) => import(&args),
         Command::Ground(args) => ground(&args),
+        Command::Rerate(args) => rerate(&args),
         Command::Queries(args) => queries(&args),
         Command::Globe(args) => globe(&args),
         Command::WindRequests(args) => wind_requests(&args),
@@ -235,6 +240,43 @@ fn ground(args: &GroundArgs) -> Result<()> {
         let path = paths.ground.join(ground_file(*region));
         fs::write(&path, bytes).with_context(|| format!("cannot write {}", path.display()))?;
         info!(path = %path.display(), bytes = bytes.len(), "wrote asset");
+    }
+    Ok(())
+}
+
+/// Whether `path` is a regional ground asset.
+fn is_ground_asset(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".ground.bin"))
+}
+
+fn rerate(args: &RerateArgs) -> Result<()> {
+    let dir = &args.ground;
+    let entries = fs::read_dir(dir).with_context(|| format!("cannot list {}", dir.display()))?;
+    let mut paths = Vec::new();
+    for entry in entries {
+        let path = entry.context("cannot list the ground directory")?.path();
+        if is_ground_asset(&path) {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    for path in paths {
+        let bytes = fs::read(&path).with_context(|| format!("cannot read {}", path.display()))?;
+        let mut definition =
+            GroundDefinition::from_asset(&bytes).with_context(|| format!("{}", path.display()))?;
+        let report = rerate_stands(&mut definition)?;
+        let bytes = definition.to_asset()?;
+        fs::write(&path, &bytes).with_context(|| format!("cannot write {}", path.display()))?;
+        info!(
+            path = %path.display(),
+            stands = report.stands,
+            changed = report.changed,
+            narrow_before = report.narrow_before,
+            narrow_after = report.narrow_after,
+            "re-rated stands"
+        );
     }
     Ok(())
 }
@@ -480,6 +522,13 @@ mod tests {
             paths.places,
             Path::new("/data/ne/ne_10m_populated_places.geojson")
         );
+    }
+
+    #[test]
+    fn test_ground_assets_are_told_by_name() {
+        assert!(is_ground_asset(Path::new("assets/ground/E.ground.bin")));
+        assert!(!is_ground_asset(Path::new("assets/ground/LICENSE.txt")));
+        assert!(!is_ground_asset(Path::new("assets/ground")));
     }
 
     #[test]

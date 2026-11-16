@@ -12,6 +12,7 @@ mod opl;
 mod overpass;
 mod prune;
 mod query;
+mod rerate;
 mod runways;
 mod stands;
 
@@ -26,10 +27,13 @@ use aerocosm_core::{
 };
 use anyhow::{Context, Result};
 
-pub use self::query::{ground_airports, overpass_query, query_box};
 use self::{
     opl::{WorldOsm, read_opl},
     overpass::OsmData,
+};
+pub use self::{
+    query::{ground_airports, overpass_query, query_box},
+    rerate::{Rerated, rerate_stands},
 };
 
 /// Attribution the `ODbL` requires for the ground file (plan M4 D65).
