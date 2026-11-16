@@ -4,21 +4,25 @@
 use super::Operations;
 use crate::{
     Id, LatLon,
-    ground::{Node, Stand, StandRequest, TAXI_SPEED},
+    ground::{AirportGround, Node, Stand, StandRequest, TAXI_SPEED},
     ops::path::arrival_route,
     scenario::Scenario,
+    units::Meters,
     world::{Airport, codes::AirlineIcao},
 };
 
 /// How many tails stand on each stand of each airport. A stand is normally
 /// held by one tail; when nothing suitable is free an arrival shares one
 /// until waiting spots arrive (plan M4 PR 3).
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(super) struct StandBook {
     /// By airport index, then stand index; empty for unmapped airports.
     taken: Vec<Vec<u16>>,
     /// The airline of the first tail on each stand, likewise (plan M5 D120).
     holders: Vec<Vec<Option<AirlineIcao>>>,
+    /// The wingspan of the largest tail on each stand, m, likewise; zero on
+    /// a free stand (plan M6 D148).
+    spans: Vec<Vec<f32>>,
 }
 
 impl StandBook {
@@ -38,7 +42,12 @@ impl StandBook {
             .iter()
             .map(|stands| vec![None; stands.len()])
             .collect();
-        Self { taken, holders }
+        let spans = taken.iter().map(|stands| vec![0.0; stands.len()]).collect();
+        Self {
+            taken,
+            holders,
+            spans,
+        }
     }
 
     /// Whether `stand` at `airport` is free.
@@ -83,8 +92,46 @@ impl StandBook {
             .get_mut(stand.as_usize())
     }
 
-    /// Marks `stand` taken by one more tail, of `airline`.
-    pub(super) fn take(&mut self, airport: Id<Airport>, stand: Id<Stand>, airline: AirlineIcao) {
+    /// Whether an aircraft of `wingspan` has room on `stand` of `layout`: the
+    /// stand is free and the aircraft on the stands beside it leave it the
+    /// wingtip clearance (plan M6 D148).
+    pub(super) fn has_room(
+        &self,
+        layout: &AirportGround,
+        stand: Id<Stand>,
+        wingspan: Meters,
+    ) -> bool {
+        let airport = layout.airport();
+        self.is_free(airport, stand)
+            && layout.neighbours(stand).iter().all(|&other| {
+                self.span_on(airport, other)
+                    .is_none_or(|span| layout.neighbours_clear((stand, wingspan), (other, span)))
+            })
+    }
+
+    /// The wingspan of the largest tail on `stand`, if any stands there.
+    fn span_on(&self, airport: Id<Airport>, stand: Id<Stand>) -> Option<Meters> {
+        let span = *self.spans.get(airport.as_usize())?.get(stand.as_usize())?;
+        (span > 0.0).then(|| Meters::from_raw(f64::from(span)))
+    }
+
+    /// Marks `stand` taken by one more tail, of `airline` and `wingspan`.
+    pub(super) fn take(
+        &mut self,
+        airport: Id<Airport>,
+        stand: Id<Stand>,
+        airline: AirlineIcao,
+        wingspan: Meters,
+    ) {
+        // SAFETY: wingspans are tens of metres.
+        #[allow(clippy::cast_possible_truncation)]
+        if let Some(span) = self
+            .spans
+            .get_mut(airport.as_usize())
+            .and_then(|stands| stands.get_mut(stand.as_usize()))
+        {
+            *span = span.max(wingspan.value() as f32);
+        }
         let Some(count) = self.slot(airport, stand) else {
             return;
         };
@@ -102,10 +149,18 @@ impl StandBook {
             return;
         };
         *count = count.saturating_sub(1);
-        if *count == 0
-            && let Some(holder) = self.holder(airport, stand)
-        {
+        if *count > 0 {
+            return;
+        }
+        if let Some(holder) = self.holder(airport, stand) {
             *holder = None;
+        }
+        if let Some(span) = self
+            .spans
+            .get_mut(airport.as_usize())
+            .and_then(|stands| stands.get_mut(stand.as_usize()))
+        {
+            *span = 0.0;
         }
     }
 
@@ -172,7 +227,7 @@ impl Operations {
         let mate = |stand| book.held_by(airport, stand, airline);
         let stand = layout
             .choose_stand(&request, mate, |stand| {
-                book.is_free(airport, stand) && reachable(stand)
+                book.has_room(layout, stand, request.wingspan) && reachable(stand)
             })
             .or_else(|| {
                 shared
@@ -199,7 +254,7 @@ impl Operations {
             });
         if let Some(stand) = stand {
             // Taken while another tail or a variant holds it: shared (D69).
-            let held = !self.stands.is_free(airport, stand)
+            let held = !self.stands.has_room(layout, stand, request.wingspan)
                 || layout
                     .variants(stand)
                     .iter()
@@ -207,7 +262,7 @@ impl Operations {
             if held {
                 self.stats.shared_stand(airport);
             }
-            self.stands.take(airport, stand, airline);
+            self.stands.take(airport, stand, airline, request.wingspan);
             self.parked[index] = Some((airport, stand));
         }
         stand
@@ -303,12 +358,20 @@ mod tests {
             .filter_map(|i| Id::<Stand>::from_usize(i).ok())
             .filter(|&stand| {
                 let count = operations.stands.count(airport, stand);
+                let span = operations.stands.span_on(airport, stand);
                 count > 1
                     || (count == 1
                         && layout
                             .variants(stand)
                             .iter()
                             .any(|&v| !operations.stands.is_free(airport, v)))
+                    || span.is_some_and(|span| {
+                        layout.neighbours(stand).iter().any(|&n| {
+                            operations.stands.span_on(airport, n).is_some_and(|other| {
+                                !layout.stands_clear((stand, span), (n, other))
+                            })
+                        })
+                    })
             })
             .count()
     }
@@ -494,7 +557,10 @@ mod tests {
         // Every stand blocked by an aircraft that never leaves.
         let blocker = "ZZZ".parse()?;
         for i in 0..layout.stands().len() {
-            operations.stands.take(fra, Id::from_usize(i)?, blocker);
+            let limit = layout.stands()[i].max_wingspan();
+            operations
+                .stands
+                .take(fra, Id::from_usize(i)?, blocker, limit);
         }
         let mut boarded = std::collections::HashSet::new();
         let mut deplaned = std::collections::HashSet::new();
@@ -535,13 +601,15 @@ mod tests {
         let mut book = StandBook {
             taken: vec![vec![0; 3]],
             holders: vec![vec![None; 3]],
+            spans: vec![vec![0.0; 3]],
         };
+        let span = Meters::new(35.8)?;
         let (airport, stand) = (Id::new(0), Id::new(1));
         let (dlh, afr) = ("DLH".parse()?, "AFR".parse()?);
         assert!(book.is_free(airport, stand));
         assert!(!book.held_by(airport, stand, dlh));
-        book.take(airport, stand, dlh);
-        book.take(airport, stand, afr);
+        book.take(airport, stand, dlh, span);
+        book.take(airport, stand, afr, span);
         assert!(!book.is_free(airport, stand));
         assert_eq!(book.occupied(airport), 2);
         // The first tail's airline holds it while anyone stands there.
@@ -553,8 +621,44 @@ mod tests {
         assert!(book.is_free(airport, stand));
         assert!(!book.held_by(airport, stand, dlh));
         assert!(book.is_free(Id::new(5), stand));
-        book.take(Id::new(5), stand, dlh);
+        book.take(Id::new(5), stand, dlh, span);
         assert_eq!(book.occupied(Id::new(5)), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_a_stand_has_room_beside_aircraft_that_leave_it_room() -> Result<()> {
+        let (scenario, _) = mapped(StartMode::Cold, 3)?;
+        let fra = frankfurt(&scenario)?;
+        let layout = scenario.ground().airport(fra).context("FRA layout")?;
+        let mut book = StandBook::new(&scenario);
+        let dlh = "DLH".parse()?;
+        let wide = crate::units::Meters::new(64.8)?;
+        // A stand with a neighbour a wide-body on it would be too close to.
+        let (stand, beside) = (0..layout.stands().len())
+            .filter_map(|i| Id::<Stand>::from_usize(i).ok())
+            .find_map(|stand| {
+                layout
+                    .neighbours(stand)
+                    .iter()
+                    .copied()
+                    .find(|&n| !layout.stands_clear((stand, wide), (n, wide)))
+                    .map(|n| (stand, n))
+            })
+            .context("two stands close together")?;
+        assert!(book.has_room(layout, stand, wide));
+        book.take(fra, beside, dlh, wide);
+        assert!(!book.has_room(layout, beside, wide), "taken itself");
+        for span in [24.0, 36.0, 52.0, 64.8] {
+            let span = crate::units::Meters::new(span)?;
+            assert_eq!(
+                book.has_room(layout, stand, span),
+                layout.stands_clear((stand, span), (beside, wide)),
+                "{span:?}"
+            );
+        }
+        book.release(fra, beside);
+        assert!(book.has_room(layout, stand, wide));
         Ok(())
     }
 }

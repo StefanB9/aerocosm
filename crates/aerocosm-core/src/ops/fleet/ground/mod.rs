@@ -66,6 +66,9 @@ const DEADLOCK_AFTER: i64 = 60_000;
 /// Waiting this long for a clearance for any reason, an aircraft taxies
 /// regardless as a last resort (D75), ms.
 const STUCK_AFTER: i64 = 1_800_000;
+/// An aircraft that stands this long with nobody to wait for is counted as
+/// stalled (plan M6 D150), ms.
+const STALLED_AFTER: i64 = 300_000;
 /// A departure waiting at its gate for a pushback clearance this long goes
 /// regardless (D75), ms.
 const GATE_ESCAPE_AFTER: i64 = 1_800_000;
@@ -448,6 +451,8 @@ pub(super) struct Taxi {
     crossing: Option<(RunwayKey, i64)>,
     /// How often it has been sent another way out of a deadlock (D93).
     reroutes: u8,
+    /// Since when it has stood with nobody to wait for, ms (plan M6 D150).
+    idle_since: Option<i64>,
 }
 
 impl Taxi {
@@ -603,6 +608,7 @@ impl Operations {
                 waiting: None,
                 spot_since: 0,
                 escaped: false,
+                idle_since: None,
                 crossing: None,
                 reroutes: 0,
                 points: points.clone(),

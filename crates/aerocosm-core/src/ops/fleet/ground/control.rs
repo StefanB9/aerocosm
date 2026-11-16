@@ -3,9 +3,9 @@
 //! ahead of their hold, the most urgent first.
 
 use super::{
-    AIRCRAFT_LENGTH, CLEAR_OF_RUNWAY, DEADLOCK_AFTER, EDGE, ENGINE_START, FOLLOW, GAP, LOCK_AHEAD,
-    LOOKAHEAD, Occupant, PUSH_CLEAR, PUSH_SHOWN_EVERY, PUSH_SPEED, STUCK_AFTER, Target, Taxi, ZONE,
-    ms, taxi_millis, tight, time_of,
+    AIRCRAFT_LENGTH, CLEAR_OF_RUNWAY, DEADLOCK_AFTER, EDGE, ENGINE_START, FOLLOW, GAP, HOLD_SHORT,
+    LOCK_AHEAD, LOOKAHEAD, Occupant, PUSH_CLEAR, PUSH_SHOWN_EVERY, PUSH_SPEED, Passage,
+    STUCK_AFTER, Target, Taxi, ZONE, ms, taxi_millis, tight, time_of,
 };
 use crate::{
     SimDuration, SimTime,
@@ -308,7 +308,7 @@ impl Operations {
         let locks = taxi
             .runs
             .get(taxi.locked)
-            .is_some_and(|run| run.from < along + LOOKAHEAD + LOCK_AHEAD / 2.0);
+            .is_some_and(|run| asks_for_lock(&taxi.passages, run.from, along));
         let hold = taxi
             .next_hold()
             .is_some_and(|(_, hold)| hold - along <= LOOKAHEAD);
@@ -713,6 +713,26 @@ pub(super) fn overdue(taxi: &Taxi, now: SimTime) -> bool {
                 .is_some_and(|since| ms(now) - since >= STUCK_AFTER))
 }
 
+/// Where an aircraft stops for a taxiway it has not locked, which starts
+/// `from` metres along its path: short of the last junction before it, or
+/// where it starts.
+pub(super) fn short_of_unlocked(passages: &[Passage], from: f64) -> f64 {
+    passages
+        .iter()
+        .rev()
+        .find(|p| p.entry <= from + 1e-6)
+        .map_or(from, |p| p.entry - HOLD_SHORT)
+}
+
+/// Whether an aircraft `along` its path asks for the lock of a taxiway that
+/// starts `from` metres along it: the taxiway is near, or the place where
+/// it would stop for it is (plan M6 D150: else it stands there for ever,
+/// waiting for nobody).
+fn asks_for_lock(passages: &[Passage], from: f64, along: f64) -> bool {
+    from < along + LOOKAHEAD + LOCK_AHEAD / 2.0
+        || short_of_unlocked(passages, from) - along <= LOOKAHEAD
+}
+
 /// An aircraft on the through taxiway as the controller sees it from a
 /// junction.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -736,6 +756,26 @@ impl Through {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_an_aircraft_asks_for_the_lock_it_stops_for() {
+        // Phoenix (plan M6 D150): the taxiway not yet locked starts 500 m
+        // beyond the last junction before it, where the aircraft stops.
+        let passages = [Passage {
+            junction: 3,
+            entry: 1609.0,
+            exit: 1640.0,
+            hold: None,
+        }];
+        let from = 2100.0;
+        let stop = short_of_unlocked(&passages, from);
+        assert!((stop - 1564.0).abs() < 1e-9);
+        assert!(asks_for_lock(&passages, from, stop));
+        // Not from far back, and as before where no junction lies between.
+        assert!(!asks_for_lock(&passages, from, 1000.0));
+        assert!(asks_for_lock(&[], from, 1700.0));
+        assert!(!asks_for_lock(&[], from, 1600.0));
+    }
 
     #[test]
     fn test_through_traffic_has_right_of_way_until_it_gives_way() {

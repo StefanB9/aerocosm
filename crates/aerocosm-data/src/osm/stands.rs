@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use aerocosm_core::ground::{EdgeKind, GroundName, stand_base};
+use aerocosm_core::ground::{CODES, EdgeKind, GroundName, Parked, stand_base};
 
 use super::{
     graph::Graph,
@@ -15,18 +15,14 @@ use super::{
 /// Lead-ins and stand nodes farther than this from a taxi lane stay
 /// unconnected (and are dropped with their component).
 const CONNECT_LIMIT: f64 = 60.0;
-/// ICAO aerodrome code wingspans and stand wingtip clearances (Annex 14),
-/// m: codes A to F.
-const CODES: [(f64, f64); 6] = [
-    (15.0, 3.0),
-    (24.0, 3.0),
-    (36.0, 4.5),
-    (52.0, 7.5),
-    (65.0, 7.5),
-    (80.0, 7.5),
-];
-/// Stands mapped up to 5 % closer than the code's spacing still count.
-const MAPPING_TOLERANCE: f64 = 1.05;
+/// Stands nearer than this to another are alternative centrelines of one
+/// gate: not even the smallest airliners use both at once (code A's 15 m
+/// and 3 m, less the mapping tolerance).
+const ALTERNATIVE: f64 = 17.0;
+/// An aircraft may take the gate on either side of its own with it…
+const GATES_TAKEN: usize = 2;
+/// …but no more than this many stands in all, however close they lie.
+const STANDS_TAKEN: usize = 4;
 /// A stand within this distance of a terminal belongs to it.
 const TERMINAL_REACH: f64 = 250.0;
 
@@ -287,55 +283,68 @@ fn unique_names(stands: &mut [RawStand]) {
     }
 }
 
-/// Wingspan limit of each stand (name, position, heading): the largest ICAO
-/// aerodrome code (A–F) whose parked footprint keeps the wingtip clearance
-/// to every stand that is not a variant of it, allowing for mapping error;
-/// in metres.
-///
-/// A parked aircraft is taken as a square as long as its wingspan (true to
-/// about a tenth for airliners) reaching back from the stand point, so that
-/// stands side by side are judged by their spacing and rows parked nose to
-/// nose by the gap between the noses.
+/// Wingspan limit of each stand (name, position, heading), m: the largest
+/// ICAO aerodrome code (A–F) that fits it with the stands beside it empty
+/// (plan M6 D148). An aircraft that size may reach over the gate on either
+/// side, the alternative centrelines of a gate counting once and those of
+/// its own gate not at all, but over no more than a few stands. Which
+/// stands are free beside a parked aircraft is decided when one arrives,
+/// from the aircraft's actual sizes.
 pub(crate) fn wingspan_limits(stands: &[(GroundName, Xy, f64)]) -> Vec<f64> {
     stands
         .iter()
         .map(|(name, p, heading)| {
             let base = stand_base(name.as_str());
-            let fits = |span: f64, clearance: f64| {
-                stands
+            let fits = |span: f64| {
+                let me = Parked {
+                    at: *p,
+                    heading: *heading,
+                    wingspan: span,
+                };
+                let taken: Vec<Xy> = stands
                     .iter()
-                    .filter(|(other, _, _)| stand_base(other.as_str()) != base)
-                    .all(|(_, q, other_heading)| {
-                        footprint_gap(*p, *heading, *q, *other_heading, span) * MAPPING_TOLERANCE
-                            >= span + clearance
+                    .filter(|(other, q, _)| {
+                        stand_base(other.as_str()) != base && distance(*p, *q) >= ALTERNATIVE
                     })
+                    .filter(|(_, q, other_heading)| {
+                        !me.keeps_clear_of(&Parked {
+                            at: *q,
+                            heading: *other_heading,
+                            wingspan: span,
+                        })
+                    })
+                    .map(|(_, q, _)| *q)
+                    .collect();
+                taken.len() <= STANDS_TAKEN && gates(&taken) <= GATES_TAKEN
             };
             CODES
                 .iter()
                 .rev()
-                .find(|(span, clearance)| fits(*span, *clearance))
+                .find(|(span, _)| fits(*span))
                 .map_or(CODES[0].0, |(span, _)| *span)
         })
         .collect()
 }
 
-/// The distance between the centres of two parked footprints of size
-/// `span` measured along the first's axes (the larger of the two), m.
-fn footprint_gap(p: Xy, heading: f64, q: Xy, other_heading: f64, span: f64) -> f64 {
-    let forward = |degrees: f64| {
-        let radians = degrees.to_radians();
-        [radians.sin(), radians.cos()]
-    };
-    let [fx, fy] = forward(heading);
-    let [gx, gy] = forward(other_heading);
-    let half = span / 2.0;
-    let delta = [
-        (q[0] - gx * half) - (p[0] - fx * half),
-        (q[1] - gy * half) - (p[1] - fy * half),
-    ];
-    let along = delta[0] * fx + delta[1] * fy;
-    let across = delta[0] * fy - delta[1] * fx;
-    along.abs().max(across.abs())
+/// How many gates the stand points `stands` belong to: points nearer than
+/// `ALTERNATIVE` to each other are centrelines of one gate.
+fn gates(stands: &[Xy]) -> usize {
+    let mut gate: Vec<usize> = (0..stands.len()).collect();
+    for i in 0..stands.len() {
+        for j in 0..i {
+            if distance(stands[i], stands[j]) < ALTERNATIVE {
+                let (from, to) = (gate[i], gate[j]);
+                for g in &mut gate {
+                    if *g == from {
+                        *g = to;
+                    }
+                }
+            }
+        }
+    }
+    gate.sort_unstable();
+    gate.dedup();
+    gate.len()
 }
 
 /// A named apron or terminal outline.
@@ -553,48 +562,59 @@ mod tests {
             .collect()
     }
 
+    /// A row of `count` stands `spacing` metres apart, all heading north.
+    fn row(count: u32, spacing: f64) -> Result<Vec<(GroundName, Xy, f64)>> {
+        (0..count)
+            .map(|i| {
+                Ok((
+                    format!("{}", i + 1).parse()?,
+                    [f64::from(i) * spacing, 0.0],
+                    0.0,
+                ))
+            })
+            .collect()
+    }
+
     #[test]
-    fn test_wingspan_limits_follow_spacing() -> Result<()> {
-        let limits = wingspan_limits(&named(&[
-            ("1", [0.0, 0.0]),
-            ("2", [45.0, 0.0]),
-            ("3", [125.0, 0.0]),
-            ("4", [1_000.0, 0.0]),
-        ])?);
-        // 45 m apart: code C (36 m); 80 m: code E (65 m); alone: code F.
-        assert_eq!(limits, vec![36.0, 36.0, 65.0, 80.0]);
-        // Mapped a little tight (39 m) still takes an A320.
-        let tight = wingspan_limits(&named(&[("1", [0.0, 0.0]), ("2", [39.0, 0.0])])?);
-        assert_eq!(tight, vec![36.0, 36.0]);
-        let crowded = wingspan_limits(&named(&[("1", [0.0, 0.0]), ("2", [5.0, 0.0])])?);
-        assert_eq!(crowded, vec![15.0, 15.0]);
+    fn test_wingspan_limits_let_a_stand_take_the_gates_beside_it() -> Result<()> {
+        // Gates 40 m apart, built for the 737: with the gate on either side
+        // empty a code E wide-body fits, a code F would reach the next two.
+        // At the row's ends there is room on one side.
+        assert_eq!(
+            wingspan_limits(&row(5, 40.0)?),
+            vec![80.0, 65.0, 65.0, 65.0, 80.0]
+        );
+        // 34 m apart (Ankara): every other stand takes an A320, code D at
+        // the most.
+        assert_eq!(wingspan_limits(&row(5, 34.0)?)[2], 52.0);
+        // Alone, or with one neighbour: nothing limits it.
+        assert_eq!(wingspan_limits(&row(2, 45.0)?), vec![80.0, 80.0]);
         Ok(())
     }
 
     #[test]
-    fn test_wingspan_limits_measure_from_the_parked_footprint() -> Result<()> {
-        // Two rows facing each other nose to nose 23 m apart, 43 m between
-        // neighbours in a row (as at Weeze): code C.
+    fn test_wingspan_limits_count_the_alternatives_of_a_gate_once() -> Result<()> {
+        // Gates 60 m apart, each with a centreline for wide-bodies and one
+        // 12 m to either side for narrow-bodies, under names of their own.
         let mut stands = Vec::new();
-        for (index, y) in [0.0, 43.0, 86.0].into_iter().enumerate() {
-            stands.push((format!("{}", index + 1).parse()?, [0.0, y], 90.0));
-            stands.push((format!("{}", index + 4).parse()?, [23.0, y], 270.0));
+        for gate in 0..5_u32 {
+            for (suffix, offset) in [("L", -12.0), ("C", 0.0), ("R", 12.0)] {
+                let x = f64::from(gate) * 60.0 + offset;
+                stands.push((format!("G{gate}{suffix}").parse()?, [x, 0.0], 0.0));
+            }
         }
-        assert!(
-            wingspan_limits(&stands)
-                .iter()
-                .all(|span| (span - 36.0).abs() < 1e-9)
-        );
-        // In line one behind the other 23 m apart: their bodies overlap.
-        let in_line = vec![
-            ("1".parse()?, [0.0, 0.0], 90.0),
-            ("2".parse()?, [23.0, 0.0], 90.0),
-        ];
-        assert!(
-            wingspan_limits(&in_line)
-                .iter()
-                .all(|span| (span - 15.0).abs() < 1e-9)
-        );
+        let limits = wingspan_limits(&stands);
+        // The middle gate's centreline: code E, the gate on either side
+        // still usable on its far line.
+        assert!((limits[7] - 65.0).abs() < 1e-9, "{limits:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_wingspan_limits_keep_large_aircraft_off_crowded_aprons() -> Result<()> {
+        // Tie-downs 12 m apart: an airliner would take six of them.
+        let limits = wingspan_limits(&row(12, 12.0)?);
+        assert!(limits[6] <= 36.0, "{limits:?}");
         Ok(())
     }
 
@@ -609,8 +629,7 @@ mod tests {
             ("N4", [500.0, 0.0]),
             ("N4-2", [505.0, 0.0]),
         ])?);
-        assert_eq!(limits[..4], [80.0, 80.0, 65.0, 65.0]);
-        assert_eq!(limits[4..], [80.0, 80.0]);
+        assert_eq!(limits, vec![80.0; 6]);
         Ok(())
     }
 

@@ -22,6 +22,9 @@ outside a runway queue, is sent another way if there is one (D94) and otherwise 
 regardless (D75, D83). Each escape counts as a ground conflict and the flight view marks it
 (`FlightView::ground_conflict`).
 
+**After plan M6 PR 1:** the region E test passes on seeds 3, 7 and 11; a 36-hour world run
+has 4,481 escapes in 157,780 taxis (2.8 %), now mostly at airports with long runway queues.
+
 **How often (plan M5 PR 3):** in the ground test's morning bank on region E (260 airports
 under ground control), 33, 49 and 27 escapes in about 2,350 taxis for seeds 3, 7 and 11
 (1.4 %, 2.0 %, 1.1 %): seed 7 exceeds the test's limit of one in fifty by one escape, and the
@@ -96,6 +99,12 @@ real exit use at Frankfurt or Munich.
 Frankfurt and Munich from 7–8 % to nearly none. Most remaining shares are arrivals whose
 planned exit has no way off at touchdown, and airports whose stands the spacing rule rates
 smaller than their largest freighters (D119).
+
+**After plan M6 PR 1:** stands are free or taken by the sizes of the aircraft actually parked
+beside them (D148). In a 36-hour world run stand shares fell from 2,909 to 796 (0.5 % of
+taxis) and stand waits from 8,378 to 1,436. The remaining waits are peaks at Seattle (364),
+O'Hare (305), Phoenix (140) and Tokyo Haneda (99), where the stands that can be used at once
+are full.
 
 **Decision:** reported as a statistic.
 

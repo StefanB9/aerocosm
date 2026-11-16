@@ -266,6 +266,8 @@ impl Operations {
             )
         });
         let (Some(stand), Some(route)) = (stand, route) else {
+            // A stand it finds no way to is not held meanwhile.
+            self.release_stand(index);
             if let Some(taxi) = self.taxis.get_mut(index) {
                 taxi.waiting = Some(ms(now) + RETRY);
             }

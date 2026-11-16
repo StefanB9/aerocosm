@@ -21,6 +21,8 @@ pub(crate) enum Command {
     /// Import airport ground layouts from Overpass downloads or the planet's
     /// aeroways (plan M4, M5 D116).
     Ground(GroundArgs),
+    /// Recompute the stand sizes in the ground assets (plan M6 D149).
+    Rerate(RerateArgs),
     /// Write the Overpass query of every airport with a ground layout.
     Queries(QueriesArgs),
     /// Import every aerodrome on the globe (plan M5).
@@ -55,6 +57,15 @@ pub(crate) struct ObservedArgs {
     /// Asset directory to write `traffic/observed.bin` into.
     #[arg(long, default_value = "assets")]
     pub(crate) out: PathBuf,
+}
+
+/// Options for [`Command::Rerate`].
+#[derive(Debug, Args)]
+pub(crate) struct RerateArgs {
+    /// Directory of the regional ground assets, `*.ground.bin`, rewritten
+    /// in place.
+    #[arg(long, default_value = "assets/ground")]
+    pub(crate) ground: PathBuf,
 }
 
 /// Options for [`Command::Globe`].
@@ -210,6 +221,16 @@ mod tests {
             anyhow::bail!("expected the queries command");
         };
         assert_eq!(args.boxes.as_deref(), Some(Path::new("b.geojson")));
+        Ok(())
+    }
+
+    #[test]
+    fn test_cli_rerate_arguments() -> Result<()> {
+        let cli = Cli::try_parse_from(["aerocosm-data", "rerate", "--ground", "g"])?;
+        let Command::Rerate(args) = cli.command else {
+            anyhow::bail!("expected the rerate command");
+        };
+        assert_eq!(args.ground, PathBuf::from("g"));
         Ok(())
     }
 

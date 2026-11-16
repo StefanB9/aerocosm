@@ -68,12 +68,22 @@ impl AirportGround {
     /// Per node, whether a route from `from` leads there for an aircraft of
     /// `wingspan`, respecting one-way edges and taxiway widths as routes do.
     pub(crate) fn reachable_from(&self, from: Id<Node>, wingspan: Meters) -> Vec<bool> {
+        self.reachable_from_any(&[from], wingspan)
+    }
+
+    /// Per node, whether a route from any of `sources` leads there for an
+    /// aircraft of `wingspan`.
+    pub(super) fn reachable_from_any(&self, sources: &[Id<Node>], wingspan: Meters) -> Vec<bool> {
         let mut seen = vec![false; self.nodes().len()];
-        let Some(first) = seen.get_mut(from.as_usize()) else {
-            return seen;
-        };
-        *first = true;
-        let mut stack = vec![from];
+        let mut stack = Vec::with_capacity(sources.len());
+        for &from in sources {
+            if let Some(slot) = seen.get_mut(from.as_usize())
+                && !*slot
+            {
+                *slot = true;
+                stack.push(from);
+            }
+        }
         while let Some(here) = stack.pop() {
             for &edge in self.edges_at(here) {
                 let Some(edge) = self.edge(edge) else {

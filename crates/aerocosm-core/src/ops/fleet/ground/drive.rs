@@ -4,7 +4,7 @@
 //! the taxiways it has locked, and its route's end; then it finishes at its
 //! stand, waiting spot or holding position.
 
-use super::{EDGE, FOLLOW, HOLD_SHORT, Target, control::overdue, ms};
+use super::{EDGE, FOLLOW, HOLD_SHORT, STALLED_AFTER, Target, control::overdue, ms};
 use crate::{
     LatLon, SimDuration, SimTime, TICK,
     ground::{TAXI_SPEED, junctions::Passage},
@@ -97,7 +97,13 @@ impl Operations {
                 taxi.waiting_since = None;
             }
         }
+        let idle = next - along < 1e-3 && taxi.waiting_since.is_none() && next < taxi.end - 1e-6;
+        let stalled = stalls(&mut taxi.idle_since, idle, ms(now));
         if next < taxi.end - 1e-6 {
+            if stalled {
+                let airport = taxi.airport;
+                self.stats.stalled(airport);
+            }
             return None;
         }
         let end = ms(now) + TICK.as_millis();
@@ -160,12 +166,7 @@ impl Operations {
         }
         // Short of the junction before the taxiways it has not locked.
         if let Some(run) = taxi.runs.get(taxi.locked) {
-            let short = taxi
-                .passages
-                .iter()
-                .rev()
-                .find(|p| p.entry <= run.from + 1e-6)
-                .map_or(run.from, |p| p.entry - HOLD_SHORT);
+            let short = super::control::short_of_unlocked(&taxi.passages, run.from);
             stop = stop.nearer(short, taxi.waiting_for, false);
         }
         // Short of a junction someone else is in or has been cleared into.
@@ -248,6 +249,16 @@ impl Operations {
             .find(|other| other.tail != owner && in_the_way(here, next, other, owner))
             .map(|other| other.tail)
     }
+}
+
+/// Keeps since when an aircraft has stood `idle` (with nobody to wait for)
+/// in `since`; true at the moment it has done so for `STALLED_AFTER`.
+fn stalls(since: &mut Option<i64>, idle: bool, now: i64) -> bool {
+    if !idle {
+        *since = None;
+        return false;
+    }
+    now - *since.get_or_insert(now) == STALLED_AFTER
 }
 
 /// Metres per degree of latitude (and of longitude at the equator).
@@ -434,6 +445,23 @@ mod tests {
         // Anywhere else, or at a hold already cleared.
         assert!(!at_a_line(&passages, 0, 500.0));
         assert!(!at_a_line(&passages, 2, 760.0));
+    }
+
+    #[test]
+    fn test_a_stall_is_counted_once_after_five_idle_minutes() {
+        let mut since = None;
+        let mut counted = 0;
+        for second in 0..1_000 {
+            counted += u32::from(stalls(&mut since, true, second * 1_000));
+        }
+        assert_eq!(counted, 1);
+        assert_eq!(since, Some(0));
+        // Moving or waiting for someone starts it afresh.
+        assert!(!stalls(&mut since, false, 1_000_000));
+        assert_eq!(since, None);
+        assert!(!stalls(&mut since, true, 1_001_000));
+        assert!(!stalls(&mut since, true, 1_300_000));
+        assert!(stalls(&mut since, true, 1_301_000));
     }
 
     #[test]

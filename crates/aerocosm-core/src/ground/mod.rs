@@ -12,6 +12,7 @@ mod airport;
 mod choice;
 mod definition;
 mod elements;
+mod footprint;
 
 pub(crate) mod junctions;
 mod route;
@@ -26,6 +27,7 @@ pub use definition::{
     ground_region,
 };
 pub use elements::{Edge, Exit, HoldingPosition, Node, Stand, stand_base};
+pub use footprint::{CODES, MAPPING_TOLERANCE, Parked, wingtip_clearance};
 pub use route::GroundRoute;
 pub use taxi::{PUSHBACK_TIME, RAPID_EXIT, TAXI_SPEED, TaxiTimes};
 
