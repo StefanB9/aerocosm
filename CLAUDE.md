@@ -59,7 +59,8 @@ aerocosm/                              (workspace root)
     │       │                          separation, landing timelines, runway state, arrival
     │       │                          delay split); fleet/flow.rs applies it per tail, with
     │       │                          ground delays at off-block; fleet/stands.rs (stand
-    │       │                          bookkeeping); stats.rs (punctuality); timing.rs (tick split for
+    │       │                          bookkeeping); fleet/runways.rs (departure runway chosen
+    │       │                          again at pushback, plan M6 D151); stats.rs (punctuality); timing.rs (tick split for
     │       │                          benchmarks, plan M5 D136); fleet/ground/
     │       │                          (plan M4 PR 4, PR 6: ground controller: control.rs
     │       │                          survey, clearances at junctions, deadlocks, pushback

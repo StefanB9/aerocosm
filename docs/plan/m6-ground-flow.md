@@ -47,8 +47,8 @@ The patterns diagnosed in M4 (short stubs, order inversion at a runway entry;
 | D148 | **Stand sizes with dynamic neighbours.** A stand's limit is the largest aircraft that fits its own geometry with its neighbours empty. Whether a stand is free for an aircraft depends on the aircraft actually parked on the neighbours: the two footprints (M5 D119: a square as long as the wingspan, back from the stand point) must keep the wingtip clearance of the larger aircraft's code. A wide-body thus takes the gates beside it and two narrow-bodies fit where the mapping allows, as at real multi-use stands. This replaces the fixed code letter and generalises stand variants (M4), which become the case of footprints that always overlap. Stand choice (M5 D120) is otherwise unchanged |
 | D149 | **Limits re-rated from the assets.** A new `aerocosm-data` command recomputes every stand's own limit from the positions and headings in the ground assets and writes them back; the importer uses the same rule from now on. The quality gate (M5 D118) is not re-run: the set of airports stays. The asset format version rises if the stored fields change |
 | D150 | **The stall fixed.** An aircraft that stops for a taxiway it has not locked asks for that lock from where it stands, however far ahead the taxiway starts. A test reproduces Phoenix's layout; a guard counts aircraft that stand still with nothing to wait for, in the ground tests and in the runner's report |
-| D151 | **Departure runway by direction, taxi distance and queue.** Chosen when the pushback is planned, among the runway ends the mode allows for departures and the aircraft's length needs: the score adds the direction of flight (as now), the taxi distance from its stand and the runway's expected queue (M4 D91). The gate hold uses the runway's real queue: the cap on the learnt interval goes |
-| D152 | **Arrival runway also by where it will park.** Chosen when the leg is planned, as now, among the ends the mode allows for arrivals: the score adds the direction it comes from (as now) and the taxi distance from the runway's exits to the stands that fit it (to the stands its airline holds, where it holds some). Landing slots and approach sequencing follow the chosen runway as today; the share per runway is checked against the mode's capacity so that no runway is asked for more landings than its lane takes |
+| D151 | **Departure runway by the time until take-off.** Among the runway ends the mode allows for departures and the aircraft's length needs, a flight takes the one it is off soonest from: the taxi from its stand or the wait for the runway's turn (M4 D91), whichever is longer, then the turn onto its course (2 s per degree, and per kilometre the course lies off the centreline). Chosen when the leg is planned, without queues, and again when it asks to push back, with them. The cap on the learnt take-off interval rises from 5 to 15 minutes, so that the gate hold sees long queues |
+| D152 | **Arrival runways stay by direction** (*changed in PR 2, 2026-11-17*; first: also by where the arrival will park). Two rules were built and measured: the landing slot each runway would give the flight at pushback, with and without the taxi to its stands. Both raise escapes at O'Hare, Atlanta and Phoenix, where they move landings onto runways whose taxi-in crosses busy traffic; the figures are under PR 2. The slot rule alone cuts airborne holding by 29 %; it may be tried again once the ground takes it |
 | D153 | **Junction fixes (M4's intended fix).** A junction is cleared only to the first aircraft in line for it; two junctions too close to stand between (a short stub) take one clearance, the arrival holding before the first. Measured on the region E test, seeds 3, 7 and 11 |
 | D154 | **Taxi speed profile.** 15 m/s on straight taxiways, 8 m/s on apron taxilanes and through gentle bends, 5 m/s in sharp turns and on stand lead-ins; aircraft speed up and brake at 1 m/s² instead of stopping within a tick. The limits come from the edge's kind and the turn at each node of the route. The controller's distances that assume 5 m/s (look-ahead, the gap to through traffic, pushback clearance) are derived from speed and braking distance. Scheduled taxi times (M4) use the same profile |
 | D155 | **Acceptance.** The 7-day world run (seed 3 from 2026-07-06): escapes under 2 % of taxis, stand shares under 2 %, no taxi over 75 minutes, no aircraft standing with nothing to wait for; the region E ground test passes on seeds 3, 7 and 11; German airports stay within the ADV tolerance (M5 D105); the benchmark's 95th-percentile tick stays under 8 ms (M5 D107). Then `dev` is promoted to `main` |
@@ -130,11 +130,43 @@ stand choices). The full suite passes: 846 tests.
 
 ## PR 2 — Runway choice (D151, D152)
 
-- Core: departure runway chosen at pushback planning; the leg's departure procedure follows
-  it. Arrival score with the stand distance; per-runway landing share against capacity.
+- Core: departure runway chosen by time when the leg is planned and again at pushback.
 - Gate hold on the real queue.
-- Measured: queue lengths per runway at Boston, Frankfurt, Madrid, Denver; taxi-in lengths
-  at O'Hare; arrival holding (flow control) must not get worse.
+- Measured: escapes, queues and delays at the airports of the diagnosis.
+
+*As built (PR 2):*
+
+- **Leg planning** scores a departure runway in seconds: the taxi there along the route from
+  its stand (30 minutes where there is none) or the wait for its turn, whichever is longer,
+  plus the course term. Unmapped airports and airports without a mode keep the old choice.
+- **At pushback** (`fleet/runways.rs`) the leg is planned again with each runway's turn from
+  departure management; the runway already planned counts a minute less, so flights change
+  only for a real gain, and a flight held at its gate looks again every five minutes, not at
+  every retry. The departure's runway control follows the new runway; a landing slot booked
+  at the destination stays.
+- **Arrivals (D152) dropped after measurement**, agreed 2026-11-17:
+
+  | 36 h, seed 3 | Escapes | Airborne holding, min | Departure delay, min | Over 75 min |
+  |---|---|---|---|---|
+  | PR 1 | 4,481 | 409,706 | 19.8 | 12 airports |
+  | Departures only (as built) | 4,015 | 395,276 | 17.5 | 7 |
+  | + arrivals by landing-slot wait | 4,554 | 289,793 | 18.5 | 6 |
+  | + slot wait and taxi-in at 30 % | 4,848 | 351,325 | 18.8 | 6 |
+  | + slot wait and taxi-in | 4,632 | 427,414 | 19.8 | 9 |
+  | Departures by queue only, arrivals as above | 4,782 | 446,014 | 18.1 | 11 |
+
+  A first rule that shared landings equally between a mode's runways sent as many to the far
+  runway as to the near one (Atlanta 77 → 352 escapes) and was replaced by the slot wait
+  before these runs.
+
+Measured as built (36 h, seed 3 from 2026-07-06, against PR 1): escapes 4,481 → 4,015 (2.5 %
+of taxis), stand shares 796 → 91, stand waits 1,436 → 881, go-arounds 1,780 → 1,528, longest
+taxi 247 → 142 minutes, departure delay 19.8 → 17.5 minutes, arrival delay 24.0 → 21.8.
+Frankfurt's escapes 231 → 90, Narita's 144 → 33, Madrid's 322 → 252; O'Hare handles 3,498
+movements instead of 3,209 with taxi delay 21.1 → 15.4 minutes and no more stand waits (305
+→ 0). Worse: Phoenix 79 → 166 escapes while handling 1,888 movements instead of 1,587, and
+Atlanta 77 → 105. Ground delays at the gate for landing slots rose (134,467 → 165,742
+minutes) as more flights leave on time into the same landing capacity.
 
 ## PR 3 — Junctions (D153)
 
@@ -166,7 +198,6 @@ stand choices). The full suite passes: 846 tests.
 | Risk | Mitigation |
 |------|------------|
 | A stand's own limit is too generous where OSM maps alternative centrelines of one gate under different names | The neighbour rule still keeps parked aircraft apart; shares and stand waits are measured per airport after re-rating |
-| Arrival runways by stand distance overload one runway | The share per runway is held to the mode's capacity (D152); arrival holding is measured in PR 2 |
 | Faster taxiing makes separation at junctions harder | Controller distances derive from braking distance; fallback to 10 / 8 / 5 m/s (PR 4) |
 | First-in-line clearances were tried in M4 without effect | M4's experiments ran under stand shortage and runway queues; they are repeated after PR 1 and PR 2, and the user sees the figures before more is built |
 | Tick time rises with the neighbour rule or the speed profile | Benchmark record per PR (D156) |
