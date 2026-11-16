@@ -7,7 +7,10 @@ pub(crate) mod parse;
 pub(crate) mod record;
 pub(crate) mod report;
 
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result};
 use tracing::info;
@@ -79,12 +82,12 @@ pub(crate) struct Outcome {
     pub(crate) recorded: bool,
 }
 
-fn strings(args: &[&str]) -> Vec<String> {
-    args.iter().map(|arg| (*arg).to_owned()).collect()
+fn strings(args: &[&str]) -> Vec<OsString> {
+    args.iter().map(OsString::from).collect()
 }
 
 /// The runner's arguments for `scenario`.
-fn scenario_args(scenario: &str, quick: bool) -> Vec<String> {
+fn scenario_args(scenario: &str, quick: bool) -> Vec<OsString> {
     let mut args = strings(&["bench", scenario]);
     if quick {
         let ticks = if scenario == "day" { "60" } else { "5" };
@@ -97,7 +100,7 @@ fn scenario_args(scenario: &str, quick: bool) -> Vec<String> {
 
 /// Criterion's arguments after `--`: the `bencher` output, shorter when
 /// quick.
-fn criterion_args(quick: bool) -> Vec<String> {
+fn criterion_args(quick: bool) -> Vec<OsString> {
     let mut args = strings(&["--output-format", "bencher"]);
     if quick {
         args.extend(strings(&[
@@ -110,7 +113,7 @@ fn criterion_args(quick: bool) -> Vec<String> {
     args
 }
 
-fn bench_args(package: &str, bench: &str, after: Vec<String>) -> Vec<String> {
+fn bench_args(package: &str, bench: &str, after: Vec<OsString>) -> Vec<OsString> {
     let mut args = strings(&[
         "bench",
         "-p",
@@ -261,6 +264,7 @@ mod tests {
     use anyhow::{Result, bail};
 
     use super::*;
+    use crate::host::join_args;
 
     /// Answers with canned output and notes every call.
     struct FakeHost {
@@ -282,21 +286,23 @@ mod tests {
     }
 
     impl Host for FakeHost {
-        fn run(&mut self, program: &str, args: &[String]) -> Result<()> {
-            self.calls.push(format!("{program} {}", args.join(" ")));
+        fn run(&mut self, program: &str, args: &[OsString]) -> Result<()> {
+            self.calls.push(format!("{program} {}", join_args(args)));
             Ok(())
         }
 
-        fn output(&mut self, program: &str, args: &[String]) -> Result<String> {
-            let line = format!("{program} {}", args.join(" "));
+        fn output(&mut self, program: &str, args: &[OsString]) -> Result<String> {
+            let line = format!("{program} {}", join_args(args));
             self.calls.push(line.clone());
-            Ok(match (program, args.first().map(String::as_str)) {
+            Ok(match (program, args.first().and_then(|arg| arg.to_str())) {
                 ("git", Some("status")) => if self.dirty { " M x\n" } else { "" }.to_owned(),
                 ("git", Some("rev-parse")) => "abc123\n".to_owned(),
                 ("git", Some("log")) => "2026-11-15T10:00:00+00:00\n".to_owned(),
                 ("rustc", _) => "rustc 1.95.0-nightly\n".to_owned(),
                 (RUNNER, Some("bench")) => {
-                    let scenario = args.get(1).cloned().unwrap_or_default();
+                    let scenario = args
+                        .get(1)
+                        .map_or_else(Default::default, |a| a.to_string_lossy());
                     let print = self.fingerprint.pop().unwrap_or("ab");
                     format!(
                         "INFO started\nbench {scenario}/tick_median 10 ms\nbench \

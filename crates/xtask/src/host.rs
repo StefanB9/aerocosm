@@ -1,7 +1,7 @@
 //! The machine's processes and files, behind a trait so that xtask's logic
 //! is tested with fakes.
 
-use std::{fs, path::Path, process::Command};
+use std::{ffi::OsString, fs, path::Path, process::Command};
 
 use anyhow::{Context, Result, bail};
 use tracing::info;
@@ -10,9 +10,9 @@ use tracing::info;
 /// tested with a fake.
 pub(crate) trait Host {
     /// Runs a program to completion, failing on a non-zero exit.
-    fn run(&mut self, program: &str, args: &[String]) -> Result<()>;
+    fn run(&mut self, program: &str, args: &[OsString]) -> Result<()>;
     /// Runs a program and returns its standard output.
-    fn output(&mut self, program: &str, args: &[String]) -> Result<String>;
+    fn output(&mut self, program: &str, args: &[OsString]) -> Result<String>;
     /// Reads a text file.
     fn read_to_string(&mut self, path: &Path) -> Result<String>;
     /// Removes a directory if present and creates it empty.
@@ -25,12 +25,24 @@ pub(crate) trait Host {
     fn append(&mut self, path: &Path, text: &str) -> Result<()>;
 }
 
+/// Formats command-line arguments for human-readable logging.
+pub(crate) fn join_args(args: &[OsString]) -> String {
+    let mut rendered = String::new();
+    for (index, arg) in args.iter().enumerate() {
+        if index > 0 {
+            rendered.push(' ');
+        }
+        rendered.push_str(&arg.to_string_lossy());
+    }
+    rendered
+}
+
 /// The real machine.
 pub(crate) struct SystemHost;
 
 impl Host for SystemHost {
-    fn run(&mut self, program: &str, args: &[String]) -> Result<()> {
-        info!(program, args = %args.join(" "), "running");
+    fn run(&mut self, program: &str, args: &[OsString]) -> Result<()> {
+        info!(program, args = %join_args(args), "running");
         let status = Command::new(program)
             .args(args)
             .status()
@@ -41,7 +53,7 @@ impl Host for SystemHost {
         Ok(())
     }
 
-    fn output(&mut self, program: &str, args: &[String]) -> Result<String> {
+    fn output(&mut self, program: &str, args: &[OsString]) -> Result<String> {
         let output = Command::new(program)
             .args(args)
             .output()

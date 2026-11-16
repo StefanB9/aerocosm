@@ -1,11 +1,16 @@
 //! `cargo xtask web build`: both wasm variants of the viewer plus the loader
 //! page (plan D23).
 
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result, bail};
 use tracing::info;
 
+#[cfg(test)]
+use crate::host::join_args;
 pub(crate) use crate::host::{Host, SystemHost};
 use crate::lock::locked_version;
 
@@ -31,6 +36,13 @@ const WASM_OPT_FLAGS: [&str; 11] = [
     "--enable-simd",
     "-o",
 ];
+
+/// Normalises `path` to the host platform's native separator without altering
+/// Windows prefixes (`C:\`, `\\server\share`, `\\?\`) or literal backslashes on
+/// Unix.
+fn normalise_path(path: &Path) -> PathBuf {
+    path.components().collect()
+}
 
 /// Cargo profile for the wasm builds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
