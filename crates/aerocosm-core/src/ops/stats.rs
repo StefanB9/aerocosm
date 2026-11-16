@@ -37,6 +37,8 @@ pub struct AirportStats {
     ground_conflicts: u32,
     /// Taxis sent another way out of a deadlock (D93).
     reroutes: u32,
+    /// Taxis that stood for minutes with nobody to wait for (plan M6 D150).
+    stalls: u32,
     /// Approaches that went around for an occupied runway (D90).
     go_arounds: u32,
     /// Arrivals that shared a stand after waiting for one too long (D69).
@@ -156,6 +158,12 @@ impl AirportStats {
         self.reroutes
     }
 
+    /// Taxis that stood for minutes with nobody to wait for: a fault of
+    /// ground control, never expected (plan M6 D150).
+    pub const fn stalls(&self) -> u32 {
+        self.stalls
+    }
+
     /// Approaches that went around for an occupied runway (D90).
     pub const fn go_arounds(&self) -> u32 {
         self.go_arounds
@@ -189,6 +197,7 @@ impl AirportStats {
         self.stand_waits += other.stand_waits;
         self.ground_conflicts += other.ground_conflicts;
         self.reroutes += other.reroutes;
+        self.stalls += other.stalls;
         self.go_arounds += other.go_arounds;
         self.stand_shares += other.stand_shares;
     }
@@ -291,6 +300,13 @@ impl Statistics {
         }
     }
 
+    /// Records a taxi standing with nobody to wait for.
+    pub(crate) fn stalled(&mut self, airport: Id<Airport>) {
+        if let Some(stats) = self.airports.get_mut(airport.as_usize()) {
+            stats.stalls += 1;
+        }
+    }
+
     /// Records a taxi sent another way out of a deadlock.
     pub(crate) fn rerouted(&mut self, airport: Id<Airport>) {
         if let Some(stats) = self.airports.get_mut(airport.as_usize()) {
@@ -370,10 +386,12 @@ mod tests {
         stats.shared_stand(airport);
         stats.shared_stand(airport);
         stats.rerouted(airport);
+        stats.stalled(airport);
         stats.went_around(airport);
         stats.went_around(airport);
         let at = stats.airport(airport);
         assert_eq!(at.reroutes(), 1);
+        assert_eq!((at.stalls(), stats.network().stalls()), (1, 1));
         assert_eq!(at.go_arounds(), 2);
         assert_eq!(stats.network().go_arounds(), 2);
         assert_eq!(at.taxis(), 2);

@@ -255,6 +255,8 @@ fn test_ground_traffic_keeps_apart_and_flows() -> Result<()> {
         for (any, now) in seen.iter_mut().zip(observed.states) {
             *any |= now;
         }
+        // Nobody stands with nobody to wait for (plan M6 D150).
+        check(stats.stalls() == 0, format!("{} stalls", stats.stalls()));
         // Rare (D75, D93); zero is the goal of the acceptance runs (D92).
         check(
             stats.ground_conflicts() * RARE <= taxis,

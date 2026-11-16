@@ -168,6 +168,7 @@ fn log_movements(summary: &run::RunSummary, days: f64) {
             stand_waits = network.stand_waits(),
             ground_conflicts = network.ground_conflicts(),
             reroutes = network.reroutes(),
+            stalls = network.stalls(),
             go_arounds = network.go_arounds(),
             stand_shares = network.stand_shares(),
             longest_taxi_min = minutes(network.longest_taxi()),
@@ -179,6 +180,12 @@ fn log_movements(summary: &run::RunSummary, days: f64) {
         });
         if let Some((airport, took)) = under_way {
             info!(%airport, minutes = minutes(*took), "longest taxi under way");
+        }
+        if network.stalls() > 0 {
+            warn!(
+                stalls = network.stalls(),
+                "aircraft stood on a taxiway with nobody to wait for"
+            );
         }
         if longest > LONGEST_TAXI {
             warn!(
