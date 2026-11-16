@@ -121,6 +121,13 @@ Boston 330 → 426, Madrid 287 → 322, Frankfurt 180 → 231): PR 2's subject. 
 at Seattle (364), O'Hare (305), Phoenix (140) and Haneda (99), at peaks when the stands
 usable at once are taken; O'Hare's shares rose (222 → 325).
 
+Benchmark record (D156, against M5 PR 6's on the same container): tick medians 3.0–3.8 ms
+(were 3.3–4.7), 95th percentiles 4.6–5.7 ms (5.0–7.3); the simulated day 404 s (469), with
+fewer aircraft held on the taxiways. Dearer: choosing a stand at Frankfurt 260 µs (75 µs;
+217 µs after a later saving that the record does not hold), building the ground networks
+384 ms (235 ms, the neighbours and natural sizes), start-up 16.8 s (14.9 s, the warm start's
+stand choices). The full suite passes: 846 tests.
+
 ## PR 2 — Runway choice (D151, D152)
 
 - Core: departure runway chosen at pushback planning; the leg's departure procedure follows
