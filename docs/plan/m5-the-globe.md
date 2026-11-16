@@ -252,6 +252,15 @@ a quarter from run to run on this shared machine.
 
 *Agreed 2026-11-14, moved here 2026-11-15:*
 
+*Benchmark step (2026-11-16):* the first record (PR 5) has tick medians of 7.3–8.7 ms and
+95th percentiles of 10.4–12.5 ms. A sampled profile of the midday hour: ground control 44 %
+of the tick (its survey alone 25 %, which walks the whole fleet of about 30,000 tails to find
+the 780 taxiing and clears every junction list of every mapped airport), parked tails 16 %
+(checked every tick with nothing due), flying 14 %, taxiing 10 %. Agreed: the optimisation of
+D142 as described (taxiing tails in a list, only airports with traffic surveyed, parked tails
+passed by until something is due), with every world scenario's fingerprint unchanged; D107's
+8 ms counts as the 95th percentile of every tick scenario on this machine.
+
 | # | Decision |
 |---|----------|
 | D142 | **Benchmark step first.** The suite runs on the merged PR 5; the numbers and the profile are shown to the user, and they decide whether optimisation is needed and which. Earlier work (tails that taxi kept in a list instead of searching the fleet each tick, parked tails passed by until something is due) is kept aside for this; any optimisation must keep the determinism fingerprint (D137) unchanged unless agreed otherwise |
