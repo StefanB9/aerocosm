@@ -287,6 +287,16 @@ end node; fixed). In the second, 23 airports still have a taxi over 75 minutes (
 and escapes concentrate at a few airports (Ankara, Boston, O'Hare, Oakland, Madrid); agreed
 (2026-11-16): recorded in `docs/known-issues.md`, fixed in a milestone after M5.
 
+Benchmark record after PR 6 (`cargo xtask bench`, against the PR 5 record on the same
+container): tick medians 3.3–4.7 ms and 95th percentiles 5.0–7.3 ms at 00, 06, 12 and 16 UTC
+(PR 5: 7.3–8.7 and 10.4–12.5), so D107's 8 ms holds for the 95th percentile; ground control
+1.5–2.0 ms of a tick (was 4.2–5.0), parked tails 0.5–0.8 ms (was 2.6–2.8). The simulated day
+takes 469 s (was 843). The fingerprints differ from PR 5's because the statistics now hold
+the longest taxi and the Melbourne fix changes behaviour (97,667 flights a day instead of
+97,672). The same run shows untouched code (geometry, route search, basemap decoding) 15–90 %
+slower than in PR 5's record: the shared host was slower that day, which also explains the
+slower start-up and viewer frames; records from the same CPU model can differ by a third.
+
 ## Definition of done
 
 - Every airport with scheduled service is in the network; real airlines fly it; the world
