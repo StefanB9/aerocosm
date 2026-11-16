@@ -25,6 +25,7 @@ use super::{
     path::{Leg, LegGround, Origin, Path, plan_leg},
     stats::Statistics,
     tail::{draw_delay, draw_taxi_in, draw_taxi_out, next_leg, off_block},
+    timing::{NoTimer, Part, Timer},
     view::{FlightView, Holding},
 };
 use crate::{
@@ -306,13 +307,33 @@ impl Operations {
 
     /// Advances every tail by one tick.
     pub(crate) fn step(&mut self, scenario: &Scenario) -> Result<()> {
+        self.step_with(scenario, &mut NoTimer)
+    }
+
+    /// Advances every tail by one tick, marking each part of the tick on
+    /// `timer` (plan M5 D136).
+    pub(crate) fn step_with(&mut self, scenario: &Scenario, timer: &mut impl Timer) -> Result<()> {
         let now = self.time;
+        timer.enter(Part::FlowControl);
         if now.as_millis() % PRUNE_EVERY == 0 {
             self.prune_control(now)?;
         }
+        timer.enter(Part::GroundControl);
         self.control_ground(now);
         for index in 0..self.tails.len() {
-            self.step_tail(scenario, index, now)
+            let part = match self.tails[index].motion {
+                None => Part::Parked,
+                Some(motion) if motion.phase() == Phase::Boarding => Part::Parked,
+                Some(motion)
+                    if motion.phase() == Phase::Pushback && self.taxis[index].is_some()
+                        || self.controlled(index, motion.phase()) =>
+                {
+                    Part::Taxiing
+                }
+                Some(_) => Part::Flying,
+            };
+            timer
+                .tail(index, part, || self.step_tail(scenario, index, now))
                 .with_context(|| format!("tail {index} at {now}"))?;
         }
         self.time = add(now, TICK)?;

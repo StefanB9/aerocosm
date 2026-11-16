@@ -18,6 +18,46 @@ pub(crate) enum Command {
     /// The browser viewer.
     #[command(subcommand)]
     Web(WebCommand),
+    /// The benchmark suite (plan M5 D141): run it, or report on its history.
+    Bench(BenchArgs),
+}
+
+/// Options for `bench`: with no subcommand, run the suite.
+#[derive(Debug, Args)]
+#[command(args_conflicts_with_subcommands = true)]
+pub(crate) struct BenchArgs {
+    #[command(subcommand)]
+    pub(crate) command: Option<BenchCommand>,
+    /// The groups to run (all by default).
+    #[arg(value_enum)]
+    pub(crate) groups: Vec<BenchGroup>,
+    /// Runs of each start-up and tick scenario; results are their median.
+    #[arg(long, default_value_t = 3)]
+    pub(crate) repeat: usize,
+    /// A few ticks and frames only, to check that everything runs; never
+    /// recorded.
+    #[arg(long)]
+    pub(crate) quick: bool,
+}
+
+/// `cargo xtask bench …`
+#[derive(Debug, Subcommand)]
+pub(crate) enum BenchCommand {
+    /// Compare the latest record with the previous one on the same machine.
+    Report,
+}
+
+/// A group of benchmarks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum BenchGroup {
+    /// Decoding and setting up the world.
+    Startup,
+    /// Ticks at four hours of the day and a simulated day.
+    World,
+    /// Criterion benchmarks of the core and the viewer.
+    Micro,
+    /// The viewer's frames, headless.
+    Viewer,
 }
 
 /// `cargo xtask web …`
@@ -92,6 +132,38 @@ mod tests {
         };
         assert_eq!(args.port, 9000);
         assert_eq!(args.dir, Path::new("target/web"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_cli_bench_groups_and_report() -> Result<()> {
+        let Command::Bench(args) = Cli::try_parse_from(["xtask", "bench"])
+            .context("parse")?
+            .command
+        else {
+            bail!("expected bench");
+        };
+        assert!(args.groups.is_empty() && args.command.is_none() && !args.quick);
+        assert_eq!(args.repeat, 3);
+        let Command::Bench(args) = Cli::try_parse_from([
+            "xtask", "bench", "world", "micro", "--quick", "--repeat", "1",
+        ])
+        .context("parse")?
+        .command
+        else {
+            bail!("expected bench");
+        };
+        assert_eq!(args.groups, [BenchGroup::World, BenchGroup::Micro]);
+        assert!(args.quick);
+        assert_eq!(args.repeat, 1);
+        let Command::Bench(args) = Cli::try_parse_from(["xtask", "bench", "report"])
+            .context("parse")?
+            .command
+        else {
+            bail!("expected bench");
+        };
+        assert!(matches!(args.command, Some(BenchCommand::Report)));
+        assert!(Cli::try_parse_from(["xtask", "bench", "graphics"]).is_err());
         Ok(())
     }
 

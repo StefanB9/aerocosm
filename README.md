@@ -308,17 +308,44 @@ What to check:
 
 ## Benchmarks
 
+The benchmark suite records how performance develops from commit to commit (plan M5 PR 5).
+One command builds and runs it and appends a record to `benchmarks/history.jsonl`:
+
 ```bash
+cargo xtask bench
+```
+
+It runs four groups, each also on its own (`cargo xtask bench world micro`):
+
+| Group | What it measures |
+|---|---|
+| `startup` | Decoding each asset, deriving the traffic model, setting up the simulation; memory |
+| `world` | The world with every ground region at 00:00, 06:00, 12:00 and 16:00 UTC: ms per tick (median, 95th percentile, worst), the tick split by part (flow control, ground control, taxiing, flying, parked), aircraft airborne and taxiing, memory; a simulated day's wall time and throughput |
+| `micro` | Criterion: geometry, the empty world's ticks, route search and stand choice at Frankfurt; the viewer's basemap decoding, label placement, reprojection, ground streaming plan and tessellation |
+| `viewer` | The viewer's CPU work per frame, headless (no window, no GPU), at the world, Europe and Frankfurt's stands |
+
+Every world scenario also records a fingerprint of the simulation's state: a change that
+alters it changed behaviour, not only speed. Start-up and tick scenarios run three times
+(`--repeat`) and record the median with the range; the fingerprints of the runs must agree.
+The full suite takes about half an hour on 4 cores; `--quick` runs a few ticks and frames to
+check that everything works, and is never recorded.
+
+A run is recorded only from a clean working tree, so each record names its commit; commit
+the record afterwards. Records carry the machine (CPU, cores, memory), and the comparison
+printed after a run, or by `cargo xtask bench report`, is with the previous record on the
+same machine. Expect noise: on a shared cloud machine the same ticks vary by a quarter from
+one run to the next, so compare ranges, not single values.
+
+Single pieces run directly:
+
+```bash
+cargo run --release -p aerocosm -- bench tick-12   # One world scenario: startup, tick-HH or day
 cargo bench -p aerocosm-core --bench core --profile bench-unwind
+cargo bench -p aerocosm-viewer --bench micro --profile bench-unwind
+cargo bench -p aerocosm-viewer --bench frames --profile bench-unwind -- 300
 ```
 
-The `bench-unwind` profile is required (see `CLAUDE.md`). `ops/step_15483_airborne` times one
-tick with German traffic scaled 23-fold so that about 15,000 aircraft fly at once; the target
-is under 1 ms (about 0.8 ms when M2 PR 3 landed). Only that benchmark:
-
-```bash
-cargo bench -p aerocosm-core --bench core --profile bench-unwind -- ops/
-```
+The `bench-unwind` profile is required (see `CLAUDE.md`).
 
 ## Screenshots without a display
 

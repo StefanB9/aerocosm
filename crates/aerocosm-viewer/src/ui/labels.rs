@@ -235,7 +235,7 @@ fn style(subject: Subject, fonts: &Fonts) -> (TextFont, Color) {
 
 /// The size of `text` before it has been laid out, in pixels: Inter's
 /// average advance is a little over half the font size.
-fn estimated_size(text: &str, font_size: f32) -> Vec2 {
+pub(crate) fn estimated_size(text: &str, font_size: f32) -> Vec2 {
     // Label texts are short; their length fits f32 exactly.
     #[allow(clippy::cast_precision_loss)]
     let chars = text.chars().count() as f32;

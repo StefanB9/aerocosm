@@ -1,5 +1,6 @@
 //! aerocosm entry point.
 
+mod bench;
 mod cli;
 mod report;
 mod run;
@@ -17,7 +18,7 @@ use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
 use crate::{
-    cli::{Cli, Command, RunArgs},
+    cli::{BenchArgs, Cli, Command, RunArgs},
     run::SystemClock,
 };
 
@@ -43,6 +44,44 @@ fn main() -> Result<()> {
             );
             log_movements(&summary, args.duration.as_secs_f64() / 86_400.0);
         }
+        Command::Bench(args) => bench(&args)?,
+    }
+    Ok(())
+}
+
+/// Runs one benchmark scenario and prints its results on stdout.
+fn bench(args: &BenchArgs) -> Result<()> {
+    use std::io::Write as _;
+    let read =
+        |path: &Path| fs::read(path).with_context(|| format!("cannot read {}", path.display()));
+    let mut regions = Vec::new();
+    for path in ground_files(&args.ground)? {
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.strip_suffix(".ground.bin"))
+            .unwrap_or_default()
+            .to_owned();
+        regions.push((name, read(&path)?));
+    }
+    let inputs = bench::world::Inputs {
+        world: read(&args.world)?,
+        aircraft: read(&args.aircraft)?,
+        observed: read(&args.observed)?,
+        regions,
+    };
+    info!(scenario = %args.scenario, "benchmark started");
+    let measures = bench::world::run(
+        args.scenario,
+        &inputs,
+        args.seed,
+        args.lengths(),
+        &SystemClock::new(),
+    )
+    .with_context(|| format!("benchmark {} failed", args.scenario))?;
+    let mut out = std::io::stdout().lock();
+    for measure in &measures {
+        writeln!(out, "{measure}").context("cannot write the results")?;
     }
     Ok(())
 }

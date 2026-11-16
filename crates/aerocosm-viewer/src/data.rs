@@ -20,7 +20,7 @@ use bevy::{
 const WORLD: &[u8] = include_bytes!("../../../assets/world/world.bin");
 const AIRCRAFT_JSON: &str = include_str!("../../../assets/aircraft/types.json");
 const OBSERVED: &[u8] = include_bytes!("../../../assets/traffic/observed.bin");
-const BASEMAP: &[u8] = include_bytes!("../../../assets/basemap/world.bin");
+pub(crate) const BASEMAP: &[u8] = include_bytes!("../../../assets/basemap/world.bin");
 const INTER_REGULAR: &[u8] = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
 const INTER_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf");
 

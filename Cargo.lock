@@ -106,6 +106,7 @@ dependencies = [
  "aerocosm-core",
  "anyhow",
  "clap",
+ "proptest",
  "tracing",
  "tracing-subscriber",
 ]
@@ -164,6 +165,7 @@ dependencies = [
  "aerocosm-core",
  "anyhow",
  "bevy",
+ "criterion",
  "lyon_tessellation",
  "proptest",
 ]
@@ -6686,6 +6688,8 @@ dependencies = [
  "anyhow",
  "clap",
  "proptest",
+ "serde",
+ "serde_json",
  "tracing",
  "tracing-subscriber",
 ]

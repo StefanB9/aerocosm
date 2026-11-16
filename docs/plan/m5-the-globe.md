@@ -111,7 +111,7 @@ LEJ). Under the 2019 world traffic, Frankfurt and Munich escape 5–8 % of taxis
 | D119 | **Stand sizes from geometry only.** The spacing rule of M4 decides the ICAO code; `stand-sizes.json` (CGN, LEJ) retires (D95) |
 | D120 | **Generic stand choice.** Among free stands that fit: the tightest fit (15 m steps, as M4), then the nearest to a stand the same airline holds now (250 m steps; airlines gather in their own areas by behaviour, not by list), then the nearest to the runway exit. Cargo airlines prefer and passenger airlines avoid aprons OpenStreetMap marks as cargo (apron tags or names), where any are marked. `stand-areas.json` and the core's stand areas retire |
 | D121 | **M4 limits restored** as acceptance: escapes and stand shares each under 2 % of taxis, no taxi over 75 minutes. Where the generic choice does not meet them at Frankfurt and Munich, general behaviour is added (e.g. towing aircraft with long ground times to free stands); each addition is diagnosed and shown to the user first |
-| D122 | **Scale measured.** Layouts are built once at scenario start; start-up time, memory and tick time with ground at every gated airport are measured and recorded (the 8 ms target is PR 5's) |
+| D122 | **Scale measured.** Layouts are built once at scenario start; start-up time, memory and tick time with ground at every gated airport are measured and recorded (the 8 ms target is PR 6's, plan changed 2026-11-15) |
 | D123 | **Tests.** Stand choice rules on fixtures; a guard test per region asset; the ground integration test runs the world with every region and checks the mapped airports, reported per region (a sample of the busiest gated airport per region letter if the full world is too slow for the suite) |
 | D124 | **Viewer and runner.** Until PR 4 streams ground per airport, the viewer embeds regions E and L; the runner's `--ground` takes the directory of region files; `--stand-areas` retires |
 
@@ -186,11 +186,79 @@ Chromium (WebGL2 build, `.wasm` 42 MB, WebGPU 40 MB) the files are fetched after
 simulation is ready after 25.5 s. Frame times here are those of software rasterisers (Mesa
 llvmpipe natively: about 500 ms at the world view, three quarters of the busy samples in the
 rasteriser, the viewer's own systems a few per cent; SwiftShader in headless Chromium: about
-7 s), so the frame time on a real GPU is still to be measured on hardware (PR 5).
+7 s), so the frame time on a real GPU is still to be measured on hardware (PR 6, D145).
 
-### PR 5 — Scale and acceptance
+### PR 5 — Benchmark suite
 
-- World benchmark (D107), 7-day world run, `docs/known-issues.md` and the definition of done.
+- A benchmark suite that records how performance develops from commit to commit: the
+  simulation at world scale, start-up and memory, micro-benchmarks, the viewer.
+
+*Detail (agreed 2026-11-15, D134–D141).* Before this PR the only benchmarks were one
+Criterion file (geometry, an empty-world tick, one world tick with regions E and L);
+Criterion keeps its baselines in `target/`, so nothing recorded how performance changed.
+Measured with the runner on 2026-11-14 (release build, 4 cores, ground everywhere, seed 3):
+10–12 ms per tick in the hours from 06:00, 12:00 and 16:00 UTC (12,200–14,800 airborne),
+above D107's 8 ms; a sampled profile of the midday hour put half the tick in ground control
+and half in the tails. Whether and how to optimise is decided after this PR, on the suite's
+numbers (PR 6).
+
+| # | Decision |
+|---|----------|
+| D134 | **Scope.** Four groups, each runnable alone: *world* (ticks of fixed world scenarios, a simulated day), *start-up* (asset decoding, traffic derivation, simulation set-up, memory), *micro* (Criterion benchmarks of hot functions in the core and the viewer), *viewer* (CPU work of the viewer's frames, headless). Build times and binary sizes are not measured |
+| D135 | **World scenarios.** The shipped world with all 21 ground regions, seed 3, warm start on Wednesday 2026-07-08 at 00:00, 06:00, 12:00 and 16:00 UTC: 60 ticks to settle, then 600 measured ticks. Each reports ms per tick (median, 95th percentile, worst), aircraft airborne and taxiing, and the split by subsystem (D136). A *day* scenario runs 24 hours from 00:00 and reports wall time, flights flown, and memory at the start and end. Each scenario runs in its own process, so peak memory belongs to it |
+| D136 | **Tick split.** `Simulation::step_timed(&impl WallClock) -> PhaseTimes` times the phases of a tick (flow control, ground control, taxiing, flying, parked tails) with the existing `WallClock` trait. It gives exactly the results of `step` (tested); `step` reads no clock, and only benchmarks call `step_timed`, so the core stays deterministic |
+| D137 | **Determinism fingerprint.** Each world scenario records a hash of the simulation after its run: FNV-1a (written locally, no dependency) over every flight view and the network statistics in a fixed byte order. When a change alters the fingerprint, it changed behaviour as well as speed |
+| D138 | **Start-up.** Decoding times of each shipped asset (world, basemap, observed traffic, aircraft catalog, each ground region), traffic derivation, and `Simulation::new` (schedule, operations, ground networks) as one step, with peak memory after set-up. On Linux, memory comes from `/proc/self/status` (`VmHWM`, `VmRSS`); elsewhere it is reported as absent |
+| D139 | **Micro-benchmarks** (Criterion, `bench-unwind` profile). Core: the existing geometry, plus taxi route search (A*) and stand choice at Frankfurt, junction tests, schedule generation for Germany. Viewer: label placement, the ground streaming plan, tessellation of a country and of Frankfurt's ground, reprojection of the labels on screen |
+| D140 | **Viewer frames, headless.** A bench binary builds the viewer app without a window and without a GPU (Bevy's render plugin with no backend), with the shipped world and ground, and times each frame's CPU work at fixed views (the world, Europe, Frankfurt's stands) over 300 frames: median, 95th percentile, worst. If Bevy 0.20 cannot run the viewer's plugins without a backend, the app runs the systems that need no rendering, and the PR says which are left out. GPU frame time stays a manual measurement (PR 6) |
+| D141 | **History.** `cargo xtask bench [group…]` builds and runs the suite and appends one record to the committed `benchmarks/history.jsonl`: format version, date, commit, toolchain, machine (CPU model, cores, memory, OS) and every result with its unit and, where measured, its spread. It records only from a clean working tree, so each record names a commit; a dirty tree prints the results without recording them. `cargo xtask bench report` compares the latest record with the previous one on the same machine, one line per benchmark with the change in per cent. No thresholds or failures yet: those follow the first benchmark step (PR 6). xtask's logic (records, machine info, comparison, Criterion's `estimates.json`) is tested behind its existing traits for processes and files; serde and serde_json (already in the workspace) enter xtask for the records |
+
+Tests: the phase split sums to the tick and leaves the results unchanged; the fingerprint
+changes when a flight changes and not otherwise; record round trip, comparison by machine,
+and the clean-tree rule in xtask; each bench target runs in a quick mode in the test suite
+(a few ticks, one frame), so benches cannot rot. The first record (this PR's commit, this
+container) is committed with the PR.
+
+*As built (PR 5):* the world scenarios live in the runner, `aerocosm bench
+<startup|tick-HH|day>`, which already reads the assets from disk; `cargo xtask bench` runs
+each in its own process. They settle 30 simulated minutes, not 60 ticks: warm start leaves
+the taxiways empty for minutes. The tick split times every sixteenth tail, rotating per tick,
+less the clock's own cost (the cheapest of 16 back-to-back readings): timing every tail
+inflated the parts by a quarter; now they come within about 10 % of the timed ticks'
+own mean, recorded beside them. The viewer became a library with a thin binary so that its
+benches can use it; its `bench` module prepares inputs and keeps the internals private, and
+the headless viewer (Bevy's render plugin without a backend, no winit, a 1440×900 window
+entity) runs every viewer plugin. Left out: schedule generation for Germany (the German world
+alone has too few observed airports to fit the traffic model; the world's schedule is timed
+in `startup/simulation`) and junction tests (internal to the core). The old world tick with
+regions E and L retired. Criterion benches compile with `--all-targets`; the runner's
+scenarios and the headless viewer run in the test suite; `cargo xtask bench --quick` runs
+everything briefly. Each run's record is also kept in `target/bench-runs.jsonl`.
+
+First record (commit 0deba8d, this container: 4 cores of a 2.1 GHz Xeon, no GPU): start-up
+10.9 s, of which `Simulation::new` 10.3 s; 408 MiB peak. Ticks (median / 95th percentile /
+worst, 12,100–14,400 airborne, 610–780 taxiing): 8.3 / 12.1 / 24 ms at 00:00, 7.3 / 10.4 /
+21 ms at 06:00, 8.7 / 12.5 / 29 ms at 12:00, 8.5 / 12.5 / 26 ms at 16:00 UTC. Of a timed
+tick of 8.7–10.3 ms, ground control takes 4.2–5.0 ms, parked tails 2.6–2.8, flying 1.2–1.8,
+taxiing 0.8–1.1. A simulated day: 843 s (102 ticks a second), 97,672 flights, memory 390 to
+429 MiB. The viewer's CPU work per frame (median): 15 ms at the world view and over Europe,
+21 ms at Frankfurt's stands, with about 259,000 entities. Noise: the same ticks vary by about
+a quarter from run to run on this shared machine.
+
+### PR 6 — Scale and acceptance
+
+- Benchmark step, then optimisation as needed, 7-day world run, `docs/known-issues.md` and
+  the definition of done.
+
+*Agreed 2026-11-14, moved here 2026-11-15:*
+
+| # | Decision |
+|---|----------|
+| D142 | **Benchmark step first.** The suite runs on the merged PR 5; the numbers and the profile are shown to the user, and they decide whether optimisation is needed and which. Earlier work (tails that taxi kept in a list instead of searching the fleet each tick, parked tails passed by until something is due) is kept aside for this; any optimisation must keep the determinism fingerprint (D137) unchanged unless agreed otherwise |
+| D143 | **Escapes accepted for M5** at the world's rate (2.1 %, M4: 2.3 %). The fix (a junction cleared only to the first in line, one clearance for a short stub) follows M5; until then the ground test's seed 7 stays over its limit by one escape, as recorded in `docs/known-issues.md` |
+| D144 | **Longest taxi reported.** Statistics keep the longest taxi per airport and network, including taxis still under way; the runner reports it. "No stuck aircraft" is M4's limit: no taxi over 75 minutes in the 7-day run |
+| D145 | **Frame-time readout.** A key toggles a small readout in the viewer, native and web: frame time (average and worst of the last seconds), ticks run per frame and the simulation's share of the frame. Its text is a pure, tested function. The user measures on real hardware; the numbers are recorded here |
+| D146 | **Acceptance run.** The world for 7 days, seed 3, ground everywhere: flights a day, German validation (D114), escapes, stand shares, longest taxi, tick time and memory, each against the definition of done, recorded here and in `docs/known-issues.md` |
 
 ## Definition of done
 
