@@ -6,7 +6,7 @@ over its 75-minute taxi limit, all overloaded (O'Hare's flights averaged 199 min
 and the network's departure delay doubling after the first day. M7 removes the causes, by
 general behaviour only (M5 D95): nothing per airport as input.
 
-**Status:** proposed 2026-11-17. Decisions continue M6's numbering.
+**Status:** approved 2026-11-17. Decisions continue M6's numbering.
 
 ## Diagnosis (2026-11-17)
 
