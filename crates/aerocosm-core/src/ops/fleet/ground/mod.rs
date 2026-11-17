@@ -468,6 +468,9 @@ pub(super) struct Taxi {
     reroutes: u8,
     /// Since when it has stood with nobody to wait for, ms (plan M6 D150).
     idle_since: Option<i64>,
+    /// Stopped by the sight of the aircraft it waits for (see and avoid),
+    /// not for a clearance.
+    sighted: bool,
 }
 
 impl Taxi {
@@ -624,6 +627,7 @@ impl Operations {
                 spot_since: 0,
                 escaped: false,
                 idle_since: None,
+                sighted: false,
                 crossing: None,
                 reroutes: 0,
                 points: points.clone(),

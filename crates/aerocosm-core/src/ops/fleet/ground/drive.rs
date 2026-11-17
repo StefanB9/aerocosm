@@ -77,16 +77,19 @@ impl Operations {
         let mut stop = self.stop(index, along);
         let dt = TICK.as_secs_f64();
         let reach = (stop.at - along).clamp(0.0, TAXI_SPEED * dt);
+        let mut sighted = false;
         if reach > 0.0
             && let Some(other) = self.seen_ahead(index, motion, reach)
         {
             stop = stop.nearer(along, Some(other), false);
+            sighted = true;
         }
         let next = (along + TAXI_SPEED * dt).min(stop.at.max(along));
         self.claim_entered(index, along, next);
         motion.taxi_at(next, (next - along) / dt);
         let taxi = self.taxis.get_mut(index)?;
         taxi.limit = stop.at.max(along);
+        taxi.sighted = sighted;
         taxi.leader = stop.by.filter(|_| stop.following);
         if next - along < 1e-3 && stop.by.is_some() {
             taxi.waiting_since.get_or_insert(ms(now));
@@ -273,8 +276,9 @@ const IN_FRONT: f64 = 25.0;
 /// junction is passed wingtip-clear.
 const TOO_CLOSE: f64 = 25.0;
 /// An aircraft waiting at a hold line, drawn wingtip-clear of the way, is
-/// passed down to this, m: half an airliner's length.
-const PAST_HOLD: f64 = 22.5;
+/// passed down to this, m: where lines are drawn nearer the way than they
+/// should be, the two would otherwise wait for each other (plan M6 D153).
+const PAST_HOLD: f64 = 20.0;
 
 /// Another aircraft as a pilot sees it: where it is, which way it heads and
 /// whether it moves.
@@ -288,6 +292,9 @@ pub(super) struct Seen {
     pub(super) at_hold: bool,
     /// The aircraft it stands for, if any.
     pub(super) waits_for: Option<u32>,
+    /// Whether it stands for that aircraft because it sees it in its way,
+    /// not for a clearance.
+    pub(super) by_sight: bool,
 }
 
 /// Whether an aircraft `along` its path through `passages`, cleared up to
@@ -304,9 +311,9 @@ pub(super) fn at_a_line(passages: &[Passage], next: usize, along: f64) -> bool {
 /// Whether an aircraft at `here`, about to move to `next`, has to stop for
 /// `other` (see and avoid): the move brings it closer, within
 /// `SEE_AND_AVOID` of one in front on its way or `TOO_CLOSE` of any. When both
-/// close in on each other, or the other stands for tail `me`, the one with
-/// priority (the lower tail) goes on; past a standing one down to
-/// `PAST_HOLD`.
+/// close in on each other, or each stands for the sight of the other, the
+/// one with priority (the lower tail) goes on; one that stands for tail
+/// `me`'s clearance is passed in any case; all down to `PAST_HOLD`.
 fn in_the_way(here: LatLon, next: LatLon, other: &Seen, me: u32) -> bool {
     let first = me < other.tail;
     let (before, after) = (
@@ -332,8 +339,12 @@ fn in_the_way(here: LatLon, next: LatLon, other: &Seen, me: u32) -> bool {
     let towards = other.at.initial_bearing_to(here).value();
     let off = (towards - other.heading.value() + 540.0).rem_euclid(360.0) - 180.0;
     let closing = other.moving && off.abs() < 90.0;
-    let stand_off = !other.moving && other.waits_for == Some(me);
-    !((closing || stand_off) && first && after >= PAST_HOLD)
+    let waits = !other.moving && other.waits_for == Some(me);
+    // It waits for this one's clearance: it cannot go first, so this one
+    // does. Each standing for the sight of the other, or closing in on each
+    // other: the one with priority.
+    let goes = (waits && !other.by_sight) || ((closing || waits) && first);
+    !(goes && after >= PAST_HOLD)
 }
 
 #[cfg(test)]
@@ -354,6 +365,7 @@ mod tests {
                 moving: false,
                 at_hold: false,
                 waits_for: None,
+                by_sight: false,
             })
         };
         // Standing 40 m ahead: stop; 80 m ahead: go on.
@@ -389,6 +401,13 @@ mod tests {
             ..close
         };
         assert!(!in_the_way(here, next, &at_hold, 2));
+        // 21 m from the way at its line: still passed (plan M6 D153).
+        let near_line = Seen {
+            at: LatLon::new(50.03 + 5.0 / 111_195.0, 8.56 + 21.0 / 71_470.0)?,
+            at_hold: true,
+            ..close
+        };
+        assert!(!in_the_way(here, next, &near_line, 2));
         // …but never driven into.
         let on_the_way = Seen {
             at_hold: true,
@@ -400,12 +419,20 @@ mod tests {
         let stand_off = |m: f64, me: u32| -> Result<Seen> {
             Ok(Seen {
                 waits_for: Some(me),
+                by_sight: true,
                 ..standing(m)?
             })
         };
         assert!(!in_the_way(here, next, &stand_off(40.0, 0)?, 0));
         assert!(in_the_way(here, next, &stand_off(40.0, 2)?, 2));
-        assert!(in_the_way(here, next, &stand_off(20.0, 0)?, 0));
+        assert!(in_the_way(here, next, &stand_off(19.0, 0)?, 0));
+        // One that waits for this one's clearance, not for the sight of
+        // it, is passed whoever has priority: it cannot go first.
+        let waiting = Seen {
+            by_sight: false,
+            ..stand_off(40.0, 2)?
+        };
+        assert!(!in_the_way(here, next, &waiting, 2));
         // Head-on, both moving: the one with priority goes on.
         let coming = Seen {
             heading: Degrees::from_raw(180.0),
@@ -414,9 +441,9 @@ mod tests {
         };
         assert!(!in_the_way(here, next, &coming, 0));
         assert!(in_the_way(here, next, &coming, 2));
-        // But not to closer than half an airliner's length.
+        // But not to closer than 20 m.
         let close_head_on = Seen {
-            at: metres_north(25.0)?,
+            at: metres_north(24.0)?,
             ..coming
         };
         assert!(in_the_way(here, next, &close_head_on, 0));
