@@ -226,7 +226,7 @@ fn test_runway_capacity_matches_published_references() -> Result<()> {
             .and_then(crate::world::Airport::wind)
             .context("wind")?;
         let used = runway_use(world.runways_of(id), wind).context("runway use")?;
-        errors.push((ident, f64::from(used.capacity.per_hour) / published - 1.0));
+        errors.push((ident, f64::from(used.rated) / published - 1.0));
     }
     // The rule is general: a few airports differ widely (a declared limit,
     // runways used less than their layout allows), the set does not.

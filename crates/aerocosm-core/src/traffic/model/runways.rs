@@ -37,6 +37,10 @@ const WINDOW_MINUTES: u16 = 10;
 pub(super) struct RunwayUse {
     pub(super) modes: Vec<RunwayMode>,
     pub(super) capacity: Capacity,
+    /// Movements per hour the runways are rated for, crossing runways
+    /// included: what published capacities are checked against (D157).
+    /// Schedules use `capacity`, what the runway controllers fly.
+    pub(super) rated: u16,
 }
 
 /// A group of parallel runways: its axis, lanes, movements an hour and how
@@ -119,11 +123,12 @@ pub(super) fn runway_use(runways: &[Runway], wind: Degrees) -> Option<RunwayUse>
     });
     let (lead, others) = groups.split_first()?;
     let mut per_hour = lead.per_hour;
+    let mut across = 0.0;
     let mut used: Vec<(&Group, Role)> = vec![(lead, Role::Both)];
     for group in others {
         let crosses = used.iter().any(|(other, _)| groups_cross(group, other));
         if crosses {
-            per_hour += CROSSING;
+            across += CROSSING;
             used.push((group, Role::Departures));
         } else {
             per_hour += SECOND_GROUP * group.per_hour;
@@ -132,7 +137,10 @@ pub(super) fn runway_use(runways: &[Runway], wind: Degrees) -> Option<RunwayUse>
     }
     // SAFETY: a few hundred movements an hour at most.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let per_hour = per_hour.round().max(1.0) as u16;
+    let (rated, per_hour) = (
+        (per_hour + across).round().max(1.0) as u16,
+        per_hour.round().max(1.0) as u16,
+    );
     let capacity = Capacity {
         per_hour,
         window_minutes: WINDOW_MINUTES,
@@ -145,7 +153,11 @@ pub(super) fn runway_use(runways: &[Runway], wind: Degrees) -> Option<RunwayUse>
     .into_iter()
     .map(|heading| mode(&used, heading))
     .collect::<Option<Vec<_>>>()?;
-    Some(RunwayUse { modes, capacity })
+    Some(RunwayUse {
+        modes,
+        capacity,
+        rated,
+    })
 }
 
 /// The mode for the flow along `heading`, the leading group's direction:
@@ -432,10 +444,10 @@ mod tests {
             runway(("18", "36"), 180.0, 1_000.0, 4000.0)?,
         ];
         let used = runway_use(&runways, Degrees::new(232.0)?).context("runways")?;
-        assert_eq!(
-            used.capacity.per_hour, 145,
-            "a pair, a single lane and departures across"
-        );
+        // A pair and a single lane, flown; departures across counted in the
+        // rating only until crossing runways are flown (plan M7 PR 1).
+        assert_eq!(used.capacity.per_hour, 130);
+        assert_eq!(used.rated, 145);
         let west =
             crate::traffic::mode_for_wind(&used.modes, Degrees::new(232.0)?).context("mode")?;
         assert!((west.flow.value() - 250.0).abs() < 1e-6, "{:?}", west.flow);
