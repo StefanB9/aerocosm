@@ -797,7 +797,7 @@ mod tests {
         // Too far off to matter, or standing well back: it does not.
         assert!(
             !Through {
-                to_entry: GAP + 1.0,
+                to_entry: GAP + braking_distance(coming.speed) + 1.0,
                 ..coming
             }
             .has_right_of_way()
