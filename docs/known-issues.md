@@ -5,7 +5,7 @@ happens, how often, why, and the intended fix.
 
 ## Ground control (plan M4 PR 4, PR 6, PR 7)
 
-### Escapes at about 3 % of taxis over a world week
+### Escapes: 1.2 % of taxis over a world week (were 3.3 %)
 
 **Over a week (plan M5 PR 6):** the 7-day world run (seed 3, from Monday 6 July, every
 gated airport under ground control) has 24,857 escapes in 750,724 taxis (3.3 %), worse than
@@ -42,6 +42,10 @@ Denver (255) and Madrid (218) lead.
 (400), Haneda (217) and Boston (174) lead; O'Hare also runs short of stands (119 shares).
 Scheduled taxi-outs are now shorter than real unimpeded ones (Frankfurt 6.5 minutes with the
 pushback).
+
+**Over a week after plan M6 (PR 5):** the same 7-day world run has 9,328 escapes in 763,394
+taxis (1.2 %), under the 2 % of M6's acceptance (D155). O'Hare (1,664 in 17,335 movements),
+Boston (876), Tokyo Haneda (871), Phoenix (547) and Denver (317) lead.
 
 **How often (plan M5 PR 3):** in the ground test's morning bank on region E (260 airports
 under ground control), 33, 49 and 27 escapes in about 2,350 taxis for seeds 3, 7 and 11
@@ -86,6 +90,16 @@ week.
 
 **Decision (2026-11-16):** fixed in M6 (`docs/plan/m6-ground-flow.md`).
 
+**After plan M6 (PR 5):** in the same 7-day run three airports still have a taxi over 75
+minutes: O'Hare 161, Boston 102, Oakland 100 (were 23 airports, Phoenix 632). The first two
+are overloaded rather than gridlocked: O'Hare's flights average 199 minutes of delay (29 % on
+time) with 62,883 minutes of airborne holding, 953 stand waits and 786 stand shares; Boston's
+106 minutes (36 % on time). Arrivals come faster than runways and stands clear them, so taxis
+wait. Not yet diagnosed: whether the schedule exceeds the capacity rule's runways (see
+*Runway capacity by rule*) or the stand estimates of plan M6 PR 4 (10.5 m/s) send too many
+to O'Hare's stands at once. **Decision (2026-11-17):** recorded; M6 is accepted without this
+limit and the overload goes to a later milestone.
+
 ### Taxi delays at Frankfurt
 
 **What:** Frankfurt's average taxi delay is 3.2 min over 7 days (target about 2 min; PR 4:
@@ -123,6 +137,9 @@ beside them (D148). In a 36-hour world run stand shares fell from 2,909 to 796 (
 taxis) and stand waits from 8,378 to 1,436. The remaining waits are peaks at Seattle (364),
 O'Hare (305), Phoenix (140) and Tokyo Haneda (99), where the stands that can be used at once
 are full.
+
+**After plan M6 (PR 5):** the 7-day world run has 1,045 stand shares (0.14 % of taxis, were
+14,117 or 1.9 %), 786 of them at O'Hare (see *Taxis over 75 minutes*).
 
 **Decision:** reported as a statistic.
 
