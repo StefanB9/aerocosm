@@ -497,6 +497,30 @@ mod tests {
     }
 
     #[test]
+    fn test_a_taxi_point_follows_the_turns() -> Result<()> {
+        let data = data()?;
+        let (frankfurt, munich) = (airport(&data, "EDDF")?, airport(&data, "EDDM")?);
+        let mut leg = plan_leg(
+            &data.world,
+            &data.traffic,
+            unmapped(),
+            a320(&data)?,
+            frankfurt,
+            munich,
+        )?;
+        // 100 m east, then north.
+        let corner = LatLon::new(50.03, 8.56)?;
+        let start = corner.destination(Degrees::from_raw(270.0), Meters::new(100.0)?);
+        let end = corner.destination(Degrees::from_raw(0.0), Meters::new(100.0)?);
+        leg.path
+            .set_taxi_out(crate::geo::Polyline::new(&[start, corner, end])?);
+        let point = leg.path.taxi_point(true, 110.0);
+        let expected = corner.destination(Degrees::from_raw(0.0), Meters::new(10.0)?);
+        assert!(point.distance_to(expected).value() < 0.5, "{point:?}");
+        Ok(())
+    }
+
+    #[test]
     fn test_plan_leg_frankfurt_to_munich() -> Result<()> {
         let data = data()?;
         let (frankfurt, munich) = (airport(&data, "EDDF")?, airport(&data, "EDDM")?);

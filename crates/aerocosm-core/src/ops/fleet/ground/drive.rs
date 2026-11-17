@@ -90,6 +90,9 @@ impl Operations {
         let next = (along + reach).min(stop.at.max(along));
         self.claim_entered(index, along, next);
         motion.taxi_at(next, (next - along) / dt);
+        if next - along > 1e-3 {
+            self.seen_moving(index, motion);
+        }
         let taxi = self.taxis.get_mut(index)?;
         taxi.limit = stop.at.max(along);
         taxi.sighted = sighted;
@@ -207,6 +210,25 @@ impl Operations {
         stop
     }
 
+    /// Tail `index` has moved: those who move after it this tick see it
+    /// where it is now.
+    fn seen_moving(&mut self, index: usize, motion: &Motion) {
+        let Some((at, heading)) = self
+            .paths
+            .get(index)
+            .and_then(Option::as_ref)
+            .map(|path| path.locate(motion))
+        else {
+            return;
+        };
+        let Some(airport) = self.taxis[index].as_ref().map(|taxi| taxi.airport) else {
+            return;
+        };
+        if let Some(airside) = self.ground.airside_mut(airport) {
+            moved(&mut airside.seen, Self::owner(index), at, heading, true);
+        }
+    }
+
     /// Tail `index`, moving from `along` to `next`, claims the junctions
     /// whose zone it enters, so that nobody else enters them this tick.
     fn claim_entered(&mut self, index: usize, along: f64, next: f64) {
@@ -237,8 +259,12 @@ impl Operations {
     fn seen_ahead(&self, index: usize, motion: &Motion, step: f64) -> Option<u32> {
         let owner = Self::owner(index);
         let taxi = self.taxis[index].as_ref().filter(|t| !t.escaped)?;
-        let (here, heading) = self.paths.get(index)?.as_ref()?.locate(motion);
-        let next = here.destination(heading, crate::units::Meters::from_raw(step));
+        let path = self.paths.get(index)?.as_ref()?;
+        let (here, _) = path.locate(motion);
+        // Where the move ends along the taxi, through its turns: a straight
+        // probe along the heading misses one the curve turns towards.
+        let out = motion.phase() == crate::ops::Phase::TaxiOut;
+        let next = path.taxi_point(out, motion.along() + step);
         let airside = self.ground.airside(taxi.airport)?;
         // Nobody farther than this can be in the way: a cheap box first,
         // great circles only inside it.
@@ -300,6 +326,19 @@ pub(super) struct Seen {
     /// Whether it stands for that aircraft because it sees it in its way,
     /// not for a clearance.
     pub(super) by_sight: bool,
+}
+
+/// Moves `owner`'s own sighting in `seen` to where it now is, so that those
+/// who move after it in the same tick judge it there, not where it stood
+/// at the survey (plan M7 PR 1). Its other sightings (the rest of a
+/// pushback) stay.
+pub(super) fn moved(seen: &mut [Seen], owner: u32, at: LatLon, heading: Degrees, moving: bool) {
+    if let Some(own) = seen.iter_mut().find(|s| s.tail == owner) {
+        own.at = at;
+        own.heading = heading;
+        own.moving = moving;
+        own.at_hold &= !moving;
+    }
 }
 
 /// Whether an aircraft `along` its path through `passages`, cleared up to
@@ -466,6 +505,29 @@ mod tests {
             ..standing(7.5)?
         };
         assert!(in_the_way(here, long_step, &jumped_hold, 2));
+        Ok(())
+    }
+
+    #[test]
+    fn test_a_move_is_seen_at_once() -> Result<()> {
+        let at = |m: f64| LatLon::new(50.03 + m / 111_195.0, 8.56);
+        let sighting = |tail: u32, m: f64| -> Result<Seen> {
+            Ok(Seen {
+                tail,
+                at: at(m)?,
+                heading: Degrees::from_raw(0.0),
+                moving: false,
+                at_hold: true,
+                waits_for: None,
+                by_sight: false,
+            })
+        };
+        let mut seen = [sighting(1, 0.0)?, sighting(2, 50.0)?, sighting(1, 10.0)?];
+        moved(&mut seen, 1, at(1.0)?, Degrees::from_raw(0.0), true);
+        assert!((seen[0].at.distance_to(at(1.0)?).value()).abs() < 1e-6);
+        assert!(seen[0].moving && !seen[0].at_hold);
+        assert_eq!(seen[1], sighting(2, 50.0)?, "nobody else's");
+        assert_eq!(seen[2], sighting(1, 10.0)?, "only its first sighting");
         Ok(())
     }
 
