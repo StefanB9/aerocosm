@@ -224,6 +224,12 @@ delays rise: departures 17.4 → 19.1 minutes, stand waits 881 → 954, stand sh
 go-arounds 1,528 → 1,659, and 11 airports instead of 7 have a taxi over 75 minutes (the
 longest, O'Hare's, 142 → 161).
 
+Benchmark record (D156, against PR 2's): tick medians 3.1–4.6 ms (were 2.8–3.6), 95th
+percentiles 5.0–7.0 ms, the simulated day 420 s (378). The machine ran slower than for PR 2's
+record: code this PR does not touch rose as much (geometry micro-benchmarks +15–60 %,
+viewer frames +7–19 %), so the change itself is within the noise; the 95th percentile stays
+under D155's 8 ms. The full suite passes: 849 tests.
+
 ## PR 4 — Taxi speeds (D154)
 
 - Speed limit along a route from edge kinds and turns; acceleration and braking in the
