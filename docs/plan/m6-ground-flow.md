@@ -168,6 +168,12 @@ movements instead of 3,209 with taxi delay 21.1 → 15.4 minutes and no more sta
 Atlanta 77 → 105. Ground delays at the gate for landing slots rose (134,467 → 165,742
 minutes) as more flights leave on time into the same landing capacity.
 
+Benchmark record (D156, against PR 1's): tick medians 2.8–3.6 ms (were 3.0–3.8), 95th
+percentiles 4.6–6.6 ms; the simulated day 378 s (404). Start-up 20.0 s (16.8 s): every leg
+with a choice of departure runways looks for a taxi route to each. Keeping the route found
+for the chosen runway, and not looking where the mode offers one runway, brings it to 18.9 s
+with equal fingerprints (after the record). The full suite passes: 849 tests.
+
 ## PR 3 — Junctions (D153)
 
 - First in line; one clearance for a short stub.

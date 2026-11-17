@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 
 use super::{
     Leg, Path,
-    ground::{Origin, departure, landing_exit},
+    ground::{Departure, Origin, departure, landing_exit},
     reverse,
 };
 use crate::{
@@ -173,6 +173,14 @@ fn exit_at(
     ))
 }
 
+/// The search for a taxi route to the departure runway.
+enum TaxiSearch {
+    /// Not looked for while the runway was chosen.
+    NotDone,
+    /// Looked for: the route, if there is one.
+    Done(Option<Departure>),
+}
+
 /// The taxi-out of a leg.
 struct TaxiOut {
     taxi: Polyline,
@@ -194,13 +202,19 @@ fn taxi_out(
     runway: Option<RunwayDesignator>,
     wingspan: Meters,
     airport_point: LatLon,
-    threshold: LatLon,
+    to: (LatLon, TaxiSearch),
 ) -> Result<TaxiOut> {
+    let (threshold, found) = to;
     let layout = ground.network.airport(origin);
     let from = layout.zip(ground.origin);
-    if let Some(((layout, origin), runway)) = from.zip(runway)
-        && let Some(plan) = departure(layout, origin, (runway, threshold), wingspan)
-    {
+    // The route found while choosing the runway, or looked for now.
+    let plan = match found {
+        TaxiSearch::Done(plan) => plan,
+        TaxiSearch::NotDone => from.zip(runway).and_then(|((layout, origin), runway)| {
+            departure(layout, origin, (runway, threshold), wingspan)
+        }),
+    };
+    if let Some(plan) = plan {
         return Ok(TaxiOut {
             taxi: plan.taxi,
             lineup: plan.lineup,
@@ -250,14 +264,14 @@ fn departure_score(end: &RunwayEnd, direct: Degrees, ahead: LatLon) -> f64 {
 }
 
 /// The runway ends a leg between the airports `between` takes off from
-/// and lands on.
+/// and lands on, and the taxi route to the first if one was looked for.
 fn leg_runways(
     world: &World,
     traffic: &TrafficTargets,
     ground: LegGround<'_>,
     aircraft: &AircraftType,
     between: (Id<Airport>, Id<Airport>),
-) -> Result<(End, End)> {
+) -> Result<(End, End, TaxiSearch)> {
     let (origin, destination) = between;
     let from = world.airport(origin).context("origin out of range")?;
     let to = world
@@ -271,12 +285,18 @@ fn leg_runways(
     // Depart from the mode's runway it is off soonest from (plan M6 D151):
     // the taxi there or the wait for its turn, whichever is longer, and
     // the turn onto its course.
+    // The routes found on the way are kept: the chosen one is the taxi-out.
+    let routes = std::cell::RefCell::new(Vec::new());
     let taxi_to = |end: &RunwayEnd| {
         let Some((layout, from)) = ground.network.airport(origin).zip(ground.origin) else {
             return 0.0;
         };
-        departure(layout, from, (end.designator(), end.threshold()), wingspan)
-            .map_or(UNROUTED, |plan| plan.taxi.length().value() / TAXI_SPEED)
+        let plan = departure(layout, from, (end.designator(), end.threshold()), wingspan);
+        let taxi = plan
+            .as_ref()
+            .map_or(UNROUTED, |plan| plan.taxi.length().value() / TAXI_SPEED);
+        routes.borrow_mut().push((end.designator(), plan));
+        taxi
     };
     let departure = runway_end(
         world,
@@ -285,6 +305,10 @@ fn leg_runways(
         aircraft,
         Use::Departure,
         |end, allowed| {
+            // Nothing to weigh where the mode offers one runway end.
+            if allowed.len() < 2 {
+                return 0.0;
+            }
             let turn = ground.turn_in.map_or(0.0, |turn_in| turn_in(end, allowed));
             taxi_to(end).max(turn) + COURSE_WEIGHT * departure_score(end, direct, ahead)
         },
@@ -305,7 +329,13 @@ fn leg_runways(
         },
         direct,
     )?;
-    Ok((departure, arrival))
+    let chosen = departure.2.map(|(_, designator)| designator);
+    let route = routes
+        .into_inner()
+        .into_iter()
+        .find(|(designator, _)| Some(*designator) == chosen)
+        .map_or(TaxiSearch::NotDone, |(_, plan)| TaxiSearch::Done(plan));
+    Ok((departure, arrival, route))
 }
 
 /// Plans `aircraft` flying from `origin` to `destination` with the runways
@@ -325,6 +355,7 @@ pub(crate) fn plan_leg(
     let (
         (departure_point, departure_course, departure_runway),
         (arrival, arrival_course, arrival_runway),
+        route,
     ) = leg_runways(world, traffic, ground, aircraft, (origin, destination))?;
     let wingspan = aircraft.wingspan();
 
@@ -335,7 +366,7 @@ pub(crate) fn plan_leg(
         departure_runway.map(|(_, designator)| designator),
         wingspan,
         from.location(),
-        departure_point,
+        (departure_point, route),
     )?;
     inputs.pushback_length = out.pushback;
     inputs.lineup_length = out.lineup.length().value();
