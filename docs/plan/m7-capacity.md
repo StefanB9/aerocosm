@@ -83,19 +83,35 @@ every off-block with the time its aircraft was ready, and every take-off and lan
   90 (90), Frankfurt 100 → 148 (104).
 - With 148 an hour Frankfurt is no longer coordinated by its daily average (D113); PR 3
   coordinates by the generated peaks.
+- **Crossing runways are counted, not flown** (a change to D158 within PR 1): taking
+  departures on a runway that crosses one in use put aircraft on an active runway where hold
+  lines lie at its junctions (region E, seed 11: two aircraft at one spot at Helsinki). Their
+  15 an hour stay in the rating the references check (`RunwayUse::rated`); schedules and
+  coordination use the capacity the runway controllers fly. A first run that scheduled the
+  crossing departures without flying them gave LaGuardia 272 minutes of delay. Flying them is
+  PR 2's work (D159).
+- **See and avoid**, two gaps the faster taxiing of M6 PR 4 had opened, found as more runways
+  came into use: a one-tick step could pass right over another aircraft (the check compared
+  only the distances before and after the move, now the nearest point of it); the probe for
+  where a move ends ran straight along the heading, so in a turn towards another aircraft it
+  judged the end metres too far off (region E, Copenhagen, 18.7 m; now the point along the
+  taxi); and pilots judged others where the survey found them at the start of the tick (each
+  move now updates the mover's sighting at once).
 
 | 36 h, seed 3 | Escapes | Departure delay, min | Airborne holding, min | Go-arounds | Over 75 min |
 |---|---|---|---|---|---|
 | M6 (PR 4) | 2,042 (1.3 %) | 14.8 | 311,533 | 690 | 1 airport |
-| Rule over every runway | 2,727 (1.7 %) | 15.8 | 582,919 | 1,072 | 1 (Boston, 254 min) |
+| Rule, crossing runways flown | 2,727 (1.7 %) | 15.8 | 582,919 | 1,072 | 1 |
+| Crossing counted, scheduled, not flown | 1,922 (1.2 %) | 19.4 | 521,419 | 949 | 2 |
+| As built | 1,785 (1.1 %) | 16.8 | 512,715 | 712 | 3 (Boston 103, O'Hare 87, Frankfurt 81) |
 
-Where capacity was short, delays fall: O'Hare 125 → 50 minutes, LaGuardia 73 → 26, Denver
-34 → 21, Frankfurt 21 → 15; Newark flies 1,739 movements instead of 1,297 (target 2,026) as
-fewer round trips are dropped. Worse: Boston (escapes 174 → 860, delay 76 → 119 minutes,
-longest taxi 254), where crossing runways now take departures and taxiing aircraft cross
-more active runways; and airborne holding nearly doubles (Newark 1,065 → 48,808 minutes,
-O'Hare 21,438 → 44,598): more flights are scheduled in than the runway controllers land.
-Both are PR 2's subject (D159).
+Where the rule added runways that are flown, delays fall: O'Hare 125 → 63 minutes, Denver
+34 → 23, Frankfurt 21 → 15, Newark 90 → 86 while flying 1,663 movements instead of 1,297.
+Worse: Boston 76 → 255 minutes (its 15L is under 1,500 m; it now flies 15R and 14 as two
+independent runways, rated 90 an hour, and handles 1,161 movements against 1,451), LaGuardia
+73 → 126 (coordinated at the 45 its one flown runway allows, against 40 before) and airborne
+holding (Newark 1,065 → 42,643 minutes). The runway controllers fly less than the capacity at
+these airports: PR 2's subject (D159). The full suite passes: 860 tests.
 
 ## PR 2 — Runtime capacity (D159)
 
