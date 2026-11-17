@@ -142,24 +142,33 @@ impl AirportGround {
     ) -> Option<TaxiTimes> {
         let wingspan = Meters::from_raw(TYPICAL_WINGSPAN);
         let roll = Meters::from_raw(TYPICAL_ROLL);
-        let nearest = |nodes: Vec<Id<Node>>, towards: bool| -> Option<f64> {
-            let tables: Vec<Vec<f64>> = nodes
+        // The median stand by route length from the nearest entry or exit,
+        // and the route between them, timed by its speeds (plan M6 D154).
+        let median = |nodes: Vec<Id<Node>>, towards: bool| -> Option<f64> {
+            let tables: Vec<(Id<Node>, Vec<f64>)> = nodes
                 .into_iter()
-                .map(|node| self.lengths_from(node, wingspan, towards))
+                .map(|node| (node, self.lengths_from(node, wingspan, towards)))
                 .collect();
-            let mut per_stand: Vec<f64> = self
+            let mut per_stand: Vec<(f64, Id<Node>, Id<Node>)> = self
                 .stands()
                 .iter()
-                .map(|stand| {
+                .filter_map(|stand| {
+                    let at = stand.node();
                     tables
                         .iter()
-                        .map(|table| table[stand.node().as_usize()])
-                        .fold(f64::INFINITY, f64::min)
+                        .map(|(node, table)| (table[at.as_usize()], *node, at))
+                        .filter(|(length, _, _)| length.is_finite())
+                        .min_by(|a, b| a.0.total_cmp(&b.0))
                 })
-                .filter(|length| length.is_finite())
                 .collect();
-            per_stand.sort_by(f64::total_cmp);
-            per_stand.get(per_stand.len() / 2).copied()
+            per_stand.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let &(_, end, stand) = per_stand.get(per_stand.len() / 2)?;
+            let route = if towards {
+                self.route(stand, end, wingspan)
+            } else {
+                self.route(end, stand, wingspan)
+            }?;
+            Some(self.taxi_time(&route))
         };
         let entries = departures
             .iter()
@@ -171,11 +180,11 @@ impl AirportGround {
             .iter()
             .filter_map(|runway| self.landing_exit(*runway, roll, roll).map(Exit::node))
             .collect();
-        let out = nearest(entries, true)?;
-        let back = nearest(exits, false)?;
+        let out = median(entries, true)?;
+        let back = median(exits, false)?;
         Some(TaxiTimes {
-            out: seconds(PUSHBACK_TIME + out / TAXI_SPEED),
-            back: seconds(back / TAXI_SPEED),
+            out: seconds(PUSHBACK_TIME + out),
+            back: seconds(back),
         })
     }
 }
@@ -380,7 +389,10 @@ mod tests {
     fn test_typical_taxi_times_at_the_hubs_are_plausible() -> Result<()> {
         let (world, ground, traffic) = shipped()?;
         let times = ground.taxi_times(&world, Some(&traffic));
-        for (ident, out, back) in [("EDDF", (8, 22), (3, 14)), ("EDDM", (6, 18), (3, 12))] {
+        // The median stand to the nearest runway entry and from the nearest
+        // exit, at the speeds of plan M6 D154: about 4 minutes' taxi out
+        // after the pushback and 3 in.
+        for (ident, out, back) in [("EDDF", (5, 9), (2, 5)), ("EDDM", (5, 9), (2, 5))] {
             let airport = world.airport_by_ident(ident.parse()?).context("airport")?;
             let taxi = times[airport.as_usize()].context("mapped")?;
             let minutes = |d: SimDuration| d.as_millis() / 60_000;

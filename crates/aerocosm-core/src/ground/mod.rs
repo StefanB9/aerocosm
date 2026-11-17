@@ -17,6 +17,7 @@ mod footprint;
 pub(crate) mod junctions;
 mod route;
 mod runways;
+pub(crate) mod speed;
 mod taxi;
 
 pub use airport::AirportGround;

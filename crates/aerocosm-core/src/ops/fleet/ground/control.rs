@@ -5,11 +5,12 @@
 use super::{
     AIRCRAFT_LENGTH, CLEAR_OF_RUNWAY, DEADLOCK_AFTER, EDGE, ENGINE_START, FOLLOW, GAP, HOLD_SHORT,
     LOCK_AHEAD, LOOKAHEAD, Occupant, PUSH_CLEAR, PUSH_SHOWN_EVERY, PUSH_SPEED, Passage,
-    STUCK_AFTER, Target, Taxi, ZONE, ms, taxi_millis, tight, time_of,
+    STUCK_AFTER, Target, Taxi, ZONE, ms, tight, time_of,
 };
 use crate::{
     SimDuration, SimTime,
-    ops::{Phase, control::RunwayKey, fleet::Operations},
+    ground::speed::{SLOW, braking_distance},
+    ops::{Phase, control::RunwayKey, fleet::Operations, motion::Motion},
 };
 
 /// How urgent a request is (D81), most urgent first.
@@ -418,7 +419,12 @@ impl Operations {
                     .iter()
                     .find_map(|&n| airside.runway_at(Some(n)))
             });
-        let until = time_of(ms(now) + taxi_millis(passage.exit - along + AIRCRAFT_LENGTH));
+        let until = time_of(
+            ms(now)
+                + taxi
+                    .speeds
+                    .time_to(along, 0.0, passage.exit + AIRCRAFT_LENGTH),
+        );
         let key = runway.map(|runway| RunwayKey {
             airport: taxi.airport,
             runway,
@@ -487,7 +493,7 @@ impl Operations {
             return false;
         };
         // As far as traffic taxies while it pushes and starts up.
-        let soon = (from / PUSH_SPEED + ENGINE_START) * crate::ground::TAXI_SPEED + PUSH_CLEAR;
+        let soon = (from / PUSH_SPEED + ENGINE_START) * SLOW + PUSH_CLEAR;
         taxi.runs
             .iter()
             .filter(|run| run.to > from - 1e-6 && run.from < to)
@@ -523,16 +529,13 @@ impl Operations {
             let k = other as usize;
             let taxi = self.taxis.get(k).filter(|_| k != index)?;
             let along = self.along_of(k)?;
-            let moving = self.tails[k]
-                .motion
-                .as_ref()
-                .is_some_and(|m| m.speed() > STANDING);
+            let speed = self.tails[k].motion.as_ref().map_or(0.0, Motion::speed);
             let yields = taxi.waiting_for == Some(Self::owner(index));
             taxi.passages.iter().enumerate().find_map(|(i, p)| {
                 let through = p.hold.is_none() || i < taxi.next;
                 let traffic = Through {
                     to_entry: p.entry - along,
-                    moving,
+                    speed,
                     yields,
                 };
                 (p.junction == junction
@@ -741,7 +744,8 @@ fn asks_for_lock(passages: &[Passage], from: f64, along: f64) -> bool {
 struct Through {
     /// Metres to go to the junction (negative once in it).
     to_entry: f64,
-    moving: bool,
+    /// Its speed, m/s.
+    speed: f64,
     /// Standing for the aircraft that waits to enter.
     yields: bool,
 }
@@ -751,7 +755,9 @@ impl Through {
     /// on, or stands close by, unless it stands for that very aircraft (the
     /// two would wait for each other for ever).
     fn has_right_of_way(self) -> bool {
-        self.to_entry <= GAP && (self.moving || (self.to_entry <= FOLLOW + ZONE && !self.yields))
+        let moving = self.speed > STANDING;
+        self.to_entry <= GAP + braking_distance(self.speed)
+            && (moving || (self.to_entry <= FOLLOW + ZONE && !self.yields))
     }
 }
 
@@ -784,7 +790,7 @@ mod tests {
         // Moving towards the junction 100 m short: it has right of way.
         let coming = Through {
             to_entry: 100.0,
-            moving: true,
+            speed: crate::ground::speed::TURN,
             yields: false,
         };
         assert!(coming.has_right_of_way());
@@ -796,9 +802,24 @@ mod tests {
             }
             .has_right_of_way()
         );
+        // At full taxi speed it needs farther to stop short of the
+        // junction (plan M6 D154).
+        let fast = Through {
+            to_entry: 250.0,
+            speed: crate::ground::speed::STRAIGHT,
+            yields: false,
+        };
+        assert!(fast.has_right_of_way());
+        assert!(
+            !Through {
+                speed: crate::ground::speed::TURN,
+                ..fast
+            }
+            .has_right_of_way()
+        );
         let back = Through {
             to_entry: 100.0,
-            moving: false,
+            speed: 0.0,
             yields: false,
         };
         assert!(!back.has_right_of_way());
