@@ -133,6 +133,11 @@ What to check:
   `stand_waits`, `ground_conflicts` (deadlock escapes, about 1 % of taxis) and `stand_shares`
   (arrivals that shared a stand after 30 minutes, mostly overnight at Munich). See
   `docs/known-issues.md`.
+- Since M6, aircraft taxi at 15 m/s on taxiways, 8 m/s on apron taxilanes and gentle bends
+  and 5 m/s in sharp turns and on lead-ins, speeding up and braking at 1 m/s²; departures
+  take the runway they are off soonest from. A world week has escapes at 1.2 % of taxis and
+  stand shares at 0.14 %; `stalls` counts aircraft standing five minutes with nothing to wait
+  for (none). See `docs/plan/m6-ground-flow.md`.
 - The run starts warm, with aircraft mid-flight; `--cold-start` starts with every aircraft on
   the ground, so `peak_airborne` grows from zero.
 - `--no-traffic` simulates the static world only; without `--world` the world is empty.
