@@ -141,6 +141,31 @@ impl Operations {
         Ok(None)
     }
 
+    /// In how many seconds the next departure cleared to `runway` at
+    /// `origin` now gets its turn (plan M4 D91); none where nobody has left
+    /// from it yet.
+    pub(in crate::ops::fleet) fn turn_in(
+        &self,
+        origin: Id<Airport>,
+        runway: RunwayDesignator,
+        now: SimTime,
+    ) -> f64 {
+        let Some(airside) = self.ground.airside(origin) else {
+            return 0.0;
+        };
+        let (last, pace) = airside
+            .pace
+            .get(&runway)
+            .map_or((None, DEPARTURE_INTERVAL), |&(last, pace)| {
+                (Some(last), pace)
+            });
+        let ahead = airside.departing.get(&runway).copied().unwrap_or(0);
+        // SAFETY: at most hours in milliseconds.
+        #[allow(clippy::cast_precision_loss)]
+        let wait = (turn(last, pace, ahead, ms(now)) - ms(now)) as f64;
+        wait / 1000.0
+    }
+
     /// A departure lines up from `hold`, having waited `waited` ms in the
     /// runway's queue: the next one there is due one interval later at the
     /// earliest, and the pace is learnt.
@@ -247,7 +272,7 @@ mod tests {
         // A queue moved every 150 s: the estimate rises towards it.
         assert_eq!(learn_pace(60_000, Some(150_000)), 87_000);
         // Never above the longest interval.
-        assert_eq!(learn_pace(60_000, Some(900_000)), 132_000);
+        assert_eq!(learn_pace(60_000, Some(3_600_000)), 312_000);
         // Nobody waited: back towards the nominal interval.
         assert_eq!(learn_pace(200_000, None), 158_000);
     }

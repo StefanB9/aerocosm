@@ -25,6 +25,10 @@ regardless (D75, D83). Each escape counts as a ground conflict and the flight vi
 **After plan M6 PR 1:** the region E test passes on seeds 3, 7 and 11; a 36-hour world run
 has 4,481 escapes in 157,780 taxis (2.8 %), now mostly at airports with long runway queues.
 
+**After plan M6 PR 2:** departures take the runway they are off soonest from (D151): 4,015
+escapes in 159,742 taxis (2.5 %) over the same 36 hours. O'Hare (550), Boston (441), Madrid
+(252), Tokyo Haneda (229) and Denver (200) lead.
+
 **How often (plan M5 PR 3):** in the ground test's morning bank on region E (260 airports
 under ground control), 33, 49 and 27 escapes in about 2,350 taxis for seeds 3, 7 and 11
 (1.4 %, 2.0 %, 1.1 %): seed 7 exceeds the test's limit of one in fifty by one escape, and the

@@ -57,6 +57,17 @@ impl Flow {
     pub(super) const fn arrival_runway(&self) -> Option<RunwayKey> {
         self.arrival
     }
+
+    /// Whether the leg's runways are resolved.
+    pub(super) const fn is_resolved(&self) -> bool {
+        self.resolved
+    }
+
+    /// Moves the departure to the controlled runway `departure` (plan M6
+    /// D151).
+    pub(super) const fn set_departure(&mut self, departure: Option<RunwayKey>) {
+        self.departure = departure;
+    }
 }
 
 impl Flow {
