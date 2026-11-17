@@ -239,6 +239,49 @@ under D155's 8 ms. The full suite passes: 849 tests.
   and see-and-avoid stops. If it raises escapes, the speeds drop to 10 / 8 / 5 m/s before
   anything else is tried, and the user decides.
 
+*As built (PR 4):*
+
+- **Limits** (`ground/speed.rs`): each taxi path gets pieces of 15 m/s (taxiways, runways),
+  8 m/s (taxilanes) and 5 m/s (lead-ins), lowered to 8 m/s where the path turns 25–60° and
+  to 5 m/s where it turns more, measured 25 m either side of each point of the polyline (the
+  bends inside an edge count, not only those at nodes) and holding that far either side.
+- **Drive step:** an aircraft speeds up by 1 m/s each tick and takes the fastest speed from
+  which it can brake at 1 m/s² to every lower limit ahead and to where it has to stop; it
+  rolls up the last metre. Anything that appears closer than it can brake for (see and
+  avoid, a junction someone enters) still stops it within the tick.
+- **Controller distances:** through traffic keeps its right of way at a junction as far out
+  as 150 m plus its braking distance; the clearance look-ahead is the braking distance from
+  15 m/s plus a tick (127.5 m, was 120); pushback clearance counts traffic at 8 m/s.
+- **Times:** a taxi's unimpeded time (for the taxi-delay statistic) and a runway crossing's
+  time come from the same step. Scheduled taxi times time the route to the median stand:
+  Frankfurt 6.5 minutes out with the pushback, 3 in (were about 10 and 5); Munich the same.
+  Estimates from a length alone (runway choice, stand choice, a schedule's routed taxi-out)
+  use 10.5 m/s, the profile's average over Frankfurt's and Munich's routes of a kilometre
+  and more (10.3–11.1 m/s); a test holds the two together.
+- **Published times** were not found as unimpeded values: EUROCONTROL publishes the
+  additional taxi-out time (Frankfurt 3.5, Munich 3.4 minutes per departure in 2025), not
+  its reference. The real unimpeded taxi-out at both is believed to be 9–11 minutes from
+  off-block to take-off, so the scheduled taxi-out is now shorter than the real one.
+
+| 36 h, seed 3 | Escapes | Departure delay, min | Go-arounds | Stand shares | Over 75 min |
+|---|---|---|---|---|---|
+| PR 3 | 3,804 (2.4 %) | 19.1 | 1,659 | 126 | 11 airports |
+| Speeds, estimates at 5 m/s | 2,110 (1.3 %) | 10.9 | 890 | 63 | 2 |
+| Speeds, estimates at 10.5 m/s (as built) | 2,042 (1.3 %) | 14.8 | 690 | 175 | 1 |
+
+Escapes fall by almost half and arrival delay from 23.4 to 18.1 minutes: aircraft spend
+half as long on the taxiways, so fewer meet. Madrid 218 → 12, Denver 255 → 54, Atlanta 110 →
+35, Frankfurt 69 → 24; O'Hare (400) and Haneda (217) improve least. The longest taxi is
+O'Hare's at 111 minutes. With estimates at 10.5 m/s departures count as later because the
+schedules plan shorter taxi-outs, and O'Hare runs short of stands (204 waits, 119 shares,
+none before); not yet diagnosed. The region E ground test passes on all three seeds.
+
+Benchmark record (D156, against PR 3's): tick medians 2.6–3.2 ms (were 3.1–4.6), 95th
+percentiles 4.9–5.9 ms (5.0–7.0), the simulated day 346 s (420): with half the time on the
+taxiways fewer aircraft taxi at once. Start-up 22.5 s (21.3 s). Viewer frames rose 26 % on
+code this PR does not touch, so the machine's own speed varies between the records. The full
+suite passes: 857 tests.
+
 ## PR 5 — Acceptance (D155)
 
 - The 7-day run, the benchmark record, `docs/known-issues.md`, README; M5's definition of

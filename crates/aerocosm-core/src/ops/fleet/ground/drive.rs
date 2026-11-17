@@ -7,7 +7,7 @@
 use super::{EDGE, FOLLOW, HOLD_SHORT, STALLED_AFTER, Target, control::overdue, ms};
 use crate::{
     LatLon, SimDuration, SimTime, TICK,
-    ground::{TAXI_SPEED, junctions::Passage},
+    ground::junctions::Passage,
     ops::{
         fleet::Operations,
         motion::{Event, Motion},
@@ -76,7 +76,10 @@ impl Operations {
         }
         let mut stop = self.stop(index, along);
         let dt = TICK.as_secs_f64();
-        let reach = (stop.at - along).clamp(0.0, TAXI_SPEED * dt);
+        let speed = self.taxis[index].as_ref().map_or(0.0, |taxi| {
+            taxi.speeds.next_speed(along, motion.speed(), stop.at)
+        });
+        let reach = (stop.at - along).clamp(0.0, speed * dt);
         let mut sighted = false;
         if reach > 0.0
             && let Some(other) = self.seen_ahead(index, motion, reach)
@@ -84,7 +87,7 @@ impl Operations {
             stop = stop.nearer(along, Some(other), false);
             sighted = true;
         }
-        let next = (along + TAXI_SPEED * dt).min(stop.at.max(along));
+        let next = (along + reach).min(stop.at.max(along));
         self.claim_entered(index, along, next);
         motion.taxi_at(next, (next - along) / dt);
         let taxi = self.taxis.get_mut(index)?;

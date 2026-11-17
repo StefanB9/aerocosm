@@ -25,6 +25,7 @@ use crate::{
     ground::{
         AirportGround, Edge, EdgeKind, GroundName, GroundRoute, Node, Stand, TAXI_SPEED,
         junctions::{Junctions, Passage, Run},
+        speed::{self, SpeedLimits},
     },
     ops::{Phase, TaxiGoal, active_runways_now, control::RunwayKey},
     scenario::Scenario,
@@ -45,8 +46,8 @@ const HOLD_SHORT: f64 = 45.0;
 /// An aircraft this close to a junction zone's edge, m, has not entered
 /// the zone (it stopped there).
 const EDGE: f64 = 0.5;
-/// Through traffic this close to a junction keeps a yielding aircraft
-/// waiting at its hold, m.
+/// Through traffic this close to a junction, and as far again as it needs
+/// to brake, keeps a yielding aircraft waiting at its hold, m.
 const GAP: f64 = 150.0;
 /// An aircraft locks the direction of its taxiways this far ahead where no
 /// hold comes first, m.
@@ -58,8 +59,9 @@ const PUSH_CLEAR: f64 = 120.0;
 /// rest of its push, m.
 const PUSH_SHOWN_EVERY: f64 = 10.0;
 /// An aircraft asks to be cleared on once it is this close to its limit,
-/// so that it rarely has to stop, m.
-const LOOKAHEAD: f64 = 120.0;
+/// so that it rarely has to stop: as far as it needs to brake from full
+/// taxi speed, and a tick more (plan M6 D154), m.
+const LOOKAHEAD: f64 = speed::braking_distance(speed::STRAIGHT) + speed::STRAIGHT;
 /// A cycle of aircraft waiting for each other this long is a deadlock: its
 /// least urgent member is cleared regardless (D75, D83), ms.
 const DEADLOCK_AFTER: i64 = 60_000;
@@ -441,6 +443,8 @@ pub(super) struct Taxi {
     /// lines up beyond the holding position), m.
     points: Vec<LatLon>,
     end: f64,
+    /// The speed limits along it (plan M6 D154).
+    speeds: SpeedLimits,
     /// When the taxi started and how long it would take unimpeded, ms.
     started: i64,
     unimpeded: i64,
@@ -586,6 +590,15 @@ impl Operations {
             .sum();
         points.extend(extension.iter().skip(1));
         let end = route_end + more;
+        let speeds = SpeedLimits::new(
+            &points,
+            offset,
+            route
+                .edges()
+                .iter()
+                .filter_map(|&(edge, _)| layout.edge(edge).map(|e| (e.length().value(), e.kind()))),
+            end,
+        );
         let goal = match target {
             Target::Hold => TaxiGoal::HoldingPoint(
                 end_node
@@ -617,7 +630,7 @@ impl Operations {
                 leader: None,
                 end,
                 started: ms(now),
-                unimpeded: taxi_millis(end - offset),
+                unimpeded: speeds.unimpeded(offset, 0.0),
                 waiting_since: None,
                 queued_at: None,
                 waiting_for: None,
@@ -631,6 +644,7 @@ impl Operations {
                 crossing: None,
                 reroutes: 0,
                 points: points.clone(),
+                speeds,
             },
         );
         Polyline::new(&points).ok()
