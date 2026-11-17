@@ -321,10 +321,18 @@ pub(super) fn at_a_line(passages: &[Passage], next: usize, along: f64) -> bool {
 /// `me`'s clearance is passed in any case; all down to `PAST_HOLD`.
 fn in_the_way(here: LatLon, next: LatLon, other: &Seen, me: u32) -> bool {
     let first = me < other.tail;
-    let (before, after) = (
-        here.distance_to(other.at).value(),
-        next.distance_to(other.at).value(),
-    );
+    let before = here.distance_to(other.at).value();
+    let ahead = here.initial_bearing_to(other.at).value();
+    let going = here.initial_bearing_to(next).value();
+    let off_nose = ((ahead - going + 540.0).rem_euclid(360.0) - 180.0).to_radians();
+    // The nearest the move comes, not only where it ends: at full taxi
+    // speed a step can pass right over another aircraft (plan M6 D154).
+    let step = here.distance_to(next).value();
+    let along = (before * off_nose.cos()).clamp(0.0, step);
+    let nearest = (before * before + along * along - 2.0 * before * along * off_nose.cos())
+        .max(0.0)
+        .sqrt();
+    let after = next.distance_to(other.at).value().min(nearest);
     if after >= before {
         return false;
     }
@@ -334,9 +342,6 @@ fn in_the_way(here: LatLon, next: LatLon, other: &Seen, me: u32) -> bool {
     if after >= SEE_AND_AVOID {
         return false;
     }
-    let ahead = here.initial_bearing_to(other.at).value();
-    let going = here.initial_bearing_to(next).value();
-    let off_nose = ((ahead - going + 540.0).rem_euclid(360.0) - 180.0).to_radians();
     let aside = before * off_nose.sin().abs();
     if after >= TOO_CLOSE && (off_nose.cos() <= 0.0 || aside > IN_FRONT) {
         return false;
@@ -452,6 +457,15 @@ mod tests {
             ..coming
         };
         assert!(in_the_way(here, next, &close_head_on, 0));
+        // A full-speed step never jumps over anyone: 7.5 m ahead on the
+        // way, a 15 m move ends as far beyond (plan M6 D154).
+        let long_step = metres_north(15.0)?;
+        assert!(in_the_way(here, long_step, &standing(7.5)?, 2));
+        let jumped_hold = Seen {
+            at_hold: true,
+            ..standing(7.5)?
+        };
+        assert!(in_the_way(here, long_step, &jumped_hold, 2));
         Ok(())
     }
 
