@@ -37,6 +37,12 @@ hold lines on taxiway pieces too short to wait on clear of the crossing traffic;
 not cleared for half an hour; aircraft held up for half an hour. Boston (466), O'Hare (442),
 Denver (255) and Madrid (218) lead.
 
+**After plan M6 PR 4:** taxi speeds of 15 / 8 / 5 m/s with acceleration and braking (D154):
+2,042 escapes in 161,260 taxis (1.3 %), under the 2 % of D155 in the 36-hour run. O'Hare
+(400), Haneda (217) and Boston (174) lead; O'Hare also runs short of stands (119 shares).
+Scheduled taxi-outs are now shorter than real unimpeded ones (Frankfurt 6.5 minutes with the
+pushback).
+
 **How often (plan M5 PR 3):** in the ground test's morning bank on region E (260 airports
 under ground control), 33, 49 and 27 escapes in about 2,350 taxis for seeds 3, 7 and 11
 (1.4 %, 2.0 %, 1.1 %): seed 7 exceeds the test's limit of one in fifty by one escape, and the
