@@ -12,9 +12,10 @@ use crate::{
     world::{Airport, RunwayDesignator, World},
 };
 
-/// Average taxi speed along a route, m/s (about 10 kt with turns and slow
-/// apron sections; unimpeded hub taxi-out times are around 10 minutes).
-pub const TAXI_SPEED: f64 = 5.0;
+/// Average taxi speed along a route, m/s, for estimates from its length
+/// alone: what the speed profile gives over routes of a kilometre and more
+/// at Frankfurt and Munich (plan M6 D154).
+pub const TAXI_SPEED: f64 = 10.5;
 /// Pushback and engine start before taxiing, s.
 pub const PUSHBACK_TIME: f64 = 150.0;
 /// Landing roll assumed for typical taxi-in times, m (an A320).

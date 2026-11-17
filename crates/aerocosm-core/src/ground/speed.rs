@@ -83,7 +83,7 @@ impl SpeedLimits {
         let mut limit: Vec<f64> = Vec::with_capacity(cuts.len());
         for (k, &cut) in cuts.iter().enumerate() {
             let next = cuts.get(k + 1).copied().unwrap_or(cut + 1.0);
-            let middle = (cut + next) / 2.0;
+            let middle = cut.midpoint(next);
             let covers = |&&(a, b, _): &&(f64, f64, f64)| a <= middle && middle < b;
             let here = spans
                 .iter()
@@ -212,10 +212,14 @@ fn turns(points: &[LatLon]) -> Vec<(f64, f64, f64)> {
     }
     let at = |distance: f64| -> Option<LatLon> {
         let k = along.partition_point(|&a| a < distance).max(1);
-        let (a, b) = (points.get(k - 1)?, points.get(k)?);
-        let (s, t) = (along[k - 1], along[k]);
-        let fraction = if t > s { (distance - s) / (t - s) } else { 1.0 };
-        a.interpolate(*b, fraction.clamp(0.0, 1.0)).ok()
+        let (start, finish) = (points.get(k - 1)?, points.get(k)?);
+        let (from, to) = (along[k - 1], along[k]);
+        let fraction = if to > from {
+            (distance - from) / (to - from)
+        } else {
+            1.0
+        };
+        start.interpolate(*finish, fraction.clamp(0.0, 1.0)).ok()
     };
     let mut turns = Vec::new();
     for (i, point) in points.iter().enumerate().skip(1) {
@@ -380,6 +384,36 @@ mod tests {
         assert!(
             seconds > length / STRAIGHT && seconds < length / TURN + 30.0,
             "{seconds} s for {length} m"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_the_average_taxi_speed_matches_the_profile() -> Result<()> {
+        // Estimates from a route's length alone (runway and stand choice)
+        // use the average speed the profile gives over real routes.
+        let world = crate::test_data::data()?.world;
+        let network =
+            crate::ground::GroundNetwork::from_definition(crate::test_data::ground()?, &world)?;
+        let frankfurt = world.airport_by_ident("EDDF".parse()?).context("EDDF")?;
+        let layout = network.airport(frankfurt).context("EDDF's ground")?;
+        let stands = layout.stands();
+        let (mut metres, mut seconds) = (0.0, 0.0);
+        for from in stands.iter().step_by(7) {
+            for to in stands.iter().skip(3).step_by(29) {
+                let Some(route) = layout.route(from.node(), to.node(), Meters::new(36.0)?) else {
+                    continue;
+                };
+                if route.length().value() > 1_000.0 {
+                    metres += route.length().value();
+                    seconds += layout.taxi_time(&route);
+                }
+            }
+        }
+        let average = metres / seconds;
+        assert!(
+            (average - crate::ground::TAXI_SPEED).abs() < 1.5,
+            "{average} m/s"
         );
         Ok(())
     }
