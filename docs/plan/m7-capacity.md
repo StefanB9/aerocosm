@@ -113,6 +113,15 @@ independent runways, rated 90 an hour, and handles 1,161 movements against 1,451
 holding (Newark 1,065 → 42,643 minutes). The runway controllers fly less than the capacity at
 these airports: PR 2's subject (D159). The full suite passes: 860 tests.
 
+Benchmark record (D164, against M6 PR 4's): **tick time regressed**: medians 3.4–5.2 ms
+(were 2.6–3.2), 95th percentiles 6.4–10.6 ms (4.9–5.9), above D107's 8 ms at 00 and 12 UTC.
+Code this PR does not touch ran faster than in the previous record (geometry −21 %, viewer
+frames −37 %), so the machine is not the cause. At 12 UTC flying takes 2.6 ms (1.2) with
+4.5 % more aircraft airborne, ground control 2.4 ms (1.3) and taxiing 1.1 ms (0.5) with 7 %
+more taxis: more aircraft in holding stacks and runway queues. Not yet split between the
+behaviour change and the see-and-avoid fixes; to be resolved in PR 2, before D163's
+acceptance. The simulated day takes 329 s (346).
+
 ## PR 2 — Runtime capacity (D159)
 
 - Diagnosis of O'Hare and Boston: flown rate per runway against what the mode allows.
