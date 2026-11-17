@@ -287,9 +287,31 @@ suite passes: 857 tests.
 - The 7-day run, the benchmark record, `docs/known-issues.md`, README; M5's definition of
   done updated; promotion to `main` on the user's word.
 
+*As built (PR 5):* the world for 7 days from Monday 2026-07-06, seed 3, release build on this
+container's 4 cores: 719,600 flights (102,800 a day), peak 16,185 airborne, 5.4 ms per tick on
+average (184 ticks a second, 55 minutes in all; M5: 6.6 ms, 67 minutes).
+
+| D155 limit | M5's week | M6's week | |
+|---|---|---|---|
+| Escapes under 2 % of taxis | 24,857 (3.3 %) | 9,328 of 763,394 (1.2 %) | met |
+| Stand shares under 2 % | 14,117 (1.9 %) | 1,045 (0.14 %) | met |
+| No taxi over 75 minutes | 23 airports, Phoenix 632 | O'Hare 161, Boston 102, Oakland 100 | not met |
+| Nobody standing with nothing to wait for | Phoenix, 632 min | 0 stalls | met |
+| Region E ground test, seeds 3, 7, 11 | failed on seed 7 | passes | met |
+| German airports within the ADV tolerance (D105) | passes | passes | met |
+| 95th-percentile tick under 8 ms (D107) | 5.0–7.3 ms | 4.9–5.9 ms (PR 4's record, same code) | met |
+
+Departures on time 74 % (M5: 70 %), arrivals 67 % (60 %); go-arounds 3,218 (9,956). The three
+airports over 75 minutes are overloaded rather than gridlocked: O'Hare's flights average 199
+minutes of delay with 62,883 minutes of airborne holding and most of the week's stand shares
+(786), Boston's 106 minutes. **Decision (2026-11-17):** M6 is accepted without this limit;
+the overload is recorded in `docs/known-issues.md` for a later milestone. No code changed
+in PR 5, so PR 4's benchmark record stands for it.
+
 ## Definition of done
 
-- D155's limits hold in the 7-day world run.
+- D155's limits hold in the 7-day world run. *Met except no taxi over 75 minutes (O'Hare,
+  Boston, Oakland; accepted 2026-11-17, see PR 5).*
 - The full test suite passes, the region E ground test on every seed included.
 - No per-airport input was added.
 

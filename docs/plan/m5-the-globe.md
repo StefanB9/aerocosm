@@ -306,7 +306,9 @@ slower start-up and viewer frames; records from the same CPU model can differ by
 - Ground control at every scheduled airport that passes the quality gate; a 7-day world
   run with no stuck aircraft; escapes no worse than M4's rate. *Not met (PR 6): 23 airports
   have a taxi over 75 minutes and escapes are 3.3 %; recorded in `docs/known-issues.md` and
-  moved to a milestone after M5.*
+  moved to a milestone after M5.* *After M6: escapes 1.2 %, no stuck aircraft, three
+  airports over 75 minutes (O'Hare, Boston, Oakland), all overloaded
+  (`docs/plan/m6-ground-flow.md`, PR 5).*
 - A tick under 8 ms for the full world (D107).
 - The viewer, native and web, zooms from the globe to a stand anywhere.
 
