@@ -247,6 +247,28 @@ impl Control {
         self.runway(key).timeline.book(eta, wake, approach_speed)
     }
 
+    /// Moves a landing booked at `slot` up to the earliest free time at or
+    /// after `earliest` (plan M7 D159): an aircraft in the hold takes a
+    /// slot freed ahead of it. Returns the slot it has now, never later.
+    pub(crate) fn move_up(
+        &mut self,
+        key: RunwayKey,
+        slot: SimTime,
+        earliest: SimTime,
+        wake: WakeCategory,
+        approach_speed: f64,
+    ) -> SimTime {
+        if earliest >= slot {
+            return slot;
+        }
+        let timeline = &mut self.runway(key).timeline;
+        if !timeline.cancel(slot) {
+            return slot;
+        }
+        // The slot just freed fits again, so the booking is never later.
+        timeline.book(earliest, wake, approach_speed)
+    }
+
     /// Frees a booked landing slot, e.g. one the flight can no longer make.
     pub(crate) fn cancel_arrival(&mut self, key: RunwayKey, slot: SimTime) {
         self.runway(key).timeline.cancel(slot);
@@ -386,6 +408,27 @@ mod tests {
         control.took_off(key(), WakeCategory::Medium, at(100)?, SimDuration::ZERO);
         assert!(!control.runway_clear(key(), at(90)?, at(120)?));
         assert!(control.runway_clear(key(), at(150)?, at(200)?));
+        Ok(())
+    }
+
+    #[test]
+    fn test_a_holding_aircraft_takes_a_slot_freed_ahead() -> Result<()> {
+        let mut control = control();
+        let (medium, speed) = (WakeCategory::Medium, 70.0);
+        let first = control.book_arrival(key(), at(0)?, medium, speed);
+        let second = control.book_arrival(key(), at(0)?, medium, speed);
+        let third = control.book_arrival(key(), at(0)?, medium, speed);
+        assert!(first < second && second < third);
+        // The second goes elsewhere: the third, holding, moves up.
+        control.cancel_arrival(key(), second);
+        let moved = control.move_up(key(), third, at(0)?, medium, speed);
+        assert_eq!(moved, second);
+        // Not before it could get there, and never later than it had.
+        let mut later = control.clone();
+        let far = at(3_600)?;
+        assert_eq!(later.move_up(key(), moved, far, medium, speed), moved);
+        let blocked = control.move_up(key(), moved, at(0)?, medium, speed);
+        assert_eq!(blocked, moved);
         Ok(())
     }
 

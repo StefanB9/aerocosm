@@ -884,7 +884,9 @@ mod tests {
     #[test]
     fn test_congested_destinations_hold_departures_on_the_ground() -> Result<()> {
         let (scenario, mut operations) = single_runway_frankfurt()?;
-        run(&mut operations, &scenario, 4 * 3_600)?;
+        // Six hours: with holding aircraft taking slots freed ahead (plan M7
+        // D159) the queue builds more slowly.
+        run(&mut operations, &scenario, 6 * 3_600)?;
         let frankfurt = scenario
             .world()
             .airport_by_ident("EDDF".parse()?)
