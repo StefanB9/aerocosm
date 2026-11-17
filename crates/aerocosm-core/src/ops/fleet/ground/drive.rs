@@ -278,7 +278,9 @@ const TOO_CLOSE: f64 = 25.0;
 /// An aircraft waiting at a hold line, drawn wingtip-clear of the way, is
 /// passed down to this, m: where lines are drawn nearer the way than they
 /// should be, the two would otherwise wait for each other (plan M6 D153).
-const PAST_HOLD: f64 = 20.0;
+/// A metre more than the least distance the ground test allows: two that
+/// move in the same tick each judge the other where it was.
+const PAST_HOLD: f64 = 21.0;
 
 /// Another aircraft as a pilot sees it: where it is, which way it heads and
 /// whether it moves.
@@ -401,9 +403,9 @@ mod tests {
             ..close
         };
         assert!(!in_the_way(here, next, &at_hold, 2));
-        // 21 m from the way at its line: still passed (plan M6 D153).
+        // 22 m from the way at its line: still passed (plan M6 D153).
         let near_line = Seen {
-            at: LatLon::new(50.03 + 5.0 / 111_195.0, 8.56 + 21.0 / 71_470.0)?,
+            at: LatLon::new(50.03 + 5.0 / 111_195.0, 8.56 + 22.0 / 71_470.0)?,
             at_hold: true,
             ..close
         };
@@ -441,7 +443,7 @@ mod tests {
         };
         assert!(!in_the_way(here, next, &coming, 0));
         assert!(in_the_way(here, next, &coming, 2));
-        // But not to closer than 20 m.
+        // But not to closer than 21 m.
         let close_head_on = Seen {
             at: metres_north(24.0)?,
             ..coming

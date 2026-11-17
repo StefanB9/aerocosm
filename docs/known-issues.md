@@ -29,6 +29,14 @@ has 4,481 escapes in 157,780 taxis (2.8 %), now mostly at airports with long run
 escapes in 159,742 taxis (2.5 %) over the same 36 hours. O'Hare (550), Boston (441), Madrid
 (252), Tokyo Haneda (229) and Denver (200) lead.
 
+**After plan M6 PR 3:** an aircraft passes one that waits for its clearance (D153): 3,804
+escapes in 159,773 taxis (2.4 %). Passing down to 20 m would give 3,444, but the ground
+test's least distance is 20 m and two aircraft moving in the same tick close a little more
+than each judged, so the rule stops at 21 m. What remains: waiting cycles, most of them at
+hold lines on taxiway pieces too short to wait on clear of the crossing traffic; pushbacks
+not cleared for half an hour; aircraft held up for half an hour. Boston (466), O'Hare (442),
+Denver (255) and Madrid (218) lead.
+
 **How often (plan M5 PR 3):** in the ground test's morning bank on region E (260 airports
 under ground control), 33, 49 and 27 escapes in about 2,350 taxis for seeds 3, 7 and 11
 (1.4 %, 2.0 %, 1.1 %): seed 7 exceeds the test's limit of one in fifty by one escape, and the
