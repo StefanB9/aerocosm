@@ -151,7 +151,7 @@ pub(super) fn runway_use(runways: &[Runway], wind: Degrees) -> Option<RunwayUse>
 /// The mode for the flow along `heading`, the leading group's direction:
 /// each group runs along its end nearest that heading; in a lane of two,
 /// arrivals on the first runway and departures on the second; a lane of one
-/// runs mixed; a crossing group takes departures on its longest runway.
+/// runs mixed. A crossing group adds to the capacity only.
 fn mode(used: &[(&Group, Role)], heading: Degrees) -> Option<RunwayMode> {
     let designator = |runway: &Runway| -> RunwayDesignator {
         let [a, b] = runway.ends();
@@ -179,16 +179,10 @@ fn mode(used: &[(&Group, Role)], heading: Degrees) -> Option<RunwayMode> {
                     }
                 }
             }
-            Role::Departures => {
-                if let Some(longest) = group
-                    .lanes
-                    .iter()
-                    .flatten()
-                    .max_by(|a, b| a.length().value().total_cmp(&b.length().value()))
-                {
-                    departures.push(designator(longest));
-                }
-            }
+            // Counted in the capacity, not yet flown: aircraft would hold on
+            // the crossing runway where hold lines lie at its junctions
+            // (plan M7 PR 1; runtime in PR 2, D159).
+            Role::Departures => {}
         }
     }
     let flow = Degrees::new(heading.value().rem_euclid(360.0) % 360.0).ok()?;
@@ -446,17 +440,14 @@ mod tests {
             crate::traffic::mode_for_wind(&used.modes, Degrees::new(232.0)?).context("mode")?;
         assert!((west.flow.value() - 250.0).abs() < 1e-6, "{:?}", west.flow);
         assert!(names(&west.arrivals).iter().all(|n| n.starts_with("25")));
-        assert_eq!(names(&west.departures), ["25C", "25L", "18"]);
-        // A wind from just west of north turns the flow, not the runways:
-        // the crossing runway still takes departures only.
+        // The crossing runway counts, but is not flown yet (plan M7 PR 1).
+        assert_eq!(names(&west.departures), ["25C", "25L"]);
+        // A wind from just west of north turns the flow, not the runways.
         let north = runway_use(&runways, Degrees::new(355.0)?).context("runways")?;
         let mode =
             crate::traffic::mode_for_wind(&north.modes, Degrees::new(355.0)?).context("mode")?;
         assert!(names(&mode.arrivals).iter().all(|n| n.starts_with("07")));
-        assert_eq!(
-            names(&mode.departures).last().map(String::as_str),
-            Some("36")
-        );
+        assert!(names(&mode.departures).iter().all(|n| n.starts_with("07")));
         assert!(runway_use(&[], Degrees::new(10.0)?).is_none());
         Ok(())
     }

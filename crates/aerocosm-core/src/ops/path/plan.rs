@@ -516,9 +516,10 @@ mod tests {
             .distance_to(data.world.airport(munich).context("MUC")?.location());
         let enroute = leg.path.enroute.length().value();
         assert!((enroute - distance.value()).abs() < 60_000.0, "{enroute}");
-        // West flow, with the prevailing south-westerly (plan M5 D113).
+        // South on 18 West, the runway in use nearest Munich's course (plan
+        // M6 D151, M7 D158).
         let course = leg.path.takeoff.bearing_at(Meters::default()).value();
-        assert!((course - 249.6).abs() < 5.0, "take-off course {course}");
+        assert!((course - 180.0).abs() < 5.0, "take-off course {course}");
         // Straight ahead on the runway heading through the climb-out.
         for metres in [500.0, 2_000.0] {
             let along = leg.path.enroute.bearing_at(Meters::new(metres)?).value();
