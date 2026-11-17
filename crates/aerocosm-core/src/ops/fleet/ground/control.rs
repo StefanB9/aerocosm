@@ -156,6 +156,7 @@ impl Operations {
                     at_hold: motion.speed() <= STANDING
                         && super::drive::at_a_line(&taxi.passages, taxi.next, along),
                     waits_for: taxi.waiting_for,
+                    by_sight: taxi.sighted,
                 });
                 // Pushing back, it shows the rest of its push and where it
                 // will stand: pilots keep clear of a pushback in progress.
@@ -170,6 +171,7 @@ impl Operations {
                             moving: false,
                             at_hold: false,
                             waits_for: None,
+                            by_sight: false,
                         });
                         if ahead >= taxi.push {
                             break;

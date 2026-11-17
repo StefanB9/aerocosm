@@ -49,7 +49,7 @@ The patterns diagnosed in M4 (short stubs, order inversion at a runway entry;
 | D150 | **The stall fixed.** An aircraft that stops for a taxiway it has not locked asks for that lock from where it stands, however far ahead the taxiway starts. A test reproduces Phoenix's layout; a guard counts aircraft that stand still with nothing to wait for, in the ground tests and in the runner's report |
 | D151 | **Departure runway by the time until take-off.** Among the runway ends the mode allows for departures and the aircraft's length needs, a flight takes the one it is off soonest from: the taxi from its stand or the wait for the runway's turn (M4 D91), whichever is longer, then the turn onto its course (2 s per degree, and per kilometre the course lies off the centreline). Chosen when the leg is planned, without queues, and again when it asks to push back, with them. The cap on the learnt take-off interval rises from 5 to 15 minutes, so that the gate hold sees long queues |
 | D152 | **Arrival runways stay by direction** (*changed in PR 2, 2026-11-17*; first: also by where the arrival will park). Two rules were built and measured: the landing slot each runway would give the flight at pushback, with and without the taxi to its stands. Both raise escapes at O'Hare, Atlanta and Phoenix, where they move landings onto runways whose taxi-in crosses busy traffic; the figures are under PR 2. The slot rule alone cuts airborne holding by 29 %; it may be tried again once the ground takes it |
-| D153 | **Junction fixes (M4's intended fix).** A junction is cleared only to the first aircraft in line for it; two junctions too close to stand between (a short stub) take one clearance, the arrival holding before the first. Measured on the region E test, seeds 3, 7 and 11 |
+| D153 | **An aircraft passes one that waits for its clearance** (*changed in PR 3, 2026-11-17*; first: M4's intended fix, a junction cleared only to the first in line and one clearance for a short stub). The escapes were measured first: a third of the waiting cycles are an aircraft that holds a junction but stops for the sight of one standing 20–25 m from its way, which waits for that junction. It now passes such an aircraft whoever has priority, and anyone at a hold line down to 21 m (a metre above the ground test's limit) instead of 22.5 m. Moving the lines back, the other fix, costs more than it gains; the figures are under PR 3 |
 | D154 | **Taxi speed profile.** 15 m/s on straight taxiways, 8 m/s on apron taxilanes and through gentle bends, 5 m/s in sharp turns and on stand lead-ins; aircraft speed up and brake at 1 m/s² instead of stopping within a tick. The limits come from the edge's kind and the turn at each node of the route. The controller's distances that assume 5 m/s (look-ahead, the gap to through traffic, pushback clearance) are derived from speed and braking distance. Scheduled taxi times (M4) use the same profile |
 | D155 | **Acceptance.** The 7-day world run (seed 3 from 2026-07-06): escapes under 2 % of taxis, stand shares under 2 %, no taxi over 75 minutes, no aircraft standing with nothing to wait for; the region E ground test passes on seeds 3, 7 and 11; German airports stay within the ADV tolerance (M5 D105); the benchmark's 95th-percentile tick stays under 8 ms (M5 D107). Then `dev` is promoted to `main` |
 | D156 | **Determinism and benchmarks.** Every PR changes behaviour, so fingerprints (M5 D137) change in each; each PR adds a benchmark record and the report is checked for regressions before the PR opens |
@@ -176,8 +176,59 @@ with equal fingerprints (after the record). The full suite passes: 849 tests.
 
 ## PR 3 — Junctions (D153)
 
-- First in line; one clearance for a short stub.
-- The region E test passes on all three seeds.
+- The escapes diagnosed first; the fix that the diagnosis calls for.
+
+*As built (PR 3):*
+
+**Diagnosis.** Every escape of a 36-hour run (seed 3, after PR 2: 4,015) was logged with its
+cause and the chain of aircraft waiting for each other. 2,983 end a waiting cycle, 731 are
+pushbacks not cleared for 30 minutes, 301 aircraft held up for 30 minutes. Of the cycles,
+1,040 are one pattern and 300 its mirror: aircraft P holds a junction (cleared into it, or
+claiming it as through traffic) and stops for the sight of aircraft H, which stands waiting
+for that junction; neither can go. In 750 of 770 such cases logged with their geometry the
+two stood 20–30 m apart, and in 45 % P would have passed H at 20–25 m, just inside the 22.5 m
+(at a hold line) and 25 m (elsewhere) that see-and-avoid kept. The patterns D153 first named
+are small: junctions too close together 127, order of the queue under 50.
+
+**The rule.** See-and-avoid (`drive.rs`) lets an aircraft pass one that stands waiting for
+its clearance whoever has the lower tail number: the other cannot go first. Before, only the
+aircraft with priority went, which is right only when each stands for the sight of the
+other; a taxi now records whether it was stopped by sight. Anyone at a hold line is passed
+down to 21 m: at 20 m the ground test on region E saw two aircraft 18.8 m apart (seed 7),
+because two that move in the same tick each judge the other where it was.
+
+**Tried and dropped,** each on top of the rule at 20 m:
+
+| 36 h, seed 3 | Escapes | Departure delay, min | Go-arounds | Over 75 min |
+|---|---|---|---|---|
+| PR 2 | 4,015 | 17.4 | 1,528 | 7 airports |
+| The rule at 20 m | 3,444 | 18.2 | 1,553 | 11 |
+| The rule at 21 m (as built) | 3,804 | 19.1 | 1,659 | 11 |
+| + stops short of a junction drawn clear of its traffic, bends included | 3,570 | 18.3 | 1,589 | 10 |
+| + nobody waits with its tail in a junction | 5,340 | 26.8 | 4,618 | 21 |
+| + nobody waits at a line too near the crossing traffic | 3,426 | 20.0 | 1,846 | 10 |
+
+After the rule, the cycles that remain are aircraft waiting on taxiway pieces 30–90 m long
+between two junctions, at a hold line 15–45 m from the crossing traffic that cannot be drawn
+farther back. Making them wait before the junction behind works where it applies (Denver
+200 → 75 escapes, Madrid 252 → 34) but holds up the traffic behind: at airports with a
+junction every 100 m the wait points move far back and the flow drops (O'Hare 3,498 → 2,412
+movements with the broad rule). M4's experiments had found the same.
+
+Measured as built (36 h, seed 3, against PR 2): escapes 4,015 → 3,804 (2.4 % of 159,773
+taxis); at 20 m it would have been 3,444, so most of the gain is in that last metre, which
+the ground test's 20 m least distance does not leave. Madrid 252 → 218, Phoenix 166 → 103,
+O'Hare 550 → 442, Haneda 229 → 187, Frankfurt 90 → 69; Denver 200 → 255 and Boston 441 →
+466 got worse. Aircraft that used to drive through each other now wait their turn, so
+delays rise: departures 17.4 → 19.1 minutes, stand waits 881 → 954, stand shares 91 → 126,
+go-arounds 1,528 → 1,659, and 11 airports instead of 7 have a taxi over 75 minutes (the
+longest, O'Hare's, 142 → 161).
+
+Benchmark record (D156, against PR 2's): tick medians 3.1–4.6 ms (were 2.8–3.6), 95th
+percentiles 5.0–7.0 ms, the simulated day 420 s (378). The machine ran slower than for PR 2's
+record: code this PR does not touch rose as much (geometry micro-benchmarks +15–60 %,
+viewer frames +7–19 %), so the change itself is within the noise; the 95th percentile stays
+under D155's 8 ms. The full suite passes: 849 tests.
 
 ## PR 4 — Taxi speeds (D154)
 
@@ -205,5 +256,5 @@ with equal fingerprints (after the record). The full suite passes: 849 tests.
 |------|------------|
 | A stand's own limit is too generous where OSM maps alternative centrelines of one gate under different names | The neighbour rule still keeps parked aircraft apart; shares and stand waits are measured per airport after re-rating |
 | Faster taxiing makes separation at junctions harder | Controller distances derive from braking distance; fallback to 10 / 8 / 5 m/s (PR 4) |
-| First-in-line clearances were tried in M4 without effect | M4's experiments ran under stand shortage and runway queues; they are repeated after PR 1 and PR 2, and the user sees the figures before more is built |
+| First-in-line clearances were tried in M4 without effect | Measured again in PR 3: the queue's order is behind fewer than 50 of 4,015 escapes; not built |
 | Tick time rises with the neighbour rule or the speed profile | Benchmark record per PR (D156) |
