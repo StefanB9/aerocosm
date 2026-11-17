@@ -276,6 +276,12 @@ O'Hare's at 111 minutes. With estimates at 10.5 m/s departures count as later be
 schedules plan shorter taxi-outs, and O'Hare runs short of stands (204 waits, 119 shares,
 none before); not yet diagnosed. The region E ground test passes on all three seeds.
 
+Benchmark record (D156, against PR 3's): tick medians 2.6–3.2 ms (were 3.1–4.6), 95th
+percentiles 4.9–5.9 ms (5.0–7.0), the simulated day 346 s (420): with half the time on the
+taxiways fewer aircraft taxi at once. Start-up 22.5 s (21.3 s). Viewer frames rose 26 % on
+code this PR does not touch, so the machine's own speed varies between the records. The full
+suite passes: 857 tests.
+
 ## PR 5 — Acceptance (D155)
 
 - The 7-day run, the benchmark record, `docs/known-issues.md`, README; M5's definition of
