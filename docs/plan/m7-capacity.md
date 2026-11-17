@@ -55,6 +55,48 @@ every off-block with the time its aircraft was ready, and every take-off and lan
   calibrated; runway modes list every runway; the world model's targets regenerate.
 - Measured: the rule against the references; 36-hour world run (delays, holding, escapes).
 
+*As built (PR 1):*
+
+- **References** (`traffic/model/tests.rs`): the FAA's Airport Capacity Profiles 2014, Table 1,
+  visual conditions, for its 30 core airports (the middle of the called and modelled rates;
+  for arrival and departure priority the middle of both); Heathrow's busiest hour in ACL's
+  Summer 2019 runway scheduling limits (44 arrivals, 46 departures); Frankfurt's 2019
+  coordination parameter (104, from press reports of the coordinator's value). No sourced
+  2019 figure was found for Munich or other European hubs. Tolerance agreed 2026-11-17: the
+  median error under 12 %, the mean within ±10 %, every airport within 45 %.
+- **Delay references for D163:** EUROCONTROL's CODA digest for 2019: 13.1 minutes average
+  all-causes departure delay per flight; arrival punctuality (15 minutes) 76–81 % by quarter.
+  US figures (BTS) are still to be recorded in PR 5.
+- **The rule** (`traffic/model/runways.rs`): runways under 1,500 m do not count beside longer
+  ones; parallels group and pair into lanes as before (M5 D113). The group handling most
+  movements leads, whatever the prevailing wind: the climatological mean wind is light and
+  decides only which way the runways run (Newark's main parallels lie 74° off it, and with
+  them out of reach Newark had 40 an hour). Another group that crosses none in use adds
+  0.4 of its lanes, arrivals and departures; one that crosses adds 15 departures an hour on
+  its longest runway. Lanes: 45 an hour for one runway, 85 for a segregated pair. Fitting
+  more parameters fitted noise (a lone runway worth more than an independent one).
+- **Against the references:** median error 9 %, mean −1 %. Beyond 20 %: Frankfurt +42 % (its
+  104 is a declared limit; its 18 West adds as a second group), Baltimore +42 %, Midway
+  +35 %, Minneapolis −29 %, LaGuardia −28 %, O'Hare +26 %, Denver −25 %, Charlotte −25 %.
+  Old against new: Atlanta 160 → 215 (221), Denver 80 → 211 (273), Newark 40 → 100 (97),
+  LaGuardia 40 → 60 (83), Boston 100 → 120 (120.5), Seattle 60 → 85 (106), Heathrow 80 →
+  90 (90), Frankfurt 100 → 148 (104).
+- With 148 an hour Frankfurt is no longer coordinated by its daily average (D113); PR 3
+  coordinates by the generated peaks.
+
+| 36 h, seed 3 | Escapes | Departure delay, min | Airborne holding, min | Go-arounds | Over 75 min |
+|---|---|---|---|---|---|
+| M6 (PR 4) | 2,042 (1.3 %) | 14.8 | 311,533 | 690 | 1 airport |
+| Rule over every runway | 2,727 (1.7 %) | 15.8 | 582,919 | 1,072 | 1 (Boston, 254 min) |
+
+Where capacity was short, delays fall: O'Hare 125 → 50 minutes, LaGuardia 73 → 26, Denver
+34 → 21, Frankfurt 21 → 15; Newark flies 1,739 movements instead of 1,297 (target 2,026) as
+fewer round trips are dropped. Worse: Boston (escapes 174 → 860, delay 76 → 119 minutes,
+longest taxi 254), where crossing runways now take departures and taxiing aircraft cross
+more active runways; and airborne holding nearly doubles (Newark 1,065 → 48,808 minutes,
+O'Hare 21,438 → 44,598): more flights are scheduled in than the runway controllers land.
+Both are PR 2's subject (D159).
+
 ## PR 2 — Runtime capacity (D159)
 
 - Diagnosis of O'Hare and Boston: flown rate per runway against what the mode allows.

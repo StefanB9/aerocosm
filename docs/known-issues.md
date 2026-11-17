@@ -182,6 +182,14 @@ departures (Newark's 11/29, Zurich's 16) that the rule leaves out.
 **Intended fix:** published declared capacities as premium-tier data, or a rule that
 credits crossing runways for departures; until then the figure stays conservative.
 
+**After plan M7 PR 1:** the rule counts every runway group and crossing runways for
+departures, with lane rates calibrated against 32 published capacities (median error 9 %).
+Eight airports still differ by more than 20 %: Frankfurt +42 % (a declared limit), Baltimore
++42 %, Midway +35 %, O'Hare +26 % above; Minneapolis −29 %, LaGuardia −28 %, Denver −25 %,
+Charlotte −25 % below. Their layouts are used differently from what the geometry suggests
+(runways for one direction only, dependent arrivals, airspace limits). Recorded; the rule
+stays general (`docs/plan/m7-capacity.md`, PR 1).
+
 ### The fallback traffic model underestimates the largest unobserved hubs
 
 **What:** airports outside well-covered countries take their traffic from the fitted model
