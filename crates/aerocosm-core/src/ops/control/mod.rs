@@ -4,17 +4,22 @@ mod arrival;
 mod separation;
 mod sequence;
 
-pub(crate) use self::{
-    arrival::plan_arrival,
-    separation::{arrival_spacing, departure_spacing},
-};
+#[cfg(test)]
+pub(crate) use self::separation::arrival_spacing;
+pub(crate) use self::{arrival::plan_arrival, separation::departure_spacing};
 use self::{separation::RUNWAY_OCCUPANCY, sequence::Timeline};
 use crate::{Id, SimDuration, SimTime, WakeCategory, world::Airport};
 
 /// A take-off occupies the runway about this long.
 const TAKEOFF_OCCUPANCY: SimDuration = SimDuration::from_secs(45);
 /// No take-off when a landing on the same runway is due within this time.
-const ARRIVAL_GAP: SimDuration = SimDuration::from_secs(90);
+/// About 2 NM out (plan M7 D159; was 90 s).
+const ARRIVAL_GAP: SimDuration = SimDuration::from_secs(60);
+/// On a runway for both arrivals and departures, landings are at least
+/// this far apart: one departure after each, rolling once the landing has
+/// vacated (50 s) and a minute before the next touchdown, with 10 s to line
+/// up (plan M7 D159).
+const MIXED_SPACING: SimDuration = SimDuration::from_secs(120);
 /// Take-offs give way to an aircraft that has waited this long to cross.
 const CROSSING_PATIENCE: SimDuration = SimDuration::from_secs(60);
 /// A crossing request lapses unless renewed within this time: the aircraft
@@ -247,6 +252,12 @@ impl Control {
         self.runway(key).timeline.book(eta, wake, approach_speed)
     }
 
+    /// Marks `key` as used for both arrivals and departures (plan M7 D159):
+    /// landings leave room for a departure after each.
+    pub(crate) fn set_mixed(&mut self, key: RunwayKey) {
+        self.runway(key).timeline.set_floor(MIXED_SPACING);
+    }
+
     /// Moves a landing booked at `slot` up to the earliest free time at or
     /// after `earliest` (plan M7 D159): an aircraft in the hold takes a
     /// slot freed ahead of it. Returns the slot it has now, never later.
@@ -288,7 +299,7 @@ impl Control {
         let runway = self.runway(key);
         !gap_wanted(runway, now)
             && runway.last_landing.is_none_or(|(time, leader)| {
-                touchdown >= after(time, arrival_spacing(leader, wake, approach_speed))
+                touchdown >= after(time, runway.timeline.spacing(leader, wake, approach_speed))
             })
     }
 
@@ -433,6 +444,29 @@ mod tests {
     }
 
     #[test]
+    fn test_mixed_runways_leave_room_for_a_departure() -> Result<()> {
+        let (medium, speed) = (WakeCategory::Medium, 70.0);
+        let mut only_landings = control();
+        let first = only_landings.book_arrival(key(), at(0)?, medium, speed);
+        let second = only_landings.book_arrival(key(), at(0)?, medium, speed);
+        // 2.5 NM at 70 m/s.
+        assert!(second.duration_since(first).as_secs_f64() < 70.0);
+        let mut mixed = control();
+        mixed.set_mixed(key());
+        let first = mixed.book_arrival(key(), at(0)?, medium, speed);
+        let second = mixed.book_arrival(key(), at(0)?, medium, speed);
+        assert_eq!(second.duration_since(first), MIXED_SPACING);
+        // A departure fits once the landing has vacated, a minute before
+        // the next touchdown.
+        mixed.landed(key(), first);
+        let vacated = first.checked_add(SimDuration::from_secs(50))?;
+        assert!(mixed.may_take_off(key(), medium, vacated));
+        let late = second.checked_sub(SimDuration::from_secs(50))?;
+        assert!(!mixed.may_take_off(key(), medium, late));
+        Ok(())
+    }
+
+    #[test]
     fn test_only_listed_airports_are_sequenced() {
         let control = control();
         assert!(control.is_sequenced(Id::new(3)));
@@ -559,7 +593,8 @@ mod tests {
     #[test]
     fn test_departures_leave_a_gap_before_the_next_landing() -> Result<()> {
         let mut control = control();
-        control.book_arrival(key(), at(60)?, WakeCategory::Medium, 70.0);
+        // A minute's gap, about 2 NM out (plan M7 D159).
+        control.book_arrival(key(), at(50)?, WakeCategory::Medium, 70.0);
         assert!(!control.may_take_off(key(), WakeCategory::Medium, at(0)?));
         assert!(control.may_take_off(key(), WakeCategory::Medium, at(200)?));
         Ok(())
@@ -590,7 +625,7 @@ mod tests {
     #[test]
     fn test_cancel_arrival_frees_the_runway() -> Result<()> {
         let mut control = control();
-        let slot = control.book_arrival(key(), at(60)?, WakeCategory::Medium, 70.0);
+        let slot = control.book_arrival(key(), at(50)?, WakeCategory::Medium, 70.0);
         assert!(!control.may_take_off(key(), WakeCategory::Medium, at(0)?));
         control.cancel_arrival(key(), slot);
         assert!(control.may_take_off(key(), WakeCategory::Medium, at(0)?));
@@ -600,7 +635,7 @@ mod tests {
     #[test]
     fn test_prune_forgets_past_landings() -> Result<()> {
         let mut control = control();
-        control.book_arrival(key(), at(60)?, WakeCategory::Medium, 70.0);
+        control.book_arrival(key(), at(50)?, WakeCategory::Medium, 70.0);
         assert!(!control.may_take_off(key(), WakeCategory::Medium, at(0)?));
         control.prune(at(120)?);
         assert!(control.may_take_off(key(), WakeCategory::Medium, at(0)?));

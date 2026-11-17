@@ -20,8 +20,8 @@ use self::{
     stands::StandBook,
 };
 use super::{
-    Phase, StartMode,
-    control::Control,
+    Phase, StartMode, active_runways_now,
+    control::{Control, RunwayKey},
     motion::{Event, Motion, Profile},
     path::{Leg, LegGround, Origin, Path, plan_leg},
     stats::Statistics,
@@ -192,6 +192,7 @@ impl Operations {
             .airports()
             .filter_map(|target| world.airport_by_ident(target.airport()))
             .collect();
+        let control = runway_control(scenario, &sequenced);
         let tail_count = schedule.tails().len();
         let mut operations = Self {
             time: start,
@@ -213,7 +214,7 @@ impl Operations {
             movements: vec![0; world.airport_count()],
             airborne: 0,
             flights_flown: 0,
-            control: Control::new(sequenced),
+            control,
             flows: vec![Flow::default(); tail_count],
             wakes,
             wingspans,
@@ -625,6 +626,32 @@ impl Operations {
             })
         })
     }
+}
+
+/// Runway control at the `sequenced` airports, their runways used for both
+/// landings and take-offs leaving room for a departure after each landing
+/// (plan M7 D159).
+fn runway_control(scenario: &Scenario, sequenced: &[Id<Airport>]) -> Control {
+    let world = scenario.world();
+    let mut control = Control::new(sequenced.iter().copied());
+    let Some(traffic) = scenario.traffic() else {
+        return control;
+    };
+    for &airport in sequenced {
+        let Some(place) = world.airport(airport) else {
+            continue;
+        };
+        let modes = traffic.targets().runway_modes(place.ident());
+        for active in active_runways_now(place, world.runways_of(airport), modes) {
+            if active.arrivals && active.departures {
+                control.set_mixed(RunwayKey {
+                    airport,
+                    runway: active.runway,
+                });
+            }
+        }
+    }
+    control
 }
 
 #[cfg(test)]
