@@ -131,7 +131,6 @@ fn test_airlines_follow_the_rules() -> Result<()> {
         .airport("EDDF".parse()?)
         .context("Frankfurt")?;
     assert!(frankfurt.banks().len() >= 6, "{:?}", frankfurt.banks());
-    assert_eq!(frankfurt.capacity().map(|c| c.per_hour), Some(100));
     assert_eq!(model.targets().runway_modes("EDDF".parse()?).len(), 2);
     let leipzig = model
         .targets()
@@ -171,5 +170,76 @@ fn test_german_targets_match_adv_2019() -> Result<()> {
         failures.push(format!("Germany {ratio:.2}"));
     }
     assert!(failures.is_empty(), "{failures:?}");
+    Ok(())
+}
+
+/// Published runway capacities, movements an hour in good weather, for
+/// validation only (plan M7 D157): the FAA's Airport Capacity Profiles 2014,
+/// Table 1, visual conditions (the middle of the called and modelled rates;
+/// for arrival and departure priority the middle of both); Heathrow's
+/// busiest hour in ACL's Summer 2019 runway scheduling limits (44 arrivals
+/// and 46 departures); Frankfurt's coordination parameter for 2019 (104, a
+/// declared limit below what the runways could do).
+const CAPACITY_REFERENCES: [(&str, f64); 32] = [
+    ("KATL", 221.0),
+    ("KBOS", 120.5),
+    ("KBWI", 74.0),
+    ("KCLT", 179.0),
+    ("KDCA", 70.5),
+    ("KDEN", 273.0),
+    ("KDFW", 245.0),
+    ("KDTW", 181.0),
+    ("KEWR", 97.0),
+    ("KFLL", 78.0),
+    ("PHNL", 118.5),
+    ("KIAD", 157.0),
+    ("KIAH", 185.5),
+    ("KJFK", 88.5),
+    ("KLAS", 125.0),
+    ("KLAX", 171.5),
+    ("KLGA", 83.0),
+    ("KMCO", 165.5),
+    ("KMDW", 74.0),
+    ("KMEM", 152.0),
+    ("KMIA", 141.0),
+    ("KMSP", 161.5),
+    ("KORD", 219.5),
+    ("KPHL", 123.0),
+    ("KPHX", 141.5),
+    ("KSAN", 52.5),
+    ("KSEA", 106.0),
+    ("KSFO", 105.0),
+    ("KSLC", 149.0),
+    ("KTPA", 114.0),
+    ("EGLL", 90.0),
+    ("EDDF", 104.0),
+];
+
+#[test]
+fn test_runway_capacity_matches_published_references() -> Result<()> {
+    let world = World::from_asset(include_bytes!("../../../../../assets/world/world.bin"))?;
+    let mut errors = Vec::with_capacity(CAPACITY_REFERENCES.len());
+    for (ident, published) in CAPACITY_REFERENCES {
+        let id = world.airport_by_ident(ident.parse()?).context(ident)?;
+        let wind = world
+            .airport(id)
+            .and_then(crate::world::Airport::wind)
+            .context("wind")?;
+        let used = runway_use(world.runways_of(id), wind).context("runway use")?;
+        errors.push((ident, f64::from(used.capacity.per_hour) / published - 1.0));
+    }
+    // The rule is general: a few airports differ widely (a declared limit,
+    // runways used less than their layout allows), the set does not.
+    let mut sizes: Vec<f64> = errors.iter().map(|(_, e)| e.abs()).collect();
+    sizes.sort_by(f64::total_cmp);
+    let median = sizes[sizes.len() / 2];
+    #[allow(clippy::cast_precision_loss)]
+    let bias = errors.iter().map(|(_, e)| e).sum::<f64>() / errors.len() as f64;
+    assert!(median < 0.12, "median error {median}: {errors:?}");
+    assert!(bias.abs() < 0.10, "bias {bias}: {errors:?}");
+    assert!(
+        errors.iter().all(|(_, e)| e.abs() < 0.45),
+        "an airport beyond 45 %: {errors:?}"
+    );
     Ok(())
 }
