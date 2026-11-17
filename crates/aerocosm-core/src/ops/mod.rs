@@ -118,8 +118,13 @@ mod tests {
             .iter()
             .map(|a| runways[a.runway].ends()[a.end].designator().to_string())
             .collect();
-        assert_eq!(names.len(), 3, "{names:?}");
-        assert!(names.iter().all(|n| n.starts_with("25")), "{names:?}");
+        // West flow on the 25s, and 18 West as a second group (plan M7
+        // D158).
+        assert_eq!(names.len(), 4, "{names:?}");
+        assert!(
+            names.iter().all(|n| n.starts_with("25") || n == "18"),
+            "{names:?}"
+        );
         let single = active_runways_now(place, runways, &[]);
         assert_eq!(single.len(), 1);
         assert!(single[0].arrivals && single[0].departures);

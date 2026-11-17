@@ -261,15 +261,18 @@ mod tests {
         // About 1,400 movements a day.
         assert!((100..=200).contains(&needs.min_stands), "{needs:?}");
         // West flow by rule: arrivals and departures on the 25s (plan M5
-        // D113).
+        // D113) and on 18 West, a second group (plan M7 D158).
         let names: Vec<String> = needs
             .arrivals
             .iter()
             .chain(&needs.departures)
             .map(ToString::to_string)
             .collect();
-        assert!(names.iter().all(|n| n.starts_with("25")), "{names:?}");
-        assert_eq!((needs.arrivals.len(), needs.departures.len()), (2, 2));
+        assert!(
+            names.iter().all(|n| n.starts_with("25") || n == "18"),
+            "{names:?}"
+        );
+        assert_eq!((needs.arrivals.len(), needs.departures.len()), (3, 3));
         let airfield = data.0.airport_by_ident("EDFE".parse()?).context("EDFE")?;
         let small = requirements(&data.0, airfield, &data.1);
         assert_eq!(small.min_stands, 1);

@@ -453,14 +453,14 @@ mod tests {
         let name = |a: &ActiveRunway| runways[a.runway].ends()[a.end].designator().to_string();
         let landing: Vec<String> = active.iter().filter(|a| a.arrivals).map(name).collect();
         let departing: Vec<String> = active.iter().filter(|a| a.departures).map(name).collect();
-        // West flow: a segregated pair and an independent runway (plan M5
-        // D113).
-        assert_eq!((landing.len(), departing.len()), (2, 2), "{landing:?}");
+        // West flow: a segregated pair, an independent runway (plan M5
+        // D113) and 18 West as a second group (plan M7 D158).
+        assert_eq!((landing.len(), departing.len()), (3, 3), "{landing:?}");
         assert!(
             landing
                 .iter()
                 .chain(&departing)
-                .all(|n| n.starts_with("25")),
+                .all(|n| n.starts_with("25") || n == "18"),
             "{landing:?} {departing:?}"
         );
         Ok(())
