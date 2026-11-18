@@ -165,9 +165,10 @@ impl Operations {
         Some((wait, polyline))
     }
 
-    /// A landing that has chosen its exit claims the junction there while
-    /// it rolls out: others hold short of it instead of taxiing onto the
-    /// spot it will leave the runway at (plan M7 PR 2, region E: Helsinki).
+    /// A landing that has chosen its exit reserves the junction there while
+    /// it rolls out: whoever would come to rest in it (holding short of the
+    /// runway there) holds short of it instead; traffic passing through is
+    /// not held (plan M7 PR 2, region E: Helsinki).
     fn claim_exit(&mut self, index: usize) {
         let owner = Self::owner(index);
         let Some(taxi) = self.taxis[index].as_ref() else {
@@ -183,7 +184,7 @@ impl Operations {
         let mut claimed = Vec::with_capacity(at_exit.len());
         if let Some(airside) = self.ground.airside_mut(airport) {
             for junction in at_exit {
-                if let Some(slot) = airside.claims.get_mut(junction as usize)
+                if let Some(slot) = airside.exits.get_mut(junction as usize)
                     && slot.is_none()
                 {
                     *slot = Some(owner);
@@ -196,9 +197,8 @@ impl Operations {
         }
     }
 
-    /// A landing that taxies gives back the junctions it claimed at its
-    /// exit: from now on ground control sees it in them, and a claim kept
-    /// while it waits there for a stand would hold everyone else up.
+    /// A landing that taxies gives back the junctions it reserved at its
+    /// exit: from now on ground control sees it in them.
     pub(super) fn release_exit(&mut self, index: usize) {
         let owner = Self::owner(index);
         let Some(taxi) = self.taxis.get_mut(index) else {
@@ -211,7 +211,7 @@ impl Operations {
         let airport = taxi.airport;
         if let Some(airside) = self.ground.airside_mut(airport) {
             for junction in claimed {
-                if let Some(slot) = airside.claims.get_mut(junction as usize)
+                if let Some(slot) = airside.exits.get_mut(junction as usize)
                     && *slot == Some(owner)
                 {
                     *slot = None;
