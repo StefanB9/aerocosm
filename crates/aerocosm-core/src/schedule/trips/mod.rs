@@ -377,17 +377,22 @@ mod tests {
             .trips
             .iter()
             .filter(|t| t.kind == FlightKind::Cargo)
-            // Where a curfew or slots crowd the night, cargo moves to the day.
+            // Where a curfew crowds the night, cargo moves to the day.
             .filter(|t| ctx.curfew(t.base).is_none() && ctx.curfew(t.other).is_none())
-            .filter(|t| {
-                !ctx.capacities.contains_key(&t.base) && !ctx.capacities.contains_key(&t.other)
-            })
             .collect();
         assert_ne!(cargo.len(), 0);
-        for trip in cargo {
+        // Every airport has slots (plan M7 D160): where the night is full at
+        // either end, some cargo moves to the day, most stays at night.
+        let mut at_night = 0;
+        for trip in &cargo {
             let hour = usize::try_from(trip.start % DAY / 60).context("hour")?;
-            assert!(night[hour] > 0.0, "cargo departure at hour {hour}");
+            at_night += usize::from(night[hour] > 0.0);
         }
+        assert!(
+            at_night * 10 >= cargo.len() * 9,
+            "{at_night} of {}",
+            cargo.len()
+        );
         Ok(())
     }
 

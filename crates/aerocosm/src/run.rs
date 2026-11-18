@@ -343,9 +343,9 @@ mod tests {
             .context("EDDF")?;
         assert!(frankfurt.actual > 0 && frankfurt.expected > 20.0);
         assert!(frankfurt.stats.busiest_hour() > 0);
-        // 148 an hour by rule (plan M7 D158): its daily average no longer
-        // makes it coordinated (M5 D113).
-        assert_eq!(frankfurt.capacity, None);
+        // 148 an hour by rule (plan M7 D158); every airport is held within
+        // its capacity (D160).
+        assert_eq!(frankfurt.capacity.map(|c| c.per_hour), Some(148));
         let network = summary.network.context("network statistics")?;
         assert!(network.departures() > 50, "{}", network.departures());
         Ok(())

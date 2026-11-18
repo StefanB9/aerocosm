@@ -33,10 +33,6 @@ const DEPARTURES_PER_BANK: f64 = 60.0;
 const BANKS: (f64, f64) = (3.0, 8.0);
 /// …spread evenly over this local window, minutes after midnight.
 const BANK_WINDOW: (f64, f64) = (6.0 * 60.0, 22.0 * 60.0);
-/// An airport is coordinated (slots, plan M3 D54) when its peak hour, this
-/// share of the day's movements, exceeds this share of its capacity.
-const PEAK_HOUR_SHARE: f64 = 0.075;
-const COORDINATION_LOAD: f64 = 0.8;
 /// Relative traffic per weekday, Monday first: one general pattern.
 const WEEKDAY_FACTORS: [f64; 7] = [1.03, 0.97, 0.98, 1.02, 1.06, 0.88, 1.06];
 
@@ -164,12 +160,11 @@ fn targets(
         let used = airport
             .wind()
             .and_then(|wind| runway_use(world.runways_of(station.id), wind));
+        // Every airport is held within its capacity (plan M7 D160): slots
+        // bind only in the hours the schedule would exceed it, not by its
+        // daily average, which let hub banks pile up.
         let (runway_modes, capacity) = match used {
-            Some(used) => {
-                let coordinated = movements * PEAK_HOUR_SHARE
-                    > COORDINATION_LOAD * f64::from(used.capacity.per_hour);
-                (used.modes, coordinated.then_some(used.capacity))
-            }
+            Some(used) => (used.modes, Some(used.capacity)),
             None => (Vec::new(), None),
         };
         // SAFETY: a day's movements times 365 is far below u32::MAX.
