@@ -288,6 +288,33 @@ machine's swing; schedules alone changed.
 - Measured: 72-hour run (delay by day, Boston, Seattle, O'Hare, escapes), capacity
   references, region E ground test.
 
+*As built (PR 5):*
+
+- **Three close parallels land on two** (D165, `traffic/model/runways.rs`). A lane holds up to
+  three runways closer than 1,035 m to its first; with three, the outer two land and the
+  middle one takes off, 105 an hour (Seattle's published 106; the capacity references still
+  pass). The rule changes six airports: Seattle, Philadelphia, and four small ones (Phoenix-
+  Mesa, Sheppard, Adana, Ulanqab).
+- **Arrival runway by landing slot and taxi-in** (D166), tried and dropped. A flight about to
+  push back weighed each arrival runway by its earliest landing slot and the typical taxi
+  from its exit to the median stand, from any origin. With D165: holding 579,319 → 247,458
+  minutes, Boston 304 → 265 minutes of delay, but O'Hare 45 → 161 minutes and its escapes
+  525 → 2,094 (network 3,908 → 5,576): landings moved onto runways whose taxi-in O'Hare's
+  ground cannot take, as twice before. Reverted by D166's own condition.
+
+| 72 h, seed 3 | Days 1 / 2 / 3 | Holding, min | Escapes | Seattle | Boston | O'Hare |
+|---|---|---|---|---|---|---|
+| PR 4 | 9.4 / 18.6 / 19.2 | 579,319 | 3,908 | 228 min | 304 min | 45 min |
+| D165 and D166 (D166 dropped) | 8.3 / 17.8 / 19.2 | 247,458 | 5,576 | 158 | 265 | 161 |
+| D165 (as built) | 9.7 / 16.9 / 19.4 | 323,107 | 4,013 | 144 | 264 | 83 |
+
+(Days: average departure delay, minutes; airports: average departure delay.) Seattle's
+holding falls from 292,569 to 16,741 minutes. O'Hare's runways are untouched by D165; its
+72-hour delay has swung between 39 and 83 minutes across PR 4's and this PR's runs as the
+schedule's draws shift with any capacity, and stays recorded as such (agreed 2026-11-18).
+Boston (264 minutes) remains overloaded: its landings still crowd 15R. The full suite passes:
+865 tests.
+
 ## PR 6 — Acceptance (D163)
 
 - The 7-day run, benchmark record, `docs/known-issues.md`, README; promotion to `main` on the

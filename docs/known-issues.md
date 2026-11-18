@@ -198,18 +198,17 @@ averages 245 minutes of delay in a 36-hour world run (plan M7 PR 2).
 
 **Why:** the arrival runway is the one whose final lies nearest the origin (M6 D152).
 
-**Tried:** choosing it by the earliest landing slot, twice (M6 PR 2, M7 PR 2): holding falls
-by a third, but landings move onto runways whose taxi-in crosses busy traffic and escapes
-rise (O'Hare 44 → 84 minutes of delay). **Decision (2026-11-18):** recorded; a choice that
-weighs the taxi-in as well is left for later.
+**Tried:** choosing it by the earliest landing slot, twice (M6 PR 2, M7 PR 2), and by the
+slot and the typical taxi-in (M7 PR 5): holding falls by a third to a half, but landings move
+onto runways whose taxi-in O'Hare's ground cannot take (O'Hare 45 → 161 minutes of delay,
+escapes 525 → 2,094). **Decision (2026-11-18):** recorded; Boston stays overloaded (264
+minutes over 72 hours).
 
-### Seattle lands on one runway
+### Seattle lands on one runway (fixed)
 
-**What:** Seattle averages 151 minutes of delay with 101,340 minutes of airborne holding in
-36 hours (plan M7 PR 2).
-
-**Why:** its three close parallels make one lane of two (M5 D113: a third close runway is not
-used), arrivals on 16L, departures on 16C; real Seattle lands on two.
+**Fixed in plan M7 PR 5 (D165):** three close parallels land on the outer two; Seattle's
+delay over 72 hours fell from 228 to 144 minutes and its holding from 292,569 to 16,741
+minutes.
 
 ### Delay grows after the first day
 
