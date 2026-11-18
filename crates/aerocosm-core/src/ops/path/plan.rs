@@ -35,11 +35,18 @@ pub(crate) struct LegGround<'a> {
     /// Per departure runway end at the origin, in how many seconds its next
     /// free turn comes (plan M6 D151); `None`: at once everywhere.
     pub(crate) turn_in: Option<RunwayCost<'a>>,
+    /// Per arrival runway end at the destination, how long after the
+    /// flight's estimated arrival its earliest landing slot comes, s (plan
+    /// M7 D159); `None`: by the final nearest the origin alone.
+    pub(crate) land_wait: Option<RunwayCost<'a>>,
 }
 
 /// A runway end in use: threshold, heading, runway index and designator.
 type End = (LatLon, Degrees, Option<(usize, RunwayDesignator)>);
 
+/// Speed at which a longer way to one final than another is flown, m/s: the
+/// arrival's descent and approach.
+const APPROACH_SPEED: f64 = 120.0;
 /// Runways down to this fraction of the type's take-off field length are
 /// used, as in schedule generation.
 const RUNWAY_MARGIN: f64 = 0.75;
@@ -320,12 +327,19 @@ fn leg_runways(
         destination,
         aircraft,
         Use::Arrival,
-        // Land on the one whose final is nearest the origin.
-        |end, _| {
-            end.threshold()
+        // Land on the one whose final is nearest the origin; about to push
+        // back, on the one it lands on soonest: its landing slot's wait
+        // and the flight to its final (plan M7 D159).
+        |end, allowed| {
+            let to_final = end
+                .threshold()
                 .destination(reverse(end.true_heading()), Meters::from_raw(FINAL_LENGTH))
                 .distance_to(from.location())
-                .value()
+                .value();
+            match ground.land_wait {
+                Some(wait) if allowed.len() >= 2 => wait(end, allowed) + to_final / APPROACH_SPEED,
+                _ => to_final,
+            }
         },
         direct,
     )?;
@@ -449,6 +463,7 @@ mod tests {
             network: &NO_GROUND,
             origin: None,
             turn_in: None,
+            land_wait: None,
         }
     }
 
@@ -494,6 +509,54 @@ mod tests {
             }
         }
         bail!("never arrived")
+    }
+
+    #[test]
+    fn test_an_arrival_avoids_a_runway_with_a_long_wait() -> Result<()> {
+        let data = data()?;
+        let (frankfurt, munich) = (airport(&data, "EDDF")?, airport(&data, "EDDM")?);
+        let usual = plan_leg(
+            &data.world,
+            &data.traffic,
+            unmapped(),
+            a320(&data)?,
+            frankfurt,
+            munich,
+        )?
+        .path
+        .runways()
+        .1
+        .context("a landing runway")?;
+        // Half an hour to wait on it: it lands on Munich's other runway.
+        let runways = data.world.runways_of(munich);
+        let wait = |end: &RunwayEnd, _: &[RunwayDesignator]| {
+            if runways[usual]
+                .ends()
+                .iter()
+                .any(|e| e.designator() == end.designator())
+            {
+                1_800.0
+            } else {
+                0.0
+            }
+        };
+        let elsewhere = plan_leg(
+            &data.world,
+            &data.traffic,
+            LegGround {
+                land_wait: Some(&wait),
+                ..unmapped()
+            },
+            a320(&data)?,
+            frankfurt,
+            munich,
+        )?
+        .path
+        .runways()
+        .1
+        .context("a landing runway")?;
+        assert_ne!(elsewhere, usual);
+        Ok(())
     }
 
     #[test]
@@ -751,6 +814,7 @@ mod tests {
                 network,
                 origin: Some(Origin::Stand(Id::from_usize(stand)?)),
                 turn_in: None,
+                land_wait: None,
             },
             a320(&data)?,
             frankfurt,
@@ -827,6 +891,7 @@ mod tests {
                 network,
                 origin: Some(Origin::Stand(Id::from_usize(stand)?)),
                 turn_in,
+                land_wait: None,
             },
             a320(&data)?,
             airport(&data, "EDDM")?,

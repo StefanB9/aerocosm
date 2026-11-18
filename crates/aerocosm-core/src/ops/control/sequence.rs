@@ -38,9 +38,9 @@ impl Timeline {
         arrival_spacing(leader, follower, speed).max(self.floor)
     }
 
-    /// Books the earliest landing time at or after `eta` that keeps wake
-    /// separation with both neighbours, and returns it.
-    pub(crate) fn book(&mut self, eta: SimTime, wake: WakeCategory, speed: f64) -> SimTime {
+    /// The earliest landing time at or after `eta` that keeps wake
+    /// separation with both neighbours, and where it goes among the slots.
+    fn earliest(&self, eta: SimTime, wake: WakeCategory, speed: f64) -> (usize, SimTime) {
         let after = |earlier: &Slot, at: SimTime| {
             earlier
                 .time
@@ -57,11 +57,23 @@ impl Timeline {
                     .is_ok_and(|needed| needed <= later.time)
             });
             if fits {
-                self.slots.insert(index, Slot { time, wake, speed });
-                return time;
+                return (index, time);
             }
         }
-        eta
+        (self.slots.len(), eta)
+    }
+
+    /// The earliest landing time at or after `eta`, without booking it.
+    pub(crate) fn first_free(&self, eta: SimTime, wake: WakeCategory, speed: f64) -> SimTime {
+        self.earliest(eta, wake, speed).1
+    }
+
+    /// Books the earliest landing time at or after `eta` that keeps wake
+    /// separation with both neighbours, and returns it.
+    pub(crate) fn book(&mut self, eta: SimTime, wake: WakeCategory, speed: f64) -> SimTime {
+        let (index, time) = self.earliest(eta, wake, speed);
+        self.slots.insert(index, Slot { time, wake, speed });
+        time
     }
 
     /// The first booked landing strictly after `time`.
