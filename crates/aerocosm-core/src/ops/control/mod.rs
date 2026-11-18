@@ -252,26 +252,6 @@ impl Control {
         self.runway(key).timeline.book(eta, wake, approach_speed)
     }
 
-    /// How long after `eta` the earliest free landing slot on `key` comes
-    /// for `wake` at `approach_speed`, without booking it (plan M7 D159).
-    pub(crate) fn landing_wait(
-        &self,
-        key: RunwayKey,
-        eta: SimTime,
-        wake: WakeCategory,
-        approach_speed: f64,
-    ) -> SimDuration {
-        self.runways
-            .get(key.airport.as_usize())
-            .and_then(|runways| runways.get(key.runway))
-            .map_or(SimDuration::ZERO, |runway| {
-                runway
-                    .timeline
-                    .first_free(eta, wake, approach_speed)
-                    .duration_since(eta)
-            })
-    }
-
     /// Marks `key` as used for both arrivals and departures (plan M7 D159):
     /// landings leave room for a departure after each.
     pub(crate) fn set_mixed(&mut self, key: RunwayKey) {
@@ -460,26 +440,6 @@ mod tests {
         assert_eq!(later.move_up(key(), moved, far, medium, speed), moved);
         let blocked = control.move_up(key(), moved, at(0)?, medium, speed);
         assert_eq!(blocked, moved);
-        Ok(())
-    }
-
-    #[test]
-    fn test_landing_wait_looks_without_booking() -> Result<()> {
-        let mut control = control();
-        let (medium, speed) = (WakeCategory::Medium, 70.0);
-        assert_eq!(
-            control.landing_wait(key(), at(0)?, medium, speed),
-            SimDuration::ZERO
-        );
-        let first = control.book_arrival(key(), at(0)?, medium, speed);
-        let wait = control.landing_wait(key(), at(0)?, medium, speed);
-        assert!(wait > SimDuration::ZERO);
-        // It looked, it did not book: the same wait again, and the slot it
-        // saw is the one a booking gets.
-        assert_eq!(control.landing_wait(key(), at(0)?, medium, speed), wait);
-        let second = control.book_arrival(key(), at(0)?, medium, speed);
-        assert_eq!(second.duration_since(at(0)?), wait);
-        assert!(second > first);
         Ok(())
     }
 

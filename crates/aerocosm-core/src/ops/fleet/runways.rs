@@ -23,78 +23,7 @@ pub(super) fn stay(wait: f64, planned: bool) -> f64 {
     }
 }
 
-/// Taxi-out and climb before the en-route flight, roughly, for the time a
-/// flight about to push back lands, s.
-const BEFORE_ENROUTE: f64 = 600.0;
-/// Metres per second in a knot.
-const KNOT: f64 = 0.514_444;
-
 impl Operations {
-    /// About to push back at `now`, how long after it would land tail
-    /// `index` waits for a landing slot on the runway of `end` at
-    /// `destination`, s (plan M7 D159).
-    pub(super) fn land_wait(
-        &self,
-        scenario: &Scenario,
-        index: usize,
-        destination: crate::Id<crate::world::Airport>,
-        end: &crate::world::RunwayEnd,
-        now: SimTime,
-    ) -> f64 {
-        if !self.control.is_sequenced(destination) {
-            return 0.0;
-        }
-        let Some(runway) = scenario
-            .world()
-            .runways_of(destination)
-            .iter()
-            .position(|r| r.ends().iter().any(|e| e.designator() == end.designator()))
-        else {
-            return 0.0;
-        };
-        let profile = &self.profiles[index];
-        let cruise = scenario
-            .traffic()
-            .and_then(|t| {
-                let leg = self.tails[index].leg;
-                let flight = self.flight(index, leg).ok()?;
-                t.aircraft().get(flight.aircraft())
-            })
-            .map_or(230.0, |aircraft| aircraft.cruise_speed().value() * KNOT);
-        let seconds = BEFORE_ENROUTE + profile.enroute_length() / cruise.max(1.0);
-        // SAFETY: hours of flight, far inside i64 milliseconds.
-        #[allow(clippy::cast_possible_truncation)]
-        let Ok(eta) = now.checked_add(crate::SimDuration::from_millis((seconds * 1000.0) as i64))
-        else {
-            return 0.0;
-        };
-        let key = RunwayKey {
-            airport: destination,
-            runway,
-        };
-        let wait = self
-            .control
-            .landing_wait(key, eta, self.wakes[index], profile.approach_speed())
-            .as_secs_f64();
-        // And the taxi from its exit to the stands: a runway far from them
-        // sends its landings across the field (plan M7 D166).
-        wait + self
-            .taxi_in
-            .get(&(destination.as_usize(), runway))
-            .copied()
-            .unwrap_or(0.0)
-    }
-
-    /// Whether `destination` lands on more than one runway, so that a flight
-    /// about to push back chooses among them (plan M7 D166).
-    fn arrival_choice(&self, destination: crate::Id<crate::world::Airport>) -> bool {
-        let index = destination.as_usize();
-        self.taxi_in
-            .range((index, 0)..(index + 1, 0))
-            .nth(1)
-            .is_some()
-    }
-
     /// About to push back at `now`, tail `index` takes another departure
     /// runway if it would be off sooner from it, the queues as they are
     /// (plan M6 D151); the rest of its leg stays.
@@ -113,31 +42,12 @@ impl Operations {
         let planned = self.paths[index]
             .as_ref()
             .and_then(crate::ops::path::Path::departure_end);
-        let destination = self.flight(index, leg)?.destination();
-        let departs = planned.is_some() && self.ground.controls(origin);
-        if !departs && !self.arrival_choice(destination) {
+        if planned.is_none() || !self.ground.controls(origin) {
             return Ok(());
         }
         let again = self.plan_at(scenario, index, leg, Some(now))?;
-        let lands = self.paths[index].as_ref().and_then(|path| path.runways().1);
-        let lands_again = again.path.runways().1;
-        if again.path.departure_end() == planned && lands_again == lands {
+        if again.path.departure_end() == planned {
             return Ok(());
-        }
-        // A landing runway changed: the provisional slot on the old one is
-        // freed and the new one booked when the flight is sequenced.
-        let arrival = lands_again
-            .filter(|_| self.control.is_sequenced(destination))
-            .map(|runway| RunwayKey {
-                airport: destination,
-                runway,
-            });
-        if lands_again != lands
-            && let Some(flow) = self.flows.get_mut(index)
-            && flow.is_resolved()
-            && let Some((key, slot)) = flow.set_arrival(arrival)
-        {
-            self.control.cancel_arrival(key, slot);
         }
         // Its runway control follows; what it has booked at the destination
         // stays.

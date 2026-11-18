@@ -67,22 +67,6 @@ impl Flow {
         self.resolved
     }
 
-    /// Moves the arrival to the controlled runway `arrival` (plan M7 D159):
-    /// the provisional landing slot booked on the old one, if any, is given
-    /// back for the caller to free.
-    pub(super) const fn set_arrival(
-        &mut self,
-        arrival: Option<RunwayKey>,
-    ) -> Option<(RunwayKey, SimTime)> {
-        let old = match (self.arrival, self.provisional) {
-            (Some(key), Some(slot)) => Some((key, slot)),
-            _ => None,
-        };
-        self.arrival = arrival;
-        self.provisional = None;
-        old
-    }
-
     /// Moves the departure to the controlled runway `departure` (plan M6
     /// D151).
     pub(super) const fn set_departure(&mut self, departure: Option<RunwayKey>) {
@@ -447,34 +431,5 @@ impl Operations {
         });
         #[cfg(not(test))]
         let _ = (key, now, wake, approach_speed);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use anyhow::Result;
-
-    use super::*;
-    use crate::Id;
-
-    #[test]
-    fn test_a_new_landing_runway_gives_back_the_old_slot() -> Result<()> {
-        let old = RunwayKey {
-            airport: Id::new(1),
-            runway: 0,
-        };
-        let new = RunwayKey { runway: 1, ..old };
-        let slot: SimTime = "2026-07-08T10:00:00Z".parse()?;
-        let mut flow = Flow {
-            resolved: true,
-            arrival: Some(old),
-            provisional: Some(slot),
-            ..Flow::default()
-        };
-        assert_eq!(flow.set_arrival(Some(new)), Some((old, slot)));
-        assert_eq!(flow.arrival_runway(), Some(new));
-        // Nothing booked yet: nothing to give back.
-        assert_eq!(flow.set_arrival(Some(old)), None);
-        Ok(())
     }
 }

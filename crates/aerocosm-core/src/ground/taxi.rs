@@ -133,25 +133,6 @@ impl AirportGround {
         length
     }
 
-    /// The typical taxi-in after landing on `runway`: from its exit for a
-    /// typical roll to the median stand, s (plan M7 D166).
-    pub fn typical_taxi_in(&self, runway: RunwayDesignator) -> Option<f64> {
-        let wingspan = Meters::from_raw(TYPICAL_WINGSPAN);
-        let roll = Meters::from_raw(TYPICAL_ROLL);
-        let exit = self.landing_exit(runway, roll, roll)?.node();
-        let lengths = self.lengths_from(exit, wingspan, false);
-        let mut per_stand: Vec<(f64, Id<Node>)> = self
-            .stands()
-            .iter()
-            .map(|stand| (lengths[stand.node().as_usize()], stand.node()))
-            .filter(|(length, _)| length.is_finite())
-            .collect();
-        per_stand.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let &(_, stand) = per_stand.get(per_stand.len() / 2)?;
-        let route = self.route(exit, stand, wingspan)?;
-        Some(self.taxi_time(&route))
-    }
-
     /// Typical taxi-out and taxi-in times with the runway ends in use:
     /// pushback plus the median route from a stand to the nearest departure
     /// entry, and the median route from the nearest arrival exit to a stand.
@@ -402,21 +383,6 @@ mod tests {
             "{} stranded: {stranded:?}",
             stranded.len()
         );
-        Ok(())
-    }
-
-    #[test]
-    fn test_each_arrival_runway_has_its_typical_taxi_in() -> Result<()> {
-        let (world, ground, _) = shipped()?;
-        let frankfurt = world.airport_by_ident("EDDF".parse()?).context("EDDF")?;
-        let layout = ground.airport(frankfurt).context("mapped")?;
-        let north = layout.typical_taxi_in("25R".parse()?).context("25R")?;
-        let south = layout.typical_taxi_in("25L".parse()?).context("25L")?;
-        // Minutes, and the runway far from the terminals takes longer.
-        assert!((60.0..=900.0).contains(&north), "{north}");
-        assert!((60.0..=900.0).contains(&south), "{south}");
-        assert!((north - south).abs() > 10.0, "{north} {south}");
-        assert_eq!(layout.typical_taxi_in("09".parse()?), None);
         Ok(())
     }
 
