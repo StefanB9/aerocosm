@@ -209,6 +209,39 @@ passes: 863 tests.
 - Measured: peak hours against capacity at every coordinated airport, round trips dropped
   (M5: 1.4 %), movements against targets.
 
+*As built (PR 3):*
+
+- **Every airport is held within its capacity** (`traffic/model/mod.rs`). A slot binds only
+  in an hour the schedule would exceed, so coordinating by the generated peak (D160) and
+  coordinating every airport give the same schedule: airports whose peak lies between 80 %
+  and 100 % of capacity are untouched either way. The daily-average rule is gone; Frankfurt
+  (148 an hour since PR 1) is held again. Slot tests still hold every capacity; round trips
+  dropped stay under 2 % (`test_few_slots_are_dropped`), German movements within the ADV
+  tolerance. Cargo still leaves at night where slots allow: at least 90 % in the test, where
+  before every flight did between airports without slots.
+- **Arrival and departure limits, tried and dropped.** The total does not stop a schedule
+  from sending an airport more arrivals than its arrival runways land (Seattle: 85 an hour
+  in all, one runway landing). Separate hourly limits from the lanes (a mixed runway 30 and
+  30, a segregated pair 42 and 43) cut Seattle's holding from 131,338 to 80,300 minutes and
+  Boston's delay from 252 to 220 minutes, but pushed O'Hare's banks into fewer hours: its
+  stands ran short (198 shares) and its delay rose 42 → 125 minutes; network departure delay
+  12.3 → 13.0. Totals only, agreed 2026-11-18.
+
+| 36 h, seed 3 | Escapes | Departure delay, min | Arrival delay, min | Holding, min | Flights |
+|---|---|---|---|---|---|
+| PR 2 | 1,958 | 12.5 | 14.9 | 264,129 | 155,886 |
+| Every airport within capacity (as built) | 1,889 | 12.3 | 14.8 | 285,191 | 155,971 |
+| + arrival and departure limits (dropped) | 1,952 | 13.0 | 14.8 | 231,742 | 155,149 |
+
+The effect is small: the airports still overloaded (Boston 252 minutes, Seattle 137) are
+held by runway use, not by schedule peaks (see PR 2). Newark's delay 43 → 73 minutes, O'Hare
+46 → 42, Denver 23 → 23. The full suite passes: 863 tests.
+
+Benchmark record (D164, against PR 2's): tick medians 2.7–3.9 ms, 95th percentiles 5.2–6.7
+ms, under D107's 8 ms; the simulated day 383 s (277), start-up 23.4 s (16.5). Viewer frames,
+untouched, rose 72 %: the machine ran slower. Slot books at every airport may add to
+start-up; not separated from the machine.
+
 ## PR 4 — Buffers and stands (D161, D162)
 
 - Buffers on turnarounds and taxi times; O'Hare's stands diagnosed.

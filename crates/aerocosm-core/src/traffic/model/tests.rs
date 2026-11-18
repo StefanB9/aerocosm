@@ -132,6 +132,14 @@ fn test_airlines_follow_the_rules() -> Result<()> {
         .context("Frankfurt")?;
     assert!(frankfurt.banks().len() >= 6, "{:?}", frankfurt.banks());
     assert_eq!(model.targets().runway_modes("EDDF".parse()?).len(), 2);
+    // Every airport with runways is held within its capacity: slots bind
+    // only where the schedule would exceed it (plan M7 D160).
+    assert_eq!(frankfurt.capacity().map(|c| c.per_hour), Some(148));
+    let saarbruecken = model
+        .targets()
+        .airport("EDDR".parse()?)
+        .context("Saarbruecken")?;
+    assert!(saarbruecken.capacity().is_some());
     let leipzig = model
         .targets()
         .airport("EDDP".parse()?)

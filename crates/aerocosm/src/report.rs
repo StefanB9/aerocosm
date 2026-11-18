@@ -46,7 +46,8 @@ pub(crate) struct AirportReport {
     pub(crate) expected: f64,
     /// Punctuality, delays and hourly movements at the airport.
     pub(crate) stats: AirportStats,
-    /// Declared capacity, if the airport is coordinated.
+    /// The runways' capacity, which slots hold the schedule within (plan M7
+    /// D160); none for an airport without runways.
     pub(crate) capacity: Option<Capacity>,
 }
 
@@ -59,8 +60,8 @@ impl AirportReport {
         f64::from(self.actual) / self.expected - 1.0
     }
 
-    /// The busiest clock hour and the declared hourly capacity, if the
-    /// airport is coordinated and that hour exceeded it by more than
+    /// The busiest clock hour and the hourly capacity, if the airport has
+    /// one and that hour exceeded it by more than
     /// [`CAPACITY_TOLERANCE`]: schedules stay within capacity, but delays
     /// bunch actual movements a little, as at real airports.
     pub(crate) fn capacity_exceeded(&self) -> Option<(u32, u16)> {
