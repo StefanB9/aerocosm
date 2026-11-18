@@ -22,6 +22,8 @@ const SHORT: f64 = 1_500.0;
 /// against published capacities (plan M7 D157, D158).
 const SINGLE_LANE: f64 = 45.0;
 const DOUBLE_LANE: f64 = 85.0;
+/// A lane of three close parallels: two land, one takes off (plan M7 D165).
+const TRIPLE_LANE: f64 = 105.0;
 /// Another group of parallels that crosses none in use adds this share of
 /// its lanes: it shares the airspace and the taxiways…
 const SECOND_GROUP: f64 = 0.4;
@@ -100,12 +102,10 @@ pub(super) fn runway_use(runways: &[Runway], wind: Degrees) -> Option<RunwayUse>
         let lanes = lanes(&members, axis);
         let per_hour = lanes
             .iter()
-            .map(|lane| {
-                if lane.len() >= 2 {
-                    DOUBLE_LANE
-                } else {
-                    SINGLE_LANE
-                }
+            .map(|lane| match lane.len() {
+                0 | 1 => SINGLE_LANE,
+                2 => DOUBLE_LANE,
+                _ => TRIPLE_LANE,
             })
             .sum();
         groups.push(Group {
@@ -183,9 +183,15 @@ fn mode(used: &[(&Group, Role)], heading: Degrees) -> Option<RunwayMode> {
                             arrivals.push(designator(single));
                             departures.push(designator(single));
                         }
-                        [first, second, ..] => {
+                        [first, second] => {
                             arrivals.push(designator(first));
                             departures.push(designator(second));
+                        }
+                        // The outer two land, the middle one takes off.
+                        [first, middle, last, ..] => {
+                            arrivals.push(designator(first));
+                            arrivals.push(designator(last));
+                            departures.push(designator(middle));
                         }
                         [] => {}
                     }
@@ -260,7 +266,7 @@ fn lanes<'a>(group: &[&'a Runway], axis: Degrees) -> Vec<Vec<&'a Runway>> {
     for (offset, runway) in across {
         match lanes.last_mut() {
             Some((start, lane)) if offset - *start < INDEPENDENT => {
-                if lane.len() == 1 {
+                if lane.len() < 3 {
                     lane.push(runway);
                 }
             }
@@ -391,19 +397,25 @@ mod tests {
         let west = crate::traffic::mode_for_wind(&used.modes, wind).context("mode")?;
         assert_eq!((west.arrivals.len(), west.departures.len()), (1, 1));
         assert_ne!(west.arrivals, west.departures);
-        // Three close parallels: the third is not used.
+        // Three close parallels, as at Seattle: the outer two land, the
+        // middle one takes off (plan M7 D165).
         let close = [
             runway(("09L", "27R"), 90.0, -300.0, 2500.0)?,
             runway(("09C", "27C"), 90.0, 0.0, 2500.0)?,
             runway(("09R", "27L"), 90.0, 300.0, 3500.0)?,
         ];
         let used = runway_use(&close, wind).context("runways")?;
-        assert_eq!(used.capacity.per_hour, 85);
+        assert_eq!(used.capacity.per_hour, 105);
+        let west = crate::traffic::mode_for_wind(&used.modes, wind).context("mode")?;
+        let mut arrivals = names(&west.arrivals);
+        arrivals.sort();
+        assert_eq!(arrivals, ["27L", "27R"]);
+        assert_eq!(names(&west.departures), ["27C"]);
         // A short strip beside them does not count.
         let mut strip = close.to_vec();
         strip.push(runway(("18", "36"), 180.0, 2_500.0, 900.0)?);
         let used = runway_use(&strip, wind).context("runways")?;
-        assert_eq!(used.capacity.per_hour, 85);
+        assert_eq!(used.capacity.per_hour, 105);
         Ok(())
     }
 
