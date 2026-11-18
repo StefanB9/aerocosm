@@ -315,6 +315,9 @@ schedule's draws shift with any capacity, and stays recorded as such (agreed 202
 Boston (264 minutes) remains overloaded: its landings still crowd 15R. The full suite passes:
 865 tests.
 
+Benchmark record (D164, against PR 4's): tick medians 2.1–3.2 ms, 95th percentiles 3.9–6.0
+ms, under D107's 8 ms; the simulated day 324 s (330), start-up 21.2 s (22.4).
+
 ## PR 6 — Acceptance (D163)
 
 - The 7-day run, benchmark record, `docs/known-issues.md`, README; promotion to `main` on the
