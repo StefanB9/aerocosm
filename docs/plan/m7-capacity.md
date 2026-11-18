@@ -197,6 +197,12 @@ Seattle (151 minutes, 101,340 minutes of holding: one arrival runway, its third 
 parallel unused by the lane rule). D159's 90 % of capacity in the busiest hours was not
 measured hour by hour; the runways' rates are now set by the separations above.
 
+Benchmark record (D164, against PR 1's): tick medians 2.0–2.7 ms (were 3.4–5.2), 95th
+percentiles 3.4–4.4 ms (6.4–10.6), well under D107's 8 ms; the simulated day 277 s (329),
+start-up 16.5 s (21.4). Untouched code ran faster too (viewer frames −23 %), so part of the
+gain is the machine; less holding means fewer aircraft airborne at once. The full suite
+passes: 863 tests.
+
 ## PR 3 — Coordination (D160)
 
 - Coordination from the generated schedule's peak; slots hold it.
