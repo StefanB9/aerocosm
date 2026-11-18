@@ -29,6 +29,10 @@ impl TaxiMinutes {
         back: 6.0,
     };
 }
+/// A scheduled turnaround adds a fifth of the shortest…
+const TURNAROUND_BUFFER_SHARE: i64 = 5;
+/// …and at least this many minutes (plan M7 D161).
+const MIN_TURNAROUND_BUFFER: i64 = 5;
 /// Block times are published in five-minute steps.
 const BLOCK_STEP_MINUTES: f64 = 5.0;
 
@@ -62,6 +66,16 @@ pub(crate) fn min_turnaround(aircraft: &AircraftType, cargo: bool) -> SimDuratio
         35
     };
     SimDuration::from_minutes(minutes)
+}
+
+/// The turnaround a schedule plans for `aircraft`: the shortest one and a
+/// buffer that absorbs a late arrival (plan M7 D161).
+pub(crate) fn scheduled_turnaround(aircraft: &AircraftType, cargo: bool) -> SimDuration {
+    let shortest = min_turnaround(aircraft, cargo).as_millis() / 60_000;
+    let buffer = (shortest / TURNAROUND_BUFFER_SHARE).max(MIN_TURNAROUND_BUFFER);
+    // SAFETY: turnarounds are a few hours at most.
+    #[allow(clippy::cast_possible_truncation)]
+    SimDuration::from_minutes((shortest + buffer) as i32)
 }
 
 /// Local time minus UTC at `at`, in minutes, within `-720..=720`.
@@ -186,6 +200,20 @@ mod tests {
         };
         let slow = block_time(Meters::new(299_000.0)?, a320, longer).as_millis() / 60_000;
         assert_eq!(slow, short + 10);
+        Ok(())
+    }
+
+    #[test]
+    fn test_scheduled_turnarounds_carry_a_buffer() -> Result<()> {
+        let catalog = catalog()?;
+        let minutes = |code: &str| -> Result<i64> {
+            Ok(scheduled_turnaround(aircraft(&catalog, code)?, false).as_millis() / 60_000)
+        };
+        // A fifth of the shortest, at least five minutes.
+        assert_eq!(minutes("CRJ9")?, 30);
+        assert_eq!(minutes("A320")?, 42);
+        assert_eq!(minutes("A359")?, 108);
+        assert_eq!(minutes("B77L")?, 72);
         Ok(())
     }
 
