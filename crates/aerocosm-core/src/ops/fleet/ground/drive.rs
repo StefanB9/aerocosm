@@ -50,6 +50,7 @@ impl Operations {
         now: SimTime,
         airline: AirlineIcao,
     ) -> Option<Event> {
+        self.release_exit(index);
         let taxi = self.taxis[index].as_ref()?;
         if taxi.waiting.is_some() {
             if self.wait_for_stand(scenario, index, now, airline) {

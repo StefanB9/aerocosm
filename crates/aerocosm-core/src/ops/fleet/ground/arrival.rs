@@ -180,10 +180,41 @@ impl Operations {
             .map(|passage| passage.junction)
             .collect();
         let airport = taxi.airport;
+        let mut claimed = Vec::with_capacity(at_exit.len());
         if let Some(airside) = self.ground.airside_mut(airport) {
             for junction in at_exit {
-                if let Some(slot) = airside.claims.get_mut(junction as usize) {
-                    slot.get_or_insert(owner);
+                if let Some(slot) = airside.claims.get_mut(junction as usize)
+                    && slot.is_none()
+                {
+                    *slot = Some(owner);
+                    claimed.push(junction);
+                }
+            }
+        }
+        if let Some(taxi) = self.taxis.get_mut(index) {
+            taxi.exit_claims = claimed;
+        }
+    }
+
+    /// A landing that taxies gives back the junctions it claimed at its
+    /// exit: from now on ground control sees it in them, and a claim kept
+    /// while it waits there for a stand would hold everyone else up.
+    pub(super) fn release_exit(&mut self, index: usize) {
+        let owner = Self::owner(index);
+        let Some(taxi) = self.taxis.get_mut(index) else {
+            return;
+        };
+        if taxi.exit_claims.is_empty() {
+            return;
+        }
+        let claimed = std::mem::take(&mut taxi.exit_claims);
+        let airport = taxi.airport;
+        if let Some(airside) = self.ground.airside_mut(airport) {
+            for junction in claimed {
+                if let Some(slot) = airside.claims.get_mut(junction as usize)
+                    && *slot == Some(owner)
+                {
+                    *slot = None;
                 }
             }
         }

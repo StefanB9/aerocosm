@@ -470,6 +470,9 @@ pub(super) struct Taxi {
     crossing: Option<(RunwayKey, i64)>,
     /// How often it has been sent another way out of a deadlock (D93).
     reroutes: u8,
+    /// The junctions at its exit a landing claimed while it rolled out,
+    /// given back once it taxies and is seen in them (plan M7 PR 2).
+    exit_claims: Vec<u32>,
     /// Since when it has stood with nobody to wait for, ms (plan M6 D150).
     idle_since: Option<i64>,
     /// Stopped by the sight of the aircraft it waits for (see and avoid),
@@ -643,6 +646,7 @@ impl Operations {
                 sighted: false,
                 crossing: None,
                 reroutes: 0,
+                exit_claims: Vec::new(),
                 points: points.clone(),
                 speeds,
             },
