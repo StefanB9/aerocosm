@@ -30,7 +30,7 @@ pub fn active_runways_now(
 ) -> Vec<ActiveRunway> {
     runway::active_runways(runways, modes, runway::prevailing_wind(airport))
 }
-pub use stats::{AirportStats, DayStats, Statistics};
+pub use stats::{AirportStats, DayStats, DelayCauses, LATE_AIRCRAFT_REFERENCES, Statistics};
 pub use taxi::{TaxiGoal, TaxiRoute, TaxiState, VIA_NAMES};
 pub use timing::PhaseTimes;
 pub use view::{Callsign, FlightView, Holding};

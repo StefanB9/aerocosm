@@ -109,6 +109,8 @@ impl Operations {
                 scheduled: next_scheduled,
                 off_block: leaves,
                 boarding_from: leaves.checked_sub(BOARDING)?.max(start),
+                late: start.duration_since(next_scheduled),
+                drawn: delay,
                 motion: None,
             });
         }
@@ -154,10 +156,13 @@ impl Operations {
                 scheduled,
                 off_block: scheduled,
                 boarding_from: scheduled.checked_sub(BOARDING)?,
+                late: SimDuration::ZERO,
+                drawn: SimDuration::ZERO,
                 motion: Some(motion),
             });
         }
-        let leaves = off_block(next_scheduled, SimDuration::ZERO, add(clock, turnaround)?)?;
+        let ready = add(clock, turnaround)?;
+        let leaves = off_block(next_scheduled, SimDuration::ZERO, ready)?;
         let boarding_from = leaves.checked_sub(BOARDING)?.max(clock);
         self.park_at_start(scenario, index, next, leaves)?;
         let mut tail = TailOps {
@@ -166,6 +171,8 @@ impl Operations {
             scheduled: next_scheduled,
             off_block: leaves,
             boarding_from,
+            late: ready.duration_since(next_scheduled),
+            drawn: SimDuration::ZERO,
             motion: None,
         };
         // Boarding already, if it has a stand; from remote parking it is

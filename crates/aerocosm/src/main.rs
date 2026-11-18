@@ -151,10 +151,15 @@ fn minutes(duration: aerocosm_core::SimDuration) -> f64 {
 /// an hour than their declared capacity, are warnings.
 fn log_movements(summary: &run::RunSummary, days: f64) {
     if let Some(network) = &summary.network {
+        let causes = network.departure_delay_causes();
         info!(
             departures = network.departures(),
             on_time_departures_pct = network.on_time_departures() * 100.0,
             average_departure_delay_min = minutes(network.average_departure_delay()),
+            late_aircraft_min = minutes(causes.late_aircraft()),
+            airline_min = minutes(causes.airline()),
+            flow_and_ground_min = minutes(causes.flow_and_ground()),
+            late_aircraft_pct = causes.late_aircraft_share() * 100.0,
             arrivals = network.arrivals(),
             on_time_arrivals_pct = network.on_time_arrivals() * 100.0,
             average_arrival_delay_min = minutes(network.average_arrival_delay()),
@@ -177,11 +182,15 @@ fn log_movements(summary: &run::RunSummary, days: f64) {
         // Delay by day: it must settle, not grow over the week (plan M7
         // D163).
         for (day, stats) in (1..).zip(&summary.days) {
+            let causes = stats.departure_delay_causes();
             info!(
                 day,
                 departures = stats.departures(),
                 on_time_departures_pct = stats.on_time_departures() * 100.0,
                 average_departure_delay_min = minutes(stats.average_departure_delay()),
+                late_aircraft_min = minutes(causes.late_aircraft()),
+                airline_min = minutes(causes.airline()),
+                flow_and_ground_min = minutes(causes.flow_and_ground()),
                 "day"
             );
         }
@@ -211,6 +220,7 @@ fn log_movements(summary: &run::RunSummary, days: f64) {
         let deviation_pct = report.deviation() * 100.0;
         let on_time_pct = stats.on_time_departures() * 100.0;
         let delay_min = minutes(stats.average_departure_delay());
+        let late_aircraft_min = minutes(stats.departure_delay_causes().late_aircraft());
         let holding_min = stats.holding_minutes();
         let ground_delays = stats.ground_delays();
         let busiest_hour = stats.busiest_hour();
@@ -223,9 +233,9 @@ fn log_movements(summary: &run::RunSummary, days: f64) {
         let stand_shares = stats.stand_shares();
         let longest_taxi_min = minutes(stats.longest_taxi());
         if report.within(MOVEMENT_TOLERANCE, days) {
-            info!(airport = %report.airport, actual = report.actual, expected = report.expected.round(), deviation_pct, on_time_pct, delay_min, holding_min, ground_delays, busiest_hour, taxi_delay_min, clearance_wait_min, stand_waits, ground_conflicts, reroutes, go_arounds, stand_shares, longest_taxi_min, "movements");
+            info!(airport = %report.airport, actual = report.actual, expected = report.expected.round(), deviation_pct, on_time_pct, delay_min, late_aircraft_min, holding_min, ground_delays, busiest_hour, taxi_delay_min, clearance_wait_min, stand_waits, ground_conflicts, reroutes, go_arounds, stand_shares, longest_taxi_min, "movements");
         } else {
-            warn!(airport = %report.airport, actual = report.actual, expected = report.expected.round(), deviation_pct, on_time_pct, delay_min, holding_min, ground_delays, busiest_hour, taxi_delay_min, clearance_wait_min, stand_waits, ground_conflicts, reroutes, go_arounds, stand_shares, longest_taxi_min, "movements off target");
+            warn!(airport = %report.airport, actual = report.actual, expected = report.expected.round(), deviation_pct, on_time_pct, delay_min, late_aircraft_min, holding_min, ground_delays, busiest_hour, taxi_delay_min, clearance_wait_min, stand_waits, ground_conflicts, reroutes, go_arounds, stand_shares, longest_taxi_min, "movements off target");
         }
         if let Some((busiest, capacity)) = report.capacity_exceeded() {
             warn!(airport = %report.airport, busiest_hour = busiest, capacity, "capacity exceeded");

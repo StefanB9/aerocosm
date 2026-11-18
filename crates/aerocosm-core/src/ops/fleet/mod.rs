@@ -24,7 +24,7 @@ use super::{
     control::{Control, RunwayKey},
     motion::{Event, Motion, Profile},
     path::{Leg, LegGround, Origin, Path, plan_leg},
-    stats::Statistics,
+    stats::{DelayCauses, Statistics},
     tail::{draw_delay, draw_taxi_in, draw_taxi_out, next_leg, off_block},
     timing::{NoTimer, Part, Timer},
     view::{FlightView, Holding},
@@ -54,6 +54,11 @@ struct TailOps {
     scheduled: SimTime,
     off_block: SimTime,
     boarding_from: SimTime,
+    /// How long after schedule the aircraft was ready for this leg (may be
+    /// negative), and the airline's own delay drawn for it: what the
+    /// departure delay is split by (plan M8 D167).
+    late: SimDuration,
+    drawn: SimDuration,
     /// `None` while parked before boarding.
     motion: Option<Motion>,
 }
@@ -446,8 +451,13 @@ impl Operations {
                     let tail = &mut self.tails[index];
                     tail.off_block = now;
                     tail.motion = Some(start);
-                    let delay = now.duration_since(self.tails[index].scheduled);
-                    self.stats.departed(flight.origin(), delay, now);
+                    let tail = &self.tails[index];
+                    let causes = DelayCauses::split(
+                        now.duration_since(tail.scheduled),
+                        tail.late,
+                        tail.drawn,
+                    );
+                    self.stats.departed(flight.origin(), causes, now);
                 }
             }
             Some(mut motion) => {
@@ -553,6 +563,8 @@ impl Operations {
             scheduled,
             off_block: leaves,
             boarding_from: leaves.checked_sub(BOARDING)?.max(arrived),
+            late: ready.duration_since(scheduled),
+            drawn: delay,
             motion: None,
         })
     }
@@ -905,6 +917,24 @@ mod tests {
         let at = operations.statistics().airport(frankfurt);
         assert!(at.busiest_hour() > 30, "{}", at.busiest_hour());
         assert!(at.departures() > 10 && at.arrivals() > 10);
+        Ok(())
+    }
+
+    #[test]
+    fn test_departure_delay_is_split_by_cause() -> Result<()> {
+        let (scenario, mut operations) = setup(StartMode::Warm, 11)?;
+        run(&mut operations, &scenario, 3_600)?;
+        let network = operations.statistics().network();
+        let causes = network.departure_delay_causes();
+        // Averages of a split that adds up per departure, to the rounding.
+        let gap = causes.total().as_millis() - network.average_departure_delay().as_millis();
+        assert!(
+            gap.abs() <= 3,
+            "{causes:?} against {}",
+            network.average_departure_delay()
+        );
+        assert!(causes.airline() > SimDuration::ZERO, "{causes:?}");
+        assert!(causes.late_aircraft() > SimDuration::ZERO, "{causes:?}");
         Ok(())
     }
 
