@@ -18,12 +18,6 @@ pub struct Capacity {
     pub window_minutes: u16,
     /// Movements per short window.
     pub per_window: u16,
-    /// Arrivals and departures per rolling hour where the runways set them
-    /// apart (plan M7 D160: a segregated pair lands on one runway only).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub arrivals_per_hour: Option<u16>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub departures_per_hour: Option<u16>,
 }
 
 impl Capacity {
@@ -38,10 +32,6 @@ impl Capacity {
         }
         if self.window_minutes == 0 || self.window_minutes >= 60 || 60 % self.window_minutes != 0 {
             return Err(invalid("capacity windows must divide the hour").into());
-        }
-        let way_fits = |limit: Option<u16>| limit.is_none_or(|n| n > 0 && n <= self.per_hour);
-        if !way_fits(self.arrivals_per_hour) || !way_fits(self.departures_per_hour) {
-            return Err(invalid("arrival and departure limits must lie within the hour's").into());
         }
         Ok(())
     }
@@ -117,8 +107,6 @@ mod tests {
             per_hour: 104,
             window_minutes: 15,
             per_window: 30,
-            arrivals_per_hour: None,
-            departures_per_hour: None,
         };
         fra.validate()?;
         for bad in [
@@ -141,14 +129,6 @@ mod tests {
             },
             Capacity {
                 window_minutes: 60,
-                ..fra
-            },
-            Capacity {
-                arrivals_per_hour: Some(0),
-                ..fra
-            },
-            Capacity {
-                departures_per_hour: Some(105),
                 ..fra
             },
         ] {

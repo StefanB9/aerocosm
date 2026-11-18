@@ -12,7 +12,7 @@ use crate::{
     ground::TaxiTimes,
     schedule::{
         rotation::WEEK,
-        slots::{SlotBook, Way},
+        slots::SlotBook,
         timetable::{TaxiMinutes, offset_minutes},
     },
     traffic::{Capacity, ClockTime, Curfew, TrafficTargets},
@@ -137,27 +137,18 @@ impl<'a> TripContext<'a> {
     }
 
     /// Local week minutes of the trip's movements at `airport` on each of
-    /// `days`, and which way each goes.
-    fn movements_at(
-        &self,
-        trip: &RoundTrip,
-        airport: Id<Airport>,
-        days: &[u32],
-    ) -> Vec<(u32, Way)> {
-        let mut movements = Vec::with_capacity(days.len() * 2);
-        // Departure, arrival at the far end, departure there, arrival back.
-        let ways = [Way::Departure, Way::Arrival, Way::Departure, Way::Arrival];
-        for ((at, minute), way) in trip.events().into_iter().zip(ways) {
+    /// `days`.
+    fn movements_at(&self, trip: &RoundTrip, airport: Id<Airport>, days: &[u32]) -> Vec<u32> {
+        let mut minutes = Vec::with_capacity(days.len() * 2);
+        for (at, minute) in trip.events() {
             if at == airport {
-                movements.extend(days.iter().map(|day| {
-                    (
-                        self.local_week_minute(trip.base, airport, minute + day * DAY),
-                        way,
-                    )
-                }));
+                minutes.extend(
+                    days.iter()
+                        .map(|day| self.local_week_minute(trip.base, airport, minute + day * DAY)),
+                );
             }
         }
-        movements
+        minutes
     }
 
     /// Whether the trip fits the slot books at both ends on all `days`.
@@ -182,9 +173,9 @@ impl<'a> TripContext<'a> {
         days: &[u32],
     ) {
         for airport in [trip.base, trip.other] {
-            let movements = self.movements_at(trip, airport, days);
+            let minutes = self.movements_at(trip, airport, days);
             if let Some(book) = books.get_mut(&airport) {
-                book.book(&movements);
+                book.book(&minutes);
             }
         }
     }
