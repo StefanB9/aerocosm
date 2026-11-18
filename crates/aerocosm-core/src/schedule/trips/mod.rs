@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use super::{
     FlightKind, FlightNumber,
     network::Service,
-    timetable::{block_time, scheduled_turnaround, stochastic_round},
+    timetable::{block_time, min_turnaround, stochastic_round},
 };
 use crate::{AircraftType, Id, SimRng, airline::Airline, time::Weekday, world::Airport};
 
@@ -159,12 +159,7 @@ pub(crate) fn build_trips(
             aircraft,
             ctx.taxi(service.other, service.base),
         ));
-        // The schedule plans a buffer on top of the shortest turnaround,
-        // which operations keep (plan M7 D161).
-        let turnaround = minutes(scheduled_turnaround(
-            aircraft,
-            service.kind == FlightKind::Cargo,
-        ));
+        let turnaround = minutes(min_turnaround(aircraft, service.kind == FlightKind::Cargo));
         for slot in 0..slots {
             let days: Vec<u32> = (0_u32..)
                 .zip(&counts)
