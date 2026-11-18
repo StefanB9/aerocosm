@@ -237,6 +237,11 @@ The effect is small: the airports still overloaded (Boston 252 minutes, Seattle 
 held by runway use, not by schedule peaks (see PR 2). Newark's delay 43 → 73 minutes, O'Hare
 46 → 42, Denver 23 → 23. The full suite passes: 863 tests.
 
+Benchmark record (D164, against PR 2's): tick medians 2.7–3.9 ms, 95th percentiles 5.2–6.7
+ms, under D107's 8 ms; the simulated day 383 s (277), start-up 23.4 s (16.5). Viewer frames,
+untouched, rose 72 %: the machine ran slower. Slot books at every airport may add to
+start-up; not separated from the machine.
+
 ## PR 4 — Buffers and stands (D161, D162)
 
 - Buffers on turnarounds and taxi times; O'Hare's stands diagnosed.
