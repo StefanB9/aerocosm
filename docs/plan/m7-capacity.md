@@ -47,6 +47,8 @@ every off-block with the time its aircraft was ready, and every take-off and lan
 | D162 | **O'Hare's stands diagnosed** in the PR that changes schedules (PR 4); fixed by a general rule if the cause is general, otherwise recorded |
 | D163 | **Acceptance.** The 7-day world run (seed 3 from 2026-07-06): departures on time (15 minutes) and average departure delay within the 2019 ranges of EUROCONTROL and BTS (about 75–80 % on time, 12–15 minutes average; the exact figures and sources are recorded in PR 1); day 7's average delay no more than 10 % above day 2's; no airport with 100 movements a day or more averaging over 60 minutes of delay; no taxi over 75 minutes; M6's limits still hold (escapes and stand shares under 2 %, no stalls); the region E ground test passes; German airports within the ADV tolerance; the capacity references within D157's tolerance; the benchmark's 95th-percentile tick under 8 ms. Then `dev` is promoted to `main` |
 | D164 | **Determinism and benchmarks** as in M6 (D156): fingerprints change in each PR; each PR adds a benchmark record and checks the report before it opens |
+| D165 | **Three close parallels land on two** (*added 2026-11-18*, after PR 4). A lane may hold three close parallel runways: the outer two take arrivals, the middle one departures, as at Seattle; its rate is calibrated against the references like the others. Before, a third close runway was not used (M5 D113) and Seattle landed on one |
+| D166 | **Arrival runway by landing slot and taxi-in** (*added 2026-11-18*). About to push back, a flight weighs each arrival runway the mode allows by the wait for its earliest landing slot and the typical taxi from that runway's exit to the stands, so landings spread over a mode's arrival runways without sending them across the field (Boston: 15R 18–19 landings an hour, 14 nearly idle). The slot alone was tried twice and dropped (M6 PR 2, M7 PR 2); this is kept only if escapes stay under 2 % and O'Hare does not lose what PR 2 gained |
 
 ## PR 1 — Capacity rule (D157, D158)
 
@@ -280,7 +282,43 @@ Benchmark record (D164, against PR 3's): tick medians 2.4–3.2 ms, 95th percent
 ms, under D107's 8 ms; the simulated day 330 s (383), start-up 22.4 s (23.4). Within the
 machine's swing; schedules alone changed.
 
-## PR 5 — Acceptance (D163)
+## PR 5 — Runway use at Boston and Seattle (D165, D166)
+
+- Lanes of three close parallels; arrival runway by slot and taxi-in.
+- Measured: 72-hour run (delay by day, Boston, Seattle, O'Hare, escapes), capacity
+  references, region E ground test.
+
+*As built (PR 5):*
+
+- **Three close parallels land on two** (D165, `traffic/model/runways.rs`). A lane holds up to
+  three runways closer than 1,035 m to its first; with three, the outer two land and the
+  middle one takes off, 105 an hour (Seattle's published 106; the capacity references still
+  pass). The rule changes six airports: Seattle, Philadelphia, and four small ones (Phoenix-
+  Mesa, Sheppard, Adana, Ulanqab).
+- **Arrival runway by landing slot and taxi-in** (D166), tried and dropped. A flight about to
+  push back weighed each arrival runway by its earliest landing slot and the typical taxi
+  from its exit to the median stand, from any origin. With D165: holding 579,319 → 247,458
+  minutes, Boston 304 → 265 minutes of delay, but O'Hare 45 → 161 minutes and its escapes
+  525 → 2,094 (network 3,908 → 5,576): landings moved onto runways whose taxi-in O'Hare's
+  ground cannot take, as twice before. Reverted by D166's own condition.
+
+| 72 h, seed 3 | Days 1 / 2 / 3 | Holding, min | Escapes | Seattle | Boston | O'Hare |
+|---|---|---|---|---|---|---|
+| PR 4 | 9.4 / 18.6 / 19.2 | 579,319 | 3,908 | 228 min | 304 min | 45 min |
+| D165 and D166 (D166 dropped) | 8.3 / 17.8 / 19.2 | 247,458 | 5,576 | 158 | 265 | 161 |
+| D165 (as built) | 9.7 / 16.9 / 19.4 | 323,107 | 4,013 | 144 | 264 | 83 |
+
+(Days: average departure delay, minutes; airports: average departure delay.) Seattle's
+holding falls from 292,569 to 16,741 minutes. O'Hare's runways are untouched by D165; its
+72-hour delay has swung between 39 and 83 minutes across PR 4's and this PR's runs as the
+schedule's draws shift with any capacity, and stays recorded as such (agreed 2026-11-18).
+Boston (264 minutes) remains overloaded: its landings still crowd 15R. The full suite passes:
+865 tests.
+
+Benchmark record (D164, against PR 4's): tick medians 2.1–3.2 ms, 95th percentiles 3.9–6.0
+ms, under D107's 8 ms; the simulated day 324 s (330), start-up 21.2 s (22.4).
+
+## PR 6 — Acceptance (D163)
 
 - The 7-day run, benchmark record, `docs/known-issues.md`, README; promotion to `main` on the
   user's word.
