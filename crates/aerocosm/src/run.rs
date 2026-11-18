@@ -42,6 +42,8 @@ pub(crate) struct RunSummary {
     pub(crate) movements: Vec<AirportReport>,
     /// Network punctuality and delays; `None` without traffic.
     pub(crate) network: Option<AirportStats>,
+    /// Departures per day of the run (plan M7 D163); empty without traffic.
+    pub(crate) days: Vec<aerocosm_core::ops::DayStats>,
     /// The longest controlled taxi still under way at the end: where and how
     /// long (plan M5 D144).
     pub(crate) longest_under_way: Option<(String, SimDuration)>,
@@ -162,6 +164,9 @@ pub(crate) fn run(
         network: simulation
             .statistics()
             .map(aerocosm_core::ops::Statistics::network),
+        days: simulation
+            .statistics()
+            .map_or_else(Vec::new, |stats| stats.days().to_vec()),
         longest_under_way: simulation
             .longest_taxi_under_way()
             .and_then(|(airport, took)| {
@@ -348,6 +353,14 @@ mod tests {
         assert_eq!(frankfurt.capacity.map(|c| c.per_hour), Some(148));
         let network = summary.network.context("network statistics")?;
         assert!(network.departures() > 50, "{}", network.departures());
+        // Departures by day add up to the network's (plan M7 D163).
+        assert_ne!(summary.days.len(), 0);
+        let by_day: u32 = summary
+            .days
+            .iter()
+            .map(aerocosm_core::ops::DayStats::departures)
+            .sum();
+        assert_eq!(by_day, network.departures());
         Ok(())
     }
 
@@ -400,6 +413,7 @@ mod tests {
             peak_airborne: 0,
             movements: Vec::new(),
             network: None,
+            days: Vec::new(),
             longest_under_way: None,
         };
         assert!((summary.ticks_per_second() - 4000.0).abs() < 1e-9);

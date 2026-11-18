@@ -248,6 +248,38 @@ start-up; not separated from the machine.
 - Measured: delay by day of a 72-hour run, scheduled against flown taxi times at Frankfurt
   and Munich.
 
+*As built (PR 4):*
+
+- **Delay by day.** The statistics count departures, on-time share and delay per day of the
+  run; the runner logs a `day` line for each (D163 compares day 7 with day 2).
+- **Taxi buffer** (`schedule/trips/context.rs`). A mapped airport's scheduled taxi times add
+  the time congestion costs: five minutes out and two in per unit of its load (movements a
+  day against sixteen hours of capacity). Frankfurt gets 2.9 minutes out, Munich 3.8, against
+  EUROCONTROL's additional taxi-out times of 3.5 and 3.4 minutes per departure (2025).
+  Unmapped airports keep their calibrated default of 12 and 6 minutes.
+- **Turnaround buffer, tried and dropped.** Scheduled turnarounds a fifth above the shortest
+  (A320 42 minutes for 35): aircraft then stood at their stands until the padded departure,
+  and O'Hare's stands overflowed (368 waits, 229 shares; delay 39 → 145 minutes). That is
+  D162's finding: O'Hare's mapped stands hold its traffic at the shortest turnarounds, not at
+  padded ones; at the shortest it has no shortage (0 shares in the 72-hour run below).
+  Agreed 2026-11-18.
+
+| 72 h, seed 3 | Day 1 | Day 2 | Day 3 | On time (dep / arr) | Arrival delay | Holding, min | O'Hare |
+|---|---|---|---|---|---|---|---|
+| No buffers | 9.4 | 17.6 | 19.0 | 78.5 / 73.2 % | 18.6 | 579,628 | 39 min, 0 shares |
+| Both buffers (dropped) | 8.7 | 17.3 | 21.5 | 80.4 / 77.5 % | 17.7 | 480,096 | 145 min, 229 shares |
+| Taxi buffer (as built) | 9.4 | 18.6 | 19.2 | 78.9 / 76.0 % | 17.7 | 579,319 | 45 min, 0 shares |
+
+(Days: average departure delay, minutes.) Arrivals come in on time more often; departure
+delay is unchanged, and **it still grows after the first day** with or without buffers: Boston
+(304 minutes) and Seattle (228) stay overloaded by their runway use (PR 2) and send their
+delay on through the network. D163's limit of day 7 within 10 % of day 2 is in doubt. The
+full suite passes: 865 tests.
+
+Benchmark record (D164, against PR 3's): tick medians 2.4–3.2 ms, 95th percentiles 4.4–6.3
+ms, under D107's 8 ms; the simulated day 330 s (383), start-up 22.4 s (23.4). Within the
+machine's swing; schedules alone changed.
+
 ## PR 5 — Acceptance (D163)
 
 - The 7-day run, benchmark record, `docs/known-issues.md`, README; promotion to `main` on the

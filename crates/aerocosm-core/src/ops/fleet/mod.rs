@@ -447,7 +447,7 @@ impl Operations {
                     tail.off_block = now;
                     tail.motion = Some(start);
                     let delay = now.duration_since(self.tails[index].scheduled);
-                    self.stats.departed(flight.origin(), delay);
+                    self.stats.departed(flight.origin(), delay, now);
                 }
             }
             Some(mut motion) => {

@@ -20,6 +20,26 @@ use crate::{
     world::{Airport, World},
 };
 
+/// Additional taxi-out minutes congestion costs per unit of an airport's
+/// load, and taxi-in minutes: calibrated so that Frankfurt and Munich come
+/// out near EUROCONTROL's additional taxi-out times (3.5 and 3.4 minutes per
+/// departure in 2025; plan M7 D161).
+const ADDITIONAL_OUT: f64 = 5.0;
+const ADDITIONAL_IN: f64 = 2.0;
+/// Hours a day an airport's runways are busy, for its load.
+const BUSY_HOURS: f64 = 16.0;
+
+/// An airport's load: its movements a day against its capacity over the
+/// busy hours of the day.
+fn load(movements_per_year: u32, capacity: Capacity) -> f64 {
+    f64::from(movements_per_year) / 365.0 / (f64::from(capacity.per_hour) * BUSY_HOURS).max(1.0)
+}
+
+/// Additional taxi-out and taxi-in minutes at an airport of `load`.
+fn additional_taxi(load: f64) -> (f64, f64) {
+    (ADDITIONAL_OUT * load, ADDITIONAL_IN * load)
+}
+
 /// Lookups the trip builder needs, with zone offsets taken at a reference
 /// instant (D43).
 pub(crate) struct TripContext<'a> {
@@ -33,6 +53,8 @@ pub(crate) struct TripContext<'a> {
     pub(super) capacities: HashMap<Id<Airport>, Capacity>,
     /// Typical taxi minutes at mapped airports (plan M4 D73).
     taxi: HashMap<Id<Airport>, (f64, f64)>,
+    /// Each airport's load, for the additional taxi time it costs.
+    loads: HashMap<Id<Airport>, f64>,
 }
 
 impl<'a> TripContext<'a> {
@@ -53,6 +75,7 @@ impl<'a> TripContext<'a> {
         let mut curfews = HashMap::new();
         let mut banks = HashMap::new();
         let mut capacities = HashMap::new();
+        let mut loads = HashMap::new();
         for target in traffic.airports() {
             let id = world
                 .airport_by_ident(target.airport())
@@ -65,6 +88,7 @@ impl<'a> TripContext<'a> {
             }
             if let Some(capacity) = target.capacity() {
                 capacities.insert(id, capacity);
+                loads.insert(id, load(target.movements_per_year(), capacity));
             }
         }
         Ok(Self {
@@ -77,16 +101,19 @@ impl<'a> TripContext<'a> {
             banks,
             capacities,
             taxi: HashMap::new(),
+            loads,
         })
     }
 
-    /// The context with typical taxi times by airport index (plan M4 D73).
+    /// The context with typical taxi times by airport index (plan M4 D73),
+    /// each with the additional time congestion costs there (plan M7 D161).
     pub(crate) fn with_taxi(mut self, table: &[Option<TaxiTimes>]) -> Self {
         let minutes = |d: crate::SimDuration| d.as_secs_f64() / 60.0;
         for (index, times) in table.iter().enumerate() {
             if let (Some(times), Ok(id)) = (times, Id::<Airport>::from_usize(index)) {
+                let (out, back) = additional_taxi(self.loads.get(&id).copied().unwrap_or(0.0));
                 self.taxi
-                    .insert(id, (minutes(times.out), minutes(times.back)));
+                    .insert(id, (minutes(times.out) + out, minutes(times.back) + back));
             }
         }
         self
@@ -225,5 +252,28 @@ impl<'a> TripContext<'a> {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let minute_of_day = local.rem_euclid(i64::from(DAY)) as u16;
         ClockTime::from_minute(minute_of_day).unwrap_or(ClockTime::MIDNIGHT)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_busy_airports_schedule_more_taxi_time() {
+        let capacity = |per_hour| Capacity {
+            per_hour,
+            window_minutes: 10,
+            per_window: per_hour.div_ceil(6),
+        };
+        // Frankfurt: 1,392 movements a day, 148 an hour.
+        let frankfurt = load(1_392 * 365, capacity(148));
+        assert!((frankfurt - 0.588).abs() < 0.01, "{frankfurt}");
+        let (out, back) = additional_taxi(frankfurt);
+        assert!((2.5..=4.0).contains(&out), "{out}");
+        assert!(back < out);
+        // A quiet airport adds next to nothing.
+        let quiet = load(20 * 365, capacity(45));
+        assert!(additional_taxi(quiet).0 < 0.2);
     }
 }

@@ -211,6 +211,15 @@ weighs the taxi-in as well is left for later.
 **Why:** its three close parallels make one lane of two (M5 D113: a third close runway is not
 used), arrivals on 16L, departures on 16C; real Seattle lands on two.
 
+### Delay grows after the first day
+
+**What:** the network's average departure delay is 9.4 minutes on the first day of a run
+(a fresh start), 18.6 on the second, 19.2 on the third (72 hours, seed 3, plan M7 PR 4).
+
+**Why:** Boston (304 minutes) and Seattle (228) are overloaded by how their runways are used
+(above) and pass their delay on through the aircraft that leave them. Schedule buffers did
+not stop it (plan M7 PR 4).
+
 ### The fallback traffic model underestimates the largest unobserved hubs
 
 **What:** airports outside well-covered countries take their traffic from the fitted model

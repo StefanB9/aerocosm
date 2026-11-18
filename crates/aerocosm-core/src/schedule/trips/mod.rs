@@ -263,12 +263,14 @@ mod tests {
             back: crate::SimDuration::from_secs(420),
         });
         let mapped = context(&data)?.with_taxi(&table);
+        // The layout's times and the additional time Frankfurt's load costs
+        // (plan M7 D161).
         let taxi = mapped.taxi(frankfurt, munich);
-        assert!((taxi.out - 10.0).abs() < 1e-9);
+        assert!((12.0..=14.5).contains(&taxi.out), "{}", taxi.out);
         assert!((taxi.back - TaxiMinutes::DEFAULT.back).abs() < 1e-9);
         let back = mapped.taxi(munich, frankfurt);
         assert!((back.out - TaxiMinutes::DEFAULT.out).abs() < 1e-9);
-        assert!((back.back - 7.0).abs() < 1e-9);
+        assert!((7.5..=8.5).contains(&back.back), "{}", back.back);
         Ok(())
     }
 
