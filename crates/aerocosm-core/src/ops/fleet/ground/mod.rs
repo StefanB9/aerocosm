@@ -137,6 +137,9 @@ pub(super) struct Airside {
     runway_of: Vec<Option<usize>>,
     /// Per junction, the aircraft cleared into it from a hold.
     claims: Vec<Option<u32>>,
+    /// Per junction, the landing rolling out towards an exit in it: whoever
+    /// would come to rest there holds short (plan M7 PR 2).
+    exits: Vec<Option<u32>>,
     /// Per chain, who has locked it and which way.
     locks: Vec<Vec<(u32, bool)>>,
     /// Per chain, the direction recent traffic took it, from -1 (against
@@ -270,6 +273,7 @@ impl GroundControl {
                         .collect(),
                     lengths: layout.edges().iter().map(|e| e.length().value()).collect(),
                     claims: vec![None; junctions.junctions().len()],
+                    exits: vec![None; junctions.junctions().len()],
                     taxiing: Vec::new(),
                     seen: Vec::new(),
                     occupied: vec![Vec::new(); junctions.junctions().len()],
@@ -389,7 +393,11 @@ impl GroundControl {
             for locks in &mut airside.locks {
                 locks.retain(|&(other, _)| other != owner);
             }
-            for slot in &mut airside.spot_owner {
+            for slot in airside
+                .spot_owner
+                .iter_mut()
+                .chain(airside.exits.iter_mut())
+            {
                 if *slot == Some(owner) {
                     *slot = None;
                 }
@@ -470,6 +478,9 @@ pub(super) struct Taxi {
     crossing: Option<(RunwayKey, i64)>,
     /// How often it has been sent another way out of a deadlock (D93).
     reroutes: u8,
+    /// The junctions at its exit a landing claimed while it rolled out,
+    /// given back once it taxies and is seen in them (plan M7 PR 2).
+    exit_claims: Vec<u32>,
     /// Since when it has stood with nobody to wait for, ms (plan M6 D150).
     idle_since: Option<i64>,
     /// Stopped by the sight of the aircraft it waits for (see and avoid),
@@ -643,6 +654,7 @@ impl Operations {
                 sighted: false,
                 crossing: None,
                 reroutes: 0,
+                exit_claims: Vec::new(),
                 points: points.clone(),
                 speeds,
             },

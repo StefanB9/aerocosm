@@ -127,6 +127,82 @@ acceptance. The simulated day takes 329 s (346).
 - Diagnosis of O'Hare and Boston: flown rate per runway against what the mode allows.
 - The fix; measured: busiest hours against capacity at the hubs, 36-hour world run.
 
+*As built (PR 2):*
+
+**The tick regression of PR 1 does not reproduce.** Measured back to back on one machine,
+`tick-12` runs at a median of 2.5–2.6 ms and a 95th percentile of 3.8–5.0 ms on PR 1's code,
+on PR 1 without its see-and-avoid fixes and on M6's end; PR 1's code was the fastest. PR 1's
+record (10.6 ms) was the machine's.
+
+**Diagnosis.** A 36-hour run logged every touchdown and take-off clearance by runway. Every
+busy runway flew below the rate the capacity rule gives it, at O'Hare and Boston as
+elsewhere:
+
+| Runway use | Flown at best, an hour | The rule's rate |
+|---|---|---|
+| Arrivals only (Newark 04L, Seattle 16L, Atlanta 08L, Denver 17L, O'Hare 10R) | 27–31 landings | about 42 |
+| Departures only (Newark 04R, O'Hare 09R, Atlanta 09R, Denver 16R) | 33–38 take-offs | about 43 |
+| Mixed, one runway (LaGuardia 13/31, Boston 15R/33L) | 30–45 together | 45 |
+
+Three causes, each fixed by a general rule:
+
+- **Landing slots went unused while aircraft held.** About 40 % of landings came at the
+  wake minimum, the rest after gaps, a fifth longer than 2.5 minutes, with aircraft in the
+  stack: a holder left at the slot it was given when booked, and slots freed ahead of it
+  (late flights rebooking, go-arounds, stale provisional slots) stayed empty. Every half
+  minute a holder now asks for the earliest slot it can still reach and leaves sooner if it
+  moved up. Airborne holding fell from 512,715 to 193,745 minutes over 36 hours.
+- **3 NM on final.** With aircraft waiting, landings came at the wake minima: 3 NM between
+  aircraft of a class, more behind heavies, about 33–36 an hour with the traffic's mix.
+  Busy hubs fly the reduced radar minimum of 2.5 NM where no wake minimum applies (ICAO
+  PANS-ATM, runway occupancy under 50 s); agreed 2026-11-18. Heavy behind heavy keeps its
+  wake minimum of 4 NM. Landing occupancy is 50 s (was 60).
+- **Mixed runways starved their departures.** A take-off needed 90 s before the next
+  touchdown, and arrivals came every 80–90 s; LaGuardia's departures were refused for 1,000–
+  2,900 s an hour. On a runway used for both, landings are now at least 120 s apart and a
+  take-off may roll a minute before the next touchdown, about 2 NM out: one departure after
+  each landing (agreed 2026-11-18).
+
+**Tried and dropped:**
+
+- **Arrival runway by earliest landing slot** (retried from M6 PR 2 on the user's word):
+  holding −40 %, delays slightly lower across the network, but escapes 1,793 → 2,419 and
+  O'Hare 44 → 84 minutes of delay; arrival runways stay by direction (M6 D152), agreed
+  2026-11-18.
+- **Flying crossing runways for departures:** still unsafe. A departure for the crossing
+  runway stands at its holding position where landings on the other runway leave it
+  (region E, seed 11: Helsinki). Crossing runways stay counted in the rating, not flown.
+
+**Ground safety at exits.** With the faster runways, the region E ground test found a
+departure holding short to cross a runway at the very node where a landing then left it
+(Helsinki, 0.0 m): ground control knew of a landing only once it taxied. A landing now
+reserves the junction at its exit while it rolls out; an aircraft that would come to rest
+in it stops short, traffic passing through goes on. Two broader versions were measured and
+dropped: claiming the junction like a clearance (held all traffic through it for each
+rollout: Newark 45 → 134 minutes) and taking only exits nobody stands near (no effect).
+
+| 36 h, seed 3 | Escapes | Departure delay, min | Arrival delay, min | Airborne holding, min | Go-arounds |
+|---|---|---|---|---|---|
+| PR 1 | 1,785 (1.1 %) | 16.8 | 20.0 | 512,715 | 712 |
+| + holders move up | 2,105 | 13.8 | 15.8 | 193,745 | 808 |
+| + 2.5 NM, mixed runways | 1,793 | 12.3 | 14.8 | 243,684 | 995 |
+| + arrivals by earliest slot (dropped) | 2,419 | 12.0 | 13.8 | 147,430 | 1,034 |
+| As built (+ exit reserved) | 1,958 (1.2 %) | 12.5 | 14.9 | 264,129 | 1,031 |
+
+Against PR 1: O'Hare 63 → 46 minutes of average delay, LaGuardia 126 → 28, Newark 86 → 43,
+Denver 23 → 23, Frankfurt 15 → 16. The network's departure delay (12.5 minutes) is now
+within EUROCONTROL's 2019 figure (13.1). Still overloaded: Boston (245 minutes; its landings
+crowd 15R while 14 stands nearly idle, arrival runways being chosen by direction) and
+Seattle (151 minutes, 101,340 minutes of holding: one arrival runway, its third close
+parallel unused by the lane rule). D159's 90 % of capacity in the busiest hours was not
+measured hour by hour; the runways' rates are now set by the separations above.
+
+Benchmark record (D164, against PR 1's): tick medians 2.0–2.7 ms (were 3.4–5.2), 95th
+percentiles 3.4–4.4 ms (6.4–10.6), well under D107's 8 ms; the simulated day 277 s (329),
+start-up 16.5 s (21.4). Untouched code ran faster too (viewer frames −23 %), so part of the
+gain is the machine; less holding means fewer aircraft airborne at once. The full suite
+passes: 863 tests.
+
 ## PR 3 — Coordination (D160)
 
 - Coordination from the generated schedule's peak; slots hold it.

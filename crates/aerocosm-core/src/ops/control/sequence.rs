@@ -1,7 +1,7 @@
 //! Landing slots on one runway, kept apart by wake separation (plan M3 D57).
 
 use super::separation::arrival_spacing;
-use crate::{SimTime, WakeCategory};
+use crate::{SimDuration, SimTime, WakeCategory};
 
 /// One booked landing.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -17,16 +17,34 @@ pub(crate) struct Slot {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Timeline {
     slots: Vec<Slot>,
+    /// Landings are never closer than this, whatever their wake (plan M7
+    /// D159: a mixed runway leaves room for a departure after each).
+    floor: SimDuration,
 }
 
 impl Timeline {
+    /// Keeps landings at least `floor` apart from now on.
+    pub(crate) const fn set_floor(&mut self, floor: SimDuration) {
+        self.floor = floor;
+    }
+
+    /// The spacing a `follower` at `speed` needs behind `leader`.
+    pub(crate) fn spacing(
+        &self,
+        leader: WakeCategory,
+        follower: WakeCategory,
+        speed: f64,
+    ) -> SimDuration {
+        arrival_spacing(leader, follower, speed).max(self.floor)
+    }
+
     /// Books the earliest landing time at or after `eta` that keeps wake
     /// separation with both neighbours, and returns it.
     pub(crate) fn book(&mut self, eta: SimTime, wake: WakeCategory, speed: f64) -> SimTime {
         let after = |earlier: &Slot, at: SimTime| {
             earlier
                 .time
-                .checked_add(arrival_spacing(earlier.wake, wake, speed))
+                .checked_add(self.spacing(earlier.wake, wake, speed))
                 .map_or(at, |free| free.max(at))
         };
         for index in 0..=self.slots.len() {
@@ -35,7 +53,7 @@ impl Timeline {
                 .and_then(|before| self.slots.get(before))
                 .map_or(eta, |earlier| after(earlier, eta));
             let fits = self.slots.get(index).is_none_or(|later| {
-                time.checked_add(arrival_spacing(wake, later.wake, later.speed))
+                time.checked_add(self.spacing(wake, later.wake, later.speed))
                     .is_ok_and(|needed| needed <= later.time)
             });
             if fits {

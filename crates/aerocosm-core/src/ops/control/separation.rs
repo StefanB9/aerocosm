@@ -5,11 +5,13 @@ use crate::{SimDuration, WakeCategory};
 /// Metres per nautical mile.
 pub(crate) const NAUTICAL_MILE: f64 = 1_852.0;
 /// A landing aircraft occupies the runway about this long, so landings are
-/// never closer together.
-pub(crate) const RUNWAY_OCCUPANCY: SimDuration = SimDuration::from_secs(60);
+/// never closer together: the 50 s under which the reduced minimum on
+/// final applies (plan M7 D159).
+pub(crate) const RUNWAY_OCCUPANCY: SimDuration = SimDuration::from_secs(50);
 
 /// Minimum distance on final between a `leader` and its `follower`, metres
-/// (ICAO PANS-ATM wake turbulence minima, 3 NM radar minimum otherwise).
+/// (ICAO PANS-ATM wake turbulence minima; otherwise the reduced radar
+/// minimum of 2.5 NM on final that busy runways fly, plan M7 D159).
 pub(crate) fn arrival_distance(leader: WakeCategory, follower: WakeCategory) -> f64 {
     use WakeCategory::{Heavy, Light, Medium, Super};
     let miles = match (leader, follower) {
@@ -18,7 +20,7 @@ pub(crate) fn arrival_distance(leader: WakeCategory, follower: WakeCategory) -> 
         (Super, Heavy) | (Heavy, Light) => 6.0,
         (Heavy, Medium) | (Medium, Light) => 5.0,
         (Super | Heavy, Heavy | Super) => 4.0,
-        _ => 3.0,
+        _ => 2.5,
     };
     miles * NAUTICAL_MILE
 }
@@ -66,8 +68,10 @@ mod tests {
         assert!((nm(WakeCategory::Heavy, WakeCategory::Heavy) - 4.0).abs() < 1e-9);
         assert!((nm(WakeCategory::Super, WakeCategory::Light) - 8.0).abs() < 1e-9);
         assert!((nm(WakeCategory::Medium, WakeCategory::Light) - 5.0).abs() < 1e-9);
-        assert!((nm(WakeCategory::Medium, WakeCategory::Medium) - 3.0).abs() < 1e-9);
-        assert!((nm(WakeCategory::Light, WakeCategory::Heavy) - 3.0).abs() < 1e-9);
+        // The reduced radar minimum on final where no wake minimum applies
+        // (ICAO PANS-ATM, runway occupancy under 50 s; plan M7 D159).
+        assert!((nm(WakeCategory::Medium, WakeCategory::Medium) - 2.5).abs() < 1e-9);
+        assert!((nm(WakeCategory::Light, WakeCategory::Heavy) - 2.5).abs() < 1e-9);
     }
 
     #[test]
@@ -75,10 +79,11 @@ mod tests {
         // 5 NM at 70 m/s: 132 s.
         let spacing = arrival_spacing(WakeCategory::Heavy, WakeCategory::Medium, 70.0);
         assert!((spacing.as_secs_f64() - 5.0 * NAUTICAL_MILE / 70.0).abs() < 1.0);
-        // 3 NM at a fast 90 m/s is 62 s, but never below the runway
-        // occupancy of 60 s.
+        // 2.5 NM at a fast 200 m/s is 23 s, but never below the runway
+        // occupancy of 50 s.
         let fast = arrival_spacing(WakeCategory::Medium, WakeCategory::Medium, 200.0);
         assert_eq!(fast, RUNWAY_OCCUPANCY);
+        assert_eq!(RUNWAY_OCCUPANCY, SimDuration::from_secs(50));
     }
 
     #[test]

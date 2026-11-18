@@ -21,6 +21,8 @@ const HORIZON: f64 = 200_000.0;
 const HOLD_DISTANCE: f64 = 64_820.0;
 /// Shorter holds are not worth it: the gate at the fix takes the rest.
 const MIN_HOLD_SECONDS: f64 = 30.0;
+/// An aircraft in the hold looks for an earlier landing slot this often, s.
+const MOVE_UP_EVERY: i64 = 30;
 /// Descents ask for approach clearance within this distance of the fix, m:
 /// more than a tick's flight at any descent speed.
 const ASKING_DISTANCE: f64 = 500.0;
@@ -50,6 +52,8 @@ pub(super) struct Flow {
     pub(super) slot_time: Option<SimTime>,
     /// Booked landing slot once sequenced.
     pub(super) landing: Option<SimTime>,
+    /// Seconds from leaving the hold to touchdown, unhindered.
+    from_hold: f64,
 }
 
 impl Flow {
@@ -187,9 +191,37 @@ impl Operations {
             motion.plan_hold(hold_point, level_altitude(level));
             let reach = prediction.reach_hold / plan.speed_factor;
             self.flows[index].hold_until = Some(after_seconds(now, reach + plan.hold_seconds));
+            self.flows[index].from_hold = prediction.touchdown - prediction.reach_hold;
             self.flows[index].level = Some(level);
         }
         Ok(())
+    }
+
+    /// An aircraft in the hold takes a landing slot freed ahead of it and
+    /// leaves the hold sooner (plan M7 D159): every half minute, staggered
+    /// by tail.
+    fn move_up(&mut self, index: usize, now: SimTime) {
+        let flow = self.flows[index];
+        let (Some(key), Some(slot), Some(_)) = (flow.arrival, flow.landing, flow.hold_until) else {
+            return;
+        };
+        let second = now.as_millis() / 1000;
+        if (second + i64::try_from(index).unwrap_or(0)) % MOVE_UP_EVERY != 0 {
+            return;
+        }
+        let earliest = after_seconds(now, flow.from_hold);
+        let speed = self.profiles[index].approach_speed();
+        let moved = self
+            .control
+            .move_up(key, slot, earliest, self.wakes[index], speed);
+        if moved < slot {
+            self.flows[index].landing = Some(moved);
+            // SAFETY: minutes from the hold to touchdown, far inside i64 ms.
+            #[allow(clippy::cast_possible_truncation)]
+            let from_hold = SimDuration::from_millis((flow.from_hold * 1000.0) as i64);
+            let leave = moved.checked_sub(from_hold).unwrap_or(now).max(now);
+            self.flows[index].hold_until = Some(leave);
+        }
     }
 
     /// At off-block: books a provisional landing slot at a controlled
@@ -253,6 +285,9 @@ impl Operations {
             || (phase == Phase::Descent && remaining <= ASKING_DISTANCE);
         if !asking {
             return Ok(motion.advance_free(&self.profiles[index], dt));
+        }
+        if phase == Phase::Holding {
+            self.move_up(index, now);
         }
         let profile = self.profiles[index];
         let flow = self.resolve(index, leg)?;

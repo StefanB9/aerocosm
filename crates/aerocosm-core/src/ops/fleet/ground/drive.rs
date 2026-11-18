@@ -4,7 +4,7 @@
 //! the taxiways it has locked, and its route's end; then it finishes at its
 //! stand, waiting spot or holding position.
 
-use super::{EDGE, FOLLOW, HOLD_SHORT, STALLED_AFTER, Target, control::overdue, ms};
+use super::{EDGE, FOLLOW, HOLD_SHORT, STALLED_AFTER, Target, ZONE, control::overdue, ms};
 use crate::{
     LatLon, SimDuration, SimTime, TICK,
     ground::junctions::Passage,
@@ -50,6 +50,7 @@ impl Operations {
         now: SimTime,
         airline: AirlineIcao,
     ) -> Option<Event> {
+        self.release_exit(index);
         let taxi = self.taxis[index].as_ref()?;
         if taxi.waiting.is_some() {
             if self.wait_for_stand(scenario, index, now, airline) {
@@ -177,6 +178,15 @@ impl Operations {
         if let Some(run) = taxi.runs.get(taxi.locked) {
             let short = super::control::short_of_unlocked(&taxi.passages, run.from);
             stop = stop.nearer(short, taxi.waiting_for, false);
+        }
+        // Short of the exit a landing rolls out to, if it would come to rest
+        // in it: the landing leaves the runway there (plan M7 PR 2).
+        if let Some((passage, by)) = taxi.passages.iter().find_map(|p| {
+            let by = airside.exits.get(p.junction as usize).copied().flatten()?;
+            (by != owner && p.entry - HOLD_SHORT > along - EDGE && rests_in(p, stop.at))
+                .then_some((p, by))
+        }) {
+            stop = stop.nearer(passage.entry - HOLD_SHORT, Some(by), false);
         }
         // Short of a junction someone else is in or has been cleared into.
         for passage in taxi
@@ -339,6 +349,12 @@ pub(super) fn moved(seen: &mut [Seen], owner: u32, at: LatLon, heading: Degrees,
         own.moving = moving;
         own.at_hold &= !moving;
     }
+}
+
+/// Whether an aircraft stopping `at` along its path comes to rest in the
+/// zone of `passage`'s junction.
+fn rests_in(passage: &Passage, at: f64) -> bool {
+    at > passage.entry - ZONE + EDGE && at <= passage.exit + ZONE
 }
 
 /// Whether an aircraft `along` its path through `passages`, cleared up to
@@ -506,6 +522,22 @@ mod tests {
         };
         assert!(in_the_way(here, long_step, &jumped_hold, 2));
         Ok(())
+    }
+
+    #[test]
+    fn test_a_stop_rests_in_a_junction_or_short_of_it() {
+        let passage = Passage {
+            junction: 4,
+            entry: 500.0,
+            exit: 540.0,
+            hold: None,
+        };
+        // Holding short of a runway at its exit: in the junction's zone.
+        assert!(rests_in(&passage, 500.0));
+        assert!(rests_in(&passage, 560.0));
+        // Short of the junction, or beyond it.
+        assert!(!rests_in(&passage, 500.0 - HOLD_SHORT));
+        assert!(!rests_in(&passage, 600.0));
     }
 
     #[test]
