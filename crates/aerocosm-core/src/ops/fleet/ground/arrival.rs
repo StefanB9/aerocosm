@@ -1,7 +1,7 @@
 //! Arrivals under ground control: stand or waiting spot at touchdown, and
 //! the wait for a stand (plan M4 D69, D76).
 
-use super::{FOLLOW, RETRY, SPOT_ESCAPE_AFTER, Start, Target, ms};
+use super::{FOLLOW, RETRY, SPOT_ESCAPE_AFTER, Start, Target, ZONE, ms};
 use crate::{
     Id, SimTime,
     geo::Polyline,
@@ -124,7 +124,20 @@ impl Operations {
             offset: 0.0,
             extension: Vec::new(),
         };
-        for &exit in &exits {
+        // Exits nobody stands near: an aircraft holding short of the runway
+        // at one would be driven into (plan M7 PR 2, region E: Helsinki).
+        let empty: Vec<bool> = exits
+            .iter()
+            .map(|exit| {
+                let point = layout.nodes()[exit.as_usize()].position();
+                self.ground.airside(airport).is_none_or(|airside| {
+                    !airside.seen.iter().any(|seen| {
+                        seen.tail != owner && seen.at.distance_to(point).value() < FOLLOW
+                    })
+                })
+            })
+            .collect();
+        for (&exit, _) in exits.iter().zip(&empty).filter(|(_, empty)| **empty) {
             let Some(route) = self.route_for(layout, index, exit, to) else {
                 continue;
             };
@@ -132,6 +145,7 @@ impl Operations {
                 self.start_taxi(scenario, index, airport, start(route, exit), now)
                 && self.clear_way(index, 0.0, VACATE_CLEAR, VACATE_REACH)
             {
+                self.claim_exit(index);
                 return Some((exit, polyline));
             }
             self.ground.release(airport, owner);
@@ -140,23 +154,39 @@ impl Operations {
         // No way off is clear: it waits on the runway at the first exit
         // nobody stands near (else its planned one), and the next arrival
         // goes around (plan M4 D90).
-        let empty = |exit: Id<Node>| {
-            let point = layout.nodes()[exit.as_usize()].position();
-            self.ground.airside(airport).is_none_or(|airside| {
-                !airside
-                    .seen
-                    .iter()
-                    .any(|seen| seen.tail != owner && seen.at.distance_to(point).value() < FOLLOW)
-            })
-        };
         let wait = exits
             .iter()
-            .copied()
-            .find(|&exit| empty(exit))
+            .zip(&empty)
+            .find_map(|(&exit, &empty)| empty.then_some(exit))
             .unwrap_or(planned);
         let route = self.route_for(layout, index, wait, to)?;
         let polyline = self.start_taxi(scenario, index, airport, start(route, wait), now)?;
+        self.claim_exit(index);
         Some((wait, polyline))
+    }
+
+    /// A landing that has chosen its exit claims the junction there while
+    /// it rolls out: others hold short of it instead of taxiing onto the
+    /// spot it will leave the runway at (plan M7 PR 2, region E: Helsinki).
+    fn claim_exit(&mut self, index: usize) {
+        let owner = Self::owner(index);
+        let Some(taxi) = self.taxis[index].as_ref() else {
+            return;
+        };
+        let at_exit: Vec<u32> = taxi
+            .passages
+            .iter()
+            .take_while(|passage| passage.entry <= taxi.offset + ZONE)
+            .map(|passage| passage.junction)
+            .collect();
+        let airport = taxi.airport;
+        if let Some(airside) = self.ground.airside_mut(airport) {
+            for junction in at_exit {
+                if let Some(slot) = airside.claims.get_mut(junction as usize) {
+                    slot.get_or_insert(owner);
+                }
+            }
+        }
     }
 
     /// The free waiting spot with the shortest taxi from `from` for tail
