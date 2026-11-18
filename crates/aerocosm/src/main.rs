@@ -174,6 +174,17 @@ fn log_movements(summary: &run::RunSummary, days: f64) {
             longest_taxi_min = minutes(network.longest_taxi()),
             "punctuality"
         );
+        // Delay by day: it must settle, not grow over the week (plan M7
+        // D163).
+        for (day, stats) in (1..).zip(&summary.days) {
+            info!(
+                day,
+                departures = stats.departures(),
+                on_time_departures_pct = stats.on_time_departures() * 100.0,
+                average_departure_delay_min = minutes(stats.average_departure_delay()),
+                "day"
+            );
+        }
         let under_way = summary.longest_under_way.as_ref();
         let longest = under_way.map_or(network.longest_taxi(), |(_, took)| {
             (*took).max(network.longest_taxi())

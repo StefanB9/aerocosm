@@ -5,8 +5,10 @@ use crate::{Id, SimDuration, SimTime, world::Airport};
 
 /// Flights within this delay count as on time.
 const ON_TIME: SimDuration = SimDuration::from_minutes(15);
-/// Milliseconds per clock hour.
+/// Milliseconds per clock hour…
 const HOUR: i64 = 3_600_000;
+/// …and per day.
+const DAY: i64 = 24 * HOUR;
 
 /// Statistics of one airport, or of the whole network.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -203,11 +205,39 @@ impl AirportStats {
     }
 }
 
+/// Departures of one day of a run, network-wide (plan M7 D163: delay must
+/// not grow over the week).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DayStats {
+    departures: u32,
+    on_time_departures: u32,
+    departure_delay: i64,
+}
+
+impl DayStats {
+    /// Flights that left the gate that day.
+    pub const fn departures(&self) -> u32 {
+        self.departures
+    }
+
+    /// Share of them within 15 minutes of schedule.
+    pub fn on_time_departures(&self) -> f64 {
+        share(self.on_time_departures, self.departures)
+    }
+
+    /// Their average delay, early ones counting as none.
+    pub fn average_departure_delay(&self) -> SimDuration {
+        average(self.departure_delay, self.departures)
+    }
+}
+
 /// Statistics of a run, per airport (by index) since its start.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Statistics {
     start: Option<SimTime>,
     airports: Vec<AirportStats>,
+    /// Departures per day since the start.
+    days: Vec<DayStats>,
 }
 
 impl Statistics {
@@ -216,6 +246,7 @@ impl Statistics {
         Self {
             start: None,
             airports: vec![AirportStats::default(); airports],
+            days: Vec::new(),
         }
     }
 
@@ -228,13 +259,29 @@ impl Statistics {
         self.airports.get_mut(airport.as_usize())
     }
 
-    /// A departure from `airport` left the gate `delay` after schedule.
-    pub(crate) fn departed(&mut self, airport: Id<Airport>, delay: SimDuration) {
+    /// A departure from `airport` left the gate at `time`, `delay` after
+    /// schedule.
+    pub(crate) fn departed(&mut self, airport: Id<Airport>, delay: SimDuration, time: SimTime) {
+        if let Some(start) = self.start {
+            let day = usize::try_from(time.duration_since(start).as_millis() / DAY).unwrap_or(0);
+            if self.days.len() <= day {
+                self.days.resize(day + 1, DayStats::default());
+            }
+            let today = &mut self.days[day];
+            today.departures += 1;
+            today.on_time_departures += u32::from(delay <= ON_TIME);
+            today.departure_delay += delay.as_millis().max(0);
+        }
         if let Some(at) = self.at(airport) {
             at.departures += 1;
             at.on_time_departures += u32::from(delay <= ON_TIME);
             at.departure_delay += delay.as_millis().max(0);
         }
+    }
+
+    /// Departures per day since the start, the first day first.
+    pub fn days(&self) -> &[DayStats] {
+        &self.days
     }
 
     /// An arrival reached its gate at `airport` `delay` after schedule.
@@ -428,12 +475,35 @@ mod tests {
     }
 
     #[test]
+    fn test_departures_are_counted_by_day() -> Result<()> {
+        let mut stats = Statistics::new(1);
+        let start: SimTime = "2026-07-06T00:00:00Z".parse()?;
+        stats.set_start(start);
+        let at = |hours: i32| start.checked_add(SimDuration::from_minutes(hours * 60));
+        stats.departed(Id::new(0), minutes(5), at(2)?);
+        stats.departed(Id::new(0), minutes(30), at(23)?);
+        stats.departed(Id::new(0), minutes(60), at(50)?);
+        let days = stats.days();
+        assert_eq!(days.len(), 3);
+        assert_eq!(days[0].departures(), 2);
+        assert!((days[0].on_time_departures() - 0.5).abs() < 1e-12);
+        assert_eq!(
+            days[0].average_departure_delay(),
+            minutes(17).checked_add(SimDuration::from_secs(30))?
+        );
+        assert_eq!(days[1].departures(), 0);
+        assert_eq!(days[2].average_departure_delay(), minutes(60));
+        Ok(())
+    }
+
+    #[test]
     fn test_punctuality_and_average_delays() {
         let mut stats = Statistics::new(3);
         let airport = Id::new(1);
-        stats.departed(airport, minutes(0));
-        stats.departed(airport, minutes(10));
-        stats.departed(airport, minutes(40));
+        let start = SimTime::UNIX_EPOCH;
+        stats.departed(airport, minutes(0), start);
+        stats.departed(airport, minutes(10), start);
+        stats.departed(airport, minutes(40), start);
         stats.arrived(airport, minutes(-5));
         stats.arrived(airport, minutes(20));
         let at = stats.airport(airport);
