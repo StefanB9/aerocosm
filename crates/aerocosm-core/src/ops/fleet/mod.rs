@@ -103,6 +103,9 @@ pub(crate) struct Operations {
     /// When each tail last chose its runways again at the gate, ms (plan
     /// M6 D151).
     rechosen: Vec<i64>,
+    /// Per airport whose mode lands on several runways, the typical taxi-in
+    /// from each, by runway index, s (plan M7 D166).
+    taxi_in: std::collections::BTreeMap<(usize, usize), f64>,
     /// Clearance requests of the tick, reused (urgency, since, tail).
     requests: Vec<(u8, i64, usize)>,
     /// When each tail is next looked at: a parked one when something is due,
@@ -225,6 +228,7 @@ impl Operations {
             taxis: Table::new(tail_count),
             gate_blocked: vec![None; tail_count],
             rechosen: vec![i64::MIN; tail_count],
+            taxi_in: typical_taxi_in(scenario, &sequenced),
             parking: vec![Parking::Stand; tail_count],
             requests: Vec::with_capacity(tail_count),
             taxiing: Vec::new(),
@@ -299,6 +303,22 @@ impl Operations {
                 runways::stay(wait, leaving == Some(end.designator()))
             })
         };
+        let landing = current.and_then(|path| path.runways().1);
+        let land_wait = |end: &RunwayEnd, _: &[RunwayDesignator]| {
+            at_gate.map_or(0.0, |now| {
+                let wait = self.land_wait(scenario, index, flight.destination(), end, now);
+                let planned = landing.is_some_and(|runway| {
+                    scenario
+                        .world()
+                        .runways_of(flight.destination())
+                        .get(runway)
+                        .is_some_and(|r| {
+                            r.ends().iter().any(|e| e.designator() == end.designator())
+                        })
+                });
+                runways::stay(wait, planned)
+            })
+        };
         plan_leg(
             scenario.world(),
             traffic.targets(),
@@ -306,6 +326,7 @@ impl Operations {
                 network: scenario.ground(),
                 origin,
                 turn_in: at_gate.is_some().then_some(&turn_in),
+                land_wait: at_gate.is_some().then_some(&land_wait),
             },
             aircraft,
             flight.origin(),
@@ -626,6 +647,43 @@ impl Operations {
             })
         })
     }
+}
+
+/// The typical taxi-in from each arrival runway at the `sequenced` airports
+/// whose mode lands on more than one, by airport and runway index, s (plan
+/// M7 D166).
+fn typical_taxi_in(
+    scenario: &Scenario,
+    sequenced: &[Id<Airport>],
+) -> std::collections::BTreeMap<(usize, usize), f64> {
+    let mut table = std::collections::BTreeMap::new();
+    let world = scenario.world();
+    let Some(traffic) = scenario.traffic() else {
+        return table;
+    };
+    for &airport in sequenced {
+        let (Some(place), Some(layout)) =
+            (world.airport(airport), scenario.ground().airport(airport))
+        else {
+            continue;
+        };
+        let runways = world.runways_of(airport);
+        let modes = traffic.targets().runway_modes(place.ident());
+        let landing: Vec<_> = active_runways_now(place, runways, modes)
+            .into_iter()
+            .filter(|active| active.arrivals)
+            .collect();
+        if landing.len() < 2 {
+            continue;
+        }
+        for active in landing {
+            let designator = runways[active.runway].ends()[active.end].designator();
+            if let Some(seconds) = layout.typical_taxi_in(designator) {
+                table.insert((airport.as_usize(), active.runway), seconds);
+            }
+        }
+    }
+    table
 }
 
 /// Runway control at the `sequenced` airports, their runways used for both
