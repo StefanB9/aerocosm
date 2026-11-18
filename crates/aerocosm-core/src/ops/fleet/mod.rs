@@ -299,22 +299,6 @@ impl Operations {
                 runways::stay(wait, leaving == Some(end.designator()))
             })
         };
-        let landing = current.and_then(|path| path.runways().1);
-        let land_wait = |end: &RunwayEnd, _: &[RunwayDesignator]| {
-            at_gate.map_or(0.0, |now| {
-                let wait = self.land_wait(scenario, index, flight.destination(), end, now);
-                let planned = landing.is_some_and(|runway| {
-                    scenario
-                        .world()
-                        .runways_of(flight.destination())
-                        .get(runway)
-                        .is_some_and(|r| {
-                            r.ends().iter().any(|e| e.designator() == end.designator())
-                        })
-                });
-                runways::stay(wait, planned)
-            })
-        };
         plan_leg(
             scenario.world(),
             traffic.targets(),
@@ -322,7 +306,6 @@ impl Operations {
                 network: scenario.ground(),
                 origin,
                 turn_in: at_gate.is_some().then_some(&turn_in),
-                land_wait: at_gate.is_some().then_some(&land_wait),
             },
             aircraft,
             flight.origin(),
