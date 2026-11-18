@@ -276,6 +276,10 @@ delay is unchanged, and **it still grows after the first day** with or without b
 delay on through the network. D163's limit of day 7 within 10 % of day 2 is in doubt. The
 full suite passes: 865 tests.
 
+Benchmark record (D164, against PR 3's): tick medians 2.4–3.2 ms, 95th percentiles 4.4–6.3
+ms, under D107's 8 ms; the simulated day 330 s (383), start-up 22.4 s (23.4). Within the
+machine's swing; schedules alone changed.
+
 ## PR 5 — Acceptance (D163)
 
 - The 7-day run, benchmark record, `docs/known-issues.md`, README; promotion to `main` on the
