@@ -258,6 +258,8 @@ mod tests {
                     per_hour: 104,
                     window_minutes: 15,
                     per_window: 30,
+                    arrivals_per_hour: None,
+                    departures_per_hour: None,
                 }),
                 runway_modes: vec![RunwayMode {
                     flow: Degrees::new(250.0)?,
