@@ -7,7 +7,7 @@ from 16.9 minutes on day 2 to 30.0 on day 7 (plan M7 PR 6) because nothing ever 
 of late legs (M7 D161 excluded recovery). By general behaviour only (M5 D95): nothing per
 airport or airline as input.
 
-**Status:** proposed 2026-11-18. Decisions continue M7's numbering.
+**Status:** approved 2026-11-18. Decisions continue M7's numbering.
 
 ## Diagnosis (2026-11-18)
 
