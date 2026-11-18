@@ -124,8 +124,8 @@ impl Operations {
             offset: 0.0,
             extension: Vec::new(),
         };
-        // Exits nobody stands near: an aircraft holding short of the runway
-        // at one would be driven into (plan M7 PR 2, region E: Helsinki).
+        // Exits nobody stands near, for the landing that finds no clear way
+        // off and waits on the runway (plan M4 D90).
         let empty: Vec<bool> = exits
             .iter()
             .map(|exit| {
@@ -137,7 +137,7 @@ impl Operations {
                 })
             })
             .collect();
-        for (&exit, _) in exits.iter().zip(&empty).filter(|(_, empty)| **empty) {
+        for &exit in &exits {
             let Some(route) = self.route_for(layout, index, exit, to) else {
                 continue;
             };
