@@ -190,6 +190,27 @@ Charlotte −25 % below. Their layouts are used differently from what the geomet
 (runways for one direction only, dependent arrivals, airspace limits). Recorded; the rule
 stays general (`docs/plan/m7-capacity.md`, PR 1).
 
+### Landings crowd one runway where several take arrivals
+
+**What:** at airports whose mode lands on several runways, most landings use one: Boston
+15R takes 18–19 an hour while 14 takes 0–4, Atlanta 08L 25–31 while 09L takes 0–3. Boston
+averages 245 minutes of delay in a 36-hour world run (plan M7 PR 2).
+
+**Why:** the arrival runway is the one whose final lies nearest the origin (M6 D152).
+
+**Tried:** choosing it by the earliest landing slot, twice (M6 PR 2, M7 PR 2): holding falls
+by a third, but landings move onto runways whose taxi-in crosses busy traffic and escapes
+rise (O'Hare 44 → 84 minutes of delay). **Decision (2026-11-18):** recorded; a choice that
+weighs the taxi-in as well is left for later.
+
+### Seattle lands on one runway
+
+**What:** Seattle averages 151 minutes of delay with 101,340 minutes of airborne holding in
+36 hours (plan M7 PR 2).
+
+**Why:** its three close parallels make one lane of two (M5 D113: a third close runway is not
+used), arrivals on 16L, departures on 16C; real Seattle lands on two.
+
 ### The fallback traffic model underestimates the largest unobserved hubs
 
 **What:** airports outside well-covered countries take their traffic from the fitted model
