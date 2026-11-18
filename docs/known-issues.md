@@ -210,14 +210,21 @@ minutes over 72 hours).
 delay over 72 hours fell from 228 to 144 minutes and its holding from 292,569 to 16,741
 minutes.
 
-### Delay grows after the first day
+### Delay grows over the week
 
-**What:** the network's average departure delay is 9.4 minutes on the first day of a run
-(a fresh start), 18.6 on the second, 19.2 on the third (72 hours, seed 3, plan M7 PR 4).
+**What:** in the 7-day world run (plan M7 PR 6) the network's average departure delay is 9.7
+minutes on the first day (a fresh start), 16.9–19.4 on days 2–4, then 22.1, 26.0 and 30.0;
+20.4 over the week against EUROCONTROL's 13.1 for 2019. Six airports with 100 movements a day
+or more average over an hour of delay: Boston 474 minutes, Seattle 179, O'Hare 154, Newark
+93, Tokyo Haneda 84, Sendai 67. O'Hare (282 minutes), Frankfurt (124) and Boston (87) have a
+taxi over 75 minutes.
 
-**Why:** Boston (304 minutes) and Seattle (228) are overloaded by how their runways are used
-(above) and pass their delay on through the aircraft that leave them. Schedule buffers did
-not stop it (plan M7 PR 4).
+**Why:** a late aircraft stays late on every leg after: nothing ends a chain of late legs.
+Real airlines cancel legs that run hours late and swap aircraft at hubs; the simulation does
+neither (plan M7 D161). Boston's landings crowd one runway (below), and O'Hare's ground
+takes its peak traffic badly; their aircraft carry the delay on.
+
+**Decision (2026-11-18):** recorded; airline recovery is the next milestone's subject.
 
 ### The fallback traffic model underestimates the largest unobserved hubs
 

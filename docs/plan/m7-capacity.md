@@ -323,9 +323,40 @@ ms, under D107's 8 ms; the simulated day 324 s (330), start-up 21.2 s (22.4).
 - The 7-day run, benchmark record, `docs/known-issues.md`, README; promotion to `main` on the
   user's word.
 
+*As built (PR 6):* the world for 7 days from Monday 2026-07-06, seed 3, release build on this
+container: 729,402 flights (104,200 a day), peak 16,786 airborne, 42 minutes in all (237
+ticks a second; M6: 55 minutes). Reference figures for 2019: EUROCONTROL's CODA digest, 13.1
+minutes average all-causes departure delay; BTS's Air Travel Consumer Report, 79.0 % of
+arrivals on time.
+
+| D163 limit | M6's week | M7's week | |
+|---|---|---|---|
+| Departures on time | 74.1 % | 76.7 % | met (about 75–80 %) |
+| Arrivals on time | 67.1 % | 73.1 % | below BTS's 79.0 % |
+| Average departure delay | 24.3 min | 20.4 min | not met (12–15) |
+| Day 7 within 10 % of day 2 | – | 30.0 against 16.9 min | not met |
+| No airport (100+ a day) over 60 min of delay | – | Boston 474, Seattle 179, O'Hare 154, Newark 93, Tokyo Haneda 84, Sendai 67 | not met |
+| No taxi over 75 min | O'Hare, Boston, Oakland | O'Hare 282, Frankfurt 124, Boston 87 | not met |
+| Escapes under 2 % | 9,328 (1.2 %) | 10,083 of 776,379 (1.3 %) | met |
+| Stand shares under 2 % | 1,045 | 2,266 (0.3 %) | met |
+| No stalls | 0 | 0 | met |
+| Region E ground test, capacity references, ADV | – | pass (PR 5's suite; German airports within 7 %) | met |
+| 95th-percentile tick under 8 ms | 4.9–5.9 | 3.9–6.0 ms (PR 5's record, same code) | met |
+
+Delay by day: 9.7, 16.9, 19.4, 19.0, 22.1, 26.0, 30.0 minutes. It levels off for three days
+and then grows: once Boston, Seattle and O'Hare run hours late, their aircraft carry the
+delay on, and nothing ever ends a chain of late legs (no cancellations or aircraft swaps,
+excluded by D161). Airborne holding 707,046 minutes over the week (M6: 1,566,129).
+**Decision (2026-11-18):** M7 is recorded with these limits not met and promoted on the
+user's word; airline recovery (cancelling legs that run hours late, swapping aircraft at
+hubs) is the next milestone's subject. No code changed in PR 6, so PR 5's benchmark record
+stands for it.
+
 ## Definition of done
 
-- D163's limits hold in the 7-day world run.
+- D163's limits hold in the 7-day world run. *Not met (PR 6): average departure delay 20.4
+  minutes, delay growing from day 4, six airports over 60 minutes, three with a taxi over 75
+  minutes; recorded and accepted 2026-11-18.*
 - The full test suite passes, with the capacity references and the region E ground test.
 - No per-airport input was added.
 

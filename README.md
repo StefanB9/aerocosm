@@ -138,6 +138,12 @@ What to check:
   take the runway they are off soonest from. A world week has escapes at 1.2 % of taxis and
   stand shares at 0.14 %; `stalls` counts aircraft standing five minutes with nothing to wait
   for (none). See `docs/plan/m6-ground-flow.md`.
+- Since M7, runway capacity counts every runway group (checked against published FAA and
+  coordinator figures), runway controllers fly what wake separation and 2.5 NM on final
+  allow, holding aircraft take landing slots freed ahead of them, and every airport is held
+  within its capacity when schedules are built. The `day` lines report departures and their
+  delay per day of a run. A world week averages 20.4 minutes of departure delay and grows
+  after the third day; see `docs/plan/m7-capacity.md` and `docs/known-issues.md`.
 - The run starts warm, with aircraft mid-flight; `--cold-start` starts with every aircraft on
   the ground, so `peak_airborne` grows from zero.
 - `--no-traffic` simulates the static world only; without `--world` the world is empty.
