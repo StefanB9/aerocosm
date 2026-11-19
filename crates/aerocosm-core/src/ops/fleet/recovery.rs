@@ -13,8 +13,10 @@ use crate::{
 };
 
 /// A round trip expected to leave its base later than this after schedule
-/// is cancelled (plan M8 D171; calibrated on the world runs).
-pub(super) const RECOVERY_THRESHOLD: SimDuration = SimDuration::from_minutes(180);
+/// is cancelled (plan M8 D171). Calibrated on 72-hour world runs: 3 hours
+/// cancel 0.6 % of departures, 2 hours 0.9 %, 90 minutes 1.3 %, within the
+/// 1-2.5 % airlines cancelled in 2019 (EUROCONTROL 1.7 %, BTS 1.9 %).
+pub(super) const RECOVERY_THRESHOLD: SimDuration = SimDuration::from_minutes(90);
 
 /// When a tail is ready for its next leg.
 #[derive(Debug, Clone, Copy)]
@@ -173,7 +175,7 @@ mod tests {
         let (_, operations) = setup(StartMode::Warm, 3)?;
         let index = tail_at_base(&operations)?;
         let scheduled = operations.tails[index].scheduled;
-        let late = scheduled.checked_add(SimDuration::from_minutes(181))?;
+        let late = scheduled.checked_add(SimDuration::from_minutes(91))?;
         let soon = scheduled.checked_add(SimDuration::from_minutes(60))?;
         assert!(operations.cancels_at_gate(index, late)?);
         assert!(!operations.cancels_at_gate(index, soon)?);
@@ -242,7 +244,9 @@ mod tests {
         let (index, leg) = returning_tail(&operations)?;
         let week = operations.tails[index].week;
         let due = operations.rotation(index)?.scheduled(leg + 1, week)?;
-        let arrived = due.checked_add(SimDuration::from_minutes(60))?;
+        // Ten minutes late, quick turns of at most 72 minutes keep it under
+        // the threshold.
+        let arrived = due.checked_add(SimDuration::from_minutes(10))?;
         let (next, _, scheduled, ready) =
             operations.next_flown_leg(index, leg, week, Ready::Arrived(arrived))?;
         assert_eq!(next, leg + 1);
