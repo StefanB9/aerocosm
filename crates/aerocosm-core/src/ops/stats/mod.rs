@@ -1,6 +1,9 @@
 //! Delay statistics (plan M3 D62): punctuality, delays, holding and ground
 //! delays per airport and for the network, and movements per clock hour.
 
+mod causes;
+
+pub use self::causes::{DelayCauses, LATE_AIRCRAFT_REFERENCES};
 use crate::{Id, SimDuration, SimTime, world::Airport};
 
 /// Flights within this delay count as on time.
@@ -16,6 +19,8 @@ pub struct AirportStats {
     departures: u32,
     on_time_departures: u32,
     departure_delay: i64,
+    /// Departure delay by cause, totals (plan M8 D167).
+    delay_causes: DelayCauses,
     arrivals: u32,
     on_time_arrivals: u32,
     arrival_delay: i64,
@@ -77,6 +82,11 @@ impl AirportStats {
     /// Mean departure delay.
     pub fn average_departure_delay(&self) -> SimDuration {
         average(self.departure_delay, self.departures)
+    }
+
+    /// Average departure delay by cause (plan M8 D167).
+    pub fn departure_delay_causes(&self) -> DelayCauses {
+        self.delay_causes.per(self.departures)
     }
 
     /// Flights that reached the gate.
@@ -185,6 +195,7 @@ impl AirportStats {
         self.departures += other.departures;
         self.on_time_departures += other.on_time_departures;
         self.departure_delay += other.departure_delay;
+        self.delay_causes.add(other.delay_causes);
         self.arrivals += other.arrivals;
         self.on_time_arrivals += other.on_time_arrivals;
         self.arrival_delay += other.arrival_delay;
@@ -212,6 +223,7 @@ pub struct DayStats {
     departures: u32,
     on_time_departures: u32,
     departure_delay: i64,
+    delay_causes: DelayCauses,
 }
 
 impl DayStats {
@@ -228,6 +240,11 @@ impl DayStats {
     /// Their average delay, early ones counting as none.
     pub fn average_departure_delay(&self) -> SimDuration {
         average(self.departure_delay, self.departures)
+    }
+
+    /// Their average delay by cause (plan M8 D167).
+    pub fn departure_delay_causes(&self) -> DelayCauses {
+        self.delay_causes.per(self.departures)
     }
 }
 
@@ -259,9 +276,10 @@ impl Statistics {
         self.airports.get_mut(airport.as_usize())
     }
 
-    /// A departure from `airport` left the gate at `time`, `delay` after
-    /// schedule.
-    pub(crate) fn departed(&mut self, airport: Id<Airport>, delay: SimDuration, time: SimTime) {
+    /// A departure from `airport` left the gate at `time`, late by
+    /// `causes` after schedule.
+    pub(crate) fn departed(&mut self, airport: Id<Airport>, causes: DelayCauses, time: SimTime) {
+        let delay = causes.total();
         if let Some(start) = self.start {
             let day = usize::try_from(time.duration_since(start).as_millis() / DAY).unwrap_or(0);
             if self.days.len() <= day {
@@ -271,11 +289,13 @@ impl Statistics {
             today.departures += 1;
             today.on_time_departures += u32::from(delay <= ON_TIME);
             today.departure_delay += delay.as_millis().max(0);
+            today.delay_causes.add(causes);
         }
         if let Some(at) = self.at(airport) {
             at.departures += 1;
             at.on_time_departures += u32::from(delay <= ON_TIME);
             at.departure_delay += delay.as_millis().max(0);
+            at.delay_causes.add(causes);
         }
     }
 
@@ -409,6 +429,43 @@ mod tests {
         SimDuration::from_minutes(value)
     }
 
+    /// A departure `value` minutes late for flow control only.
+    fn waited(value: i32) -> DelayCauses {
+        DelayCauses::split(minutes(value), SimDuration::ZERO, SimDuration::ZERO)
+    }
+
+    #[test]
+    fn test_delay_causes_per_airport_day_and_network() -> Result<()> {
+        let mut stats = Statistics::new(2);
+        let start: SimTime = "2026-07-06T00:00:00Z".parse()?;
+        stats.set_start(start);
+        let at = |hours: i32| start.checked_add(SimDuration::from_minutes(hours * 60));
+        // 30 late: 20 for the aircraft, 10 more drawn (30 in all); 10 late:
+        // all drawn.
+        stats.departed(
+            Id::new(0),
+            DelayCauses::split(minutes(30), minutes(20), minutes(30)),
+            at(1)?,
+        );
+        stats.departed(
+            Id::new(0),
+            DelayCauses::split(minutes(10), minutes(0), minutes(10)),
+            at(2)?,
+        );
+        stats.departed(Id::new(1), waited(6), at(30)?);
+        let airport = stats.airport(Id::new(0)).departure_delay_causes();
+        assert_eq!(airport.late_aircraft(), minutes(10));
+        assert_eq!(airport.airline(), minutes(10));
+        assert_eq!(airport.flow_and_ground(), SimDuration::ZERO);
+        assert_eq!(stats.days()[0].departure_delay_causes(), airport);
+        let second = stats.days()[1].departure_delay_causes();
+        assert_eq!(second.flow_and_ground(), minutes(6));
+        let network = stats.network().departure_delay_causes();
+        assert_eq!(network.total(), stats.network().average_departure_delay());
+        assert!((network.late_aircraft_share() - 20.0 / 46.0).abs() < 1e-3);
+        Ok(())
+    }
+
     #[test]
     fn test_longest_taxi_per_airport_and_network() {
         let mut stats = Statistics::new(3);
@@ -480,9 +537,9 @@ mod tests {
         let start: SimTime = "2026-07-06T00:00:00Z".parse()?;
         stats.set_start(start);
         let at = |hours: i32| start.checked_add(SimDuration::from_minutes(hours * 60));
-        stats.departed(Id::new(0), minutes(5), at(2)?);
-        stats.departed(Id::new(0), minutes(30), at(23)?);
-        stats.departed(Id::new(0), minutes(60), at(50)?);
+        stats.departed(Id::new(0), waited(5), at(2)?);
+        stats.departed(Id::new(0), waited(30), at(23)?);
+        stats.departed(Id::new(0), waited(60), at(50)?);
         let days = stats.days();
         assert_eq!(days.len(), 3);
         assert_eq!(days[0].departures(), 2);
@@ -501,9 +558,9 @@ mod tests {
         let mut stats = Statistics::new(3);
         let airport = Id::new(1);
         let start = SimTime::UNIX_EPOCH;
-        stats.departed(airport, minutes(0), start);
-        stats.departed(airport, minutes(10), start);
-        stats.departed(airport, minutes(40), start);
+        stats.departed(airport, waited(0), start);
+        stats.departed(airport, waited(10), start);
+        stats.departed(airport, waited(40), start);
         stats.arrived(airport, minutes(-5));
         stats.arrived(airport, minutes(20));
         let at = stats.airport(airport);

@@ -66,7 +66,29 @@ recorded with their sources in PR 1's test.
 - Statistics: late aircraft, airline and flow-and-ground delay per departure, per airport,
   per day and for the network; the runner's `punctuality` and `day` lines report them.
 - The references (CODA, BTS) in a test with their sources.
-- Measured: the 36-hour world run against M7 (fingerprint unchanged: statistics only).
+- Measured: the 36-hour world run against M7 (statistics only).
+
+*As built (PR 1):* `ops::DelayCauses` splits each departure's delay when it leaves the gate:
+late aircraft is how long after schedule its aircraft was ready (never more than the delay),
+airline is the delay drawn for the leg beyond that, and flow and ground is the rest. Airport,
+day and network statistics keep the totals and report averages per departure; the runner's
+`punctuality`, `day` and `movements` lines report them. The references are constants beside
+the split (`LATE_AIRCRAFT_REFERENCES`: CODA 2019, 5.7 of 13.1 minutes; BTS 2019, 39.7 % of
+delay minutes), with a test that D172's range holds both.
+
+| 36 h, seed 3 | Departure delay, min | Late aircraft | Airline | Flow and ground | Late aircraft share |
+|---|---|---|---|---|---|
+| Day 1 | 9.7 | 2.7 | 3.9 | 3.2 | 27 % |
+| Day 2 (12 h) | 18.6 | 6.8 | 4.8 | 7.0 | 36 % |
+| 36 hours | 12.5 | 4.0 | 4.2 | 4.4 | 32 % |
+
+The run is M7's to the minute (155,890 departures, 12.5 minutes, 81.2 % on time). The
+first day starts with every aircraft on time, so the share of late aircraft builds over it;
+D172's 35–50 % is judged on the 7-day run, where the diagnosis found 45–50 % from day 3.
+The benchmark's fingerprint changes because it hashes the network's statistics, which now
+hold the split; airborne and taxiing counts are equal at every tick measured. Tick medians
+2.5–3.0 ms, 95th percentiles 4.7–5.7 ms (this container ran faster than for M7 PR 5's
+record). The full suite passes: 873 tests.
 
 ## PR 2 — Quick turns and cancellations (D168, D171)
 
