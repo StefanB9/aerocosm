@@ -21,6 +21,8 @@ pub struct AirportStats {
     departure_delay: i64,
     /// Departure delay by cause, totals (plan M8 D167).
     delay_causes: DelayCauses,
+    /// Departures cancelled by their airline (plan M8 D171).
+    cancellations: u32,
     arrivals: u32,
     on_time_arrivals: u32,
     arrival_delay: i64,
@@ -87,6 +89,17 @@ impl AirportStats {
     /// Average departure delay by cause (plan M8 D167).
     pub fn departure_delay_causes(&self) -> DelayCauses {
         self.delay_causes.per(self.departures)
+    }
+
+    /// Departures cancelled by their airline (plan M8 D171).
+    pub const fn cancellations(&self) -> u32 {
+        self.cancellations
+    }
+
+    /// Share of scheduled departures cancelled: cancellations against
+    /// departures flown plus cancelled.
+    pub fn cancelled_share(&self) -> f64 {
+        share(self.cancellations, self.departures + self.cancellations)
     }
 
     /// Flights that reached the gate.
@@ -196,6 +209,7 @@ impl AirportStats {
         self.on_time_departures += other.on_time_departures;
         self.departure_delay += other.departure_delay;
         self.delay_causes.add(other.delay_causes);
+        self.cancellations += other.cancellations;
         self.arrivals += other.arrivals;
         self.on_time_arrivals += other.on_time_arrivals;
         self.arrival_delay += other.arrival_delay;
@@ -224,6 +238,7 @@ pub struct DayStats {
     on_time_departures: u32,
     departure_delay: i64,
     delay_causes: DelayCauses,
+    cancellations: u32,
 }
 
 impl DayStats {
@@ -240,6 +255,11 @@ impl DayStats {
     /// Their average delay, early ones counting as none.
     pub fn average_departure_delay(&self) -> SimDuration {
         average(self.departure_delay, self.departures)
+    }
+
+    /// Departures cancelled that day (plan M8 D171).
+    pub const fn cancellations(&self) -> u32 {
+        self.cancellations
     }
 
     /// Their average delay by cause (plan M8 D167).
@@ -280,12 +300,7 @@ impl Statistics {
     /// `causes` after schedule.
     pub(crate) fn departed(&mut self, airport: Id<Airport>, causes: DelayCauses, time: SimTime) {
         let delay = causes.total();
-        if let Some(start) = self.start {
-            let day = usize::try_from(time.duration_since(start).as_millis() / DAY).unwrap_or(0);
-            if self.days.len() <= day {
-                self.days.resize(day + 1, DayStats::default());
-            }
-            let today = &mut self.days[day];
+        if let Some(today) = self.day(time) {
             today.departures += 1;
             today.on_time_departures += u32::from(delay <= ON_TIME);
             today.departure_delay += delay.as_millis().max(0);
@@ -297,6 +312,28 @@ impl Statistics {
             at.departure_delay += delay.as_millis().max(0);
             at.delay_causes.add(causes);
         }
+    }
+
+    /// The airline cancelled a departure from `airport` scheduled at
+    /// `scheduled` (plan M8 D171).
+    pub(crate) fn cancelled(&mut self, airport: Id<Airport>, scheduled: SimTime) {
+        if let Some(day) = self.day(scheduled) {
+            day.cancellations += 1;
+        }
+        if let Some(at) = self.at(airport) {
+            at.cancellations += 1;
+        }
+    }
+
+    /// The day of a run `time` falls on, created if new; `None` before the
+    /// start is set or before it.
+    fn day(&mut self, time: SimTime) -> Option<&mut DayStats> {
+        let start = self.start?;
+        let day = usize::try_from(time.duration_since(start).as_millis() / DAY).ok()?;
+        if self.days.len() <= day {
+            self.days.resize(day + 1, DayStats::default());
+        }
+        self.days.get_mut(day)
     }
 
     /// Departures per day since the start, the first day first.
@@ -529,6 +566,29 @@ mod tests {
             stats.airport(Id::new(1)).average_clearance_wait(),
             SimDuration::ZERO
         );
+    }
+
+    #[test]
+    fn test_cancellations_per_airport_day_and_network() -> Result<()> {
+        let mut stats = Statistics::new(2);
+        let start: SimTime = "2026-07-06T00:00:00Z".parse()?;
+        stats.set_start(start);
+        let at = |hours: i32| start.checked_add(SimDuration::from_minutes(hours * 60));
+        stats.departed(Id::new(0), waited(0), at(1)?);
+        stats.departed(Id::new(0), waited(0), at(2)?);
+        stats.departed(Id::new(1), waited(0), at(3)?);
+        stats.cancelled(Id::new(0), at(4)?);
+        stats.cancelled(Id::new(1), at(30)?);
+        assert_eq!(stats.airport(Id::new(0)).cancellations(), 1);
+        assert!((stats.airport(Id::new(0)).cancelled_share() - 1.0 / 3.0).abs() < 1e-12);
+        assert_eq!(stats.days()[0].cancellations(), 1);
+        assert_eq!(stats.days()[1].cancellations(), 1);
+        assert_eq!(stats.days()[1].departures(), 0);
+        let network = stats.network();
+        assert_eq!(network.cancellations(), 2);
+        assert!((network.cancelled_share() - 0.4).abs() < 1e-12);
+        assert!(AirportStats::default().cancelled_share().abs() < 1e-12);
+        Ok(())
     }
 
     #[test]

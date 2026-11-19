@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 pub(super) mod board;
 mod flow;
 mod ground;
+mod recovery;
 mod remote;
 mod runways;
 mod stands;
@@ -25,7 +26,7 @@ use super::{
     motion::{Event, Motion, Profile},
     path::{Leg, LegGround, Origin, Path, plan_leg},
     stats::{DelayCauses, Statistics},
-    tail::{draw_delay, draw_taxi_in, draw_taxi_out, next_leg, off_block},
+    tail::{draw_delay, draw_taxi_in, draw_taxi_out, off_block},
     timing::{NoTimer, Part, Timer},
     view::{FlightView, Holding},
 };
@@ -549,12 +550,11 @@ impl Operations {
         }
     }
 
-    /// The tail's next leg after arriving at `arrived`.
+    /// The tail's next leg after arriving at `arrived`: the next one it
+    /// flies, after any its airline cancels (plan M8 D171).
     fn next_tail_leg(&mut self, index: usize, tail: &TailOps, arrived: SimTime) -> Result<TailOps> {
-        let rotation = self.rotation(index)?;
-        let (leg, week) = next_leg(tail.leg, rotation.flights.len(), tail.week)?;
-        let scheduled = rotation.scheduled(leg, week)?;
-        let ready = add(arrived, rotation.turnaround)?;
+        let (leg, week, scheduled, ready) =
+            self.next_flown_leg(index, tail.leg, tail.week, arrived)?;
         let delay = draw_delay(&mut self.rng)?;
         let leaves = off_block(scheduled, delay, ready)?;
         Ok(TailOps {
@@ -682,7 +682,7 @@ mod tests {
         "2026-07-08T10:00:00Z".parse()
     }
 
-    fn setup(mode: StartMode, seed: u64) -> Result<(Scenario, Operations)> {
+    pub(super) fn setup(mode: StartMode, seed: u64) -> Result<(Scenario, Operations)> {
         let data = data()?;
         let scenario =
             Scenario::with_traffic(data.world, data.aircraft, data.airlines, data.traffic)?;
