@@ -6,11 +6,13 @@ use anyhow::{Context, Result};
 pub(super) mod board;
 mod flow;
 mod ground;
+mod recovery;
 mod remote;
 mod runways;
 mod stands;
 mod start;
 
+use recovery::Ready;
 use start::Rotation;
 
 use self::{
@@ -25,7 +27,7 @@ use super::{
     motion::{Event, Motion, Profile},
     path::{Leg, LegGround, Origin, Path, plan_leg},
     stats::{DelayCauses, Statistics},
-    tail::{draw_delay, draw_taxi_in, draw_taxi_out, next_leg, off_block},
+    tail::{draw_delay, draw_taxi_in, draw_taxi_out, off_block},
     timing::{NoTimer, Part, Timer},
     view::{FlightView, Holding},
 };
@@ -432,17 +434,19 @@ impl Operations {
                     }
                     let start = Motion::start(&self.profiles[index], out, back);
                     let leg = self.tails[index].leg;
-                    if let Some(delay) = self.regulate(index, leg, start, now)? {
-                        // Wait at the gate for the calculated take-off time.
-                        self.tails[index].off_block = add(now, delay)?;
-                        return Ok(());
-                    }
-                    if let Some(wait) =
-                        self.plan_departure(scenario, index, flight.origin(), now)?
-                    {
-                        // No way out yet, or the runway queue is long: wait at
-                        // the stand and ask again.
-                        self.tails[index].off_block = add(now, wait)?;
+                    let wait = match self.regulate(index, leg, start, now)? {
+                        // Wait at the gate for the calculated take-off time…
+                        Some(delay) => Some(delay),
+                        // …or, with no way out yet or a long runway queue,
+                        // wait at the stand and ask again.
+                        None => self.plan_departure(scenario, index, flight.origin(), now)?,
+                    };
+                    if let Some(wait) = wait {
+                        let leaves = add(now, wait)?;
+                        if self.cancels_at_gate(index, leaves)? {
+                            return self.cancel_at_gate(index, now);
+                        }
+                        self.tails[index].off_block = leaves;
                         return Ok(());
                     }
                     let start = Motion::start(&self.profiles[index], out, back);
@@ -549,12 +553,24 @@ impl Operations {
         }
     }
 
-    /// The tail's next leg after arriving at `arrived`.
+    /// The tail's next leg after arriving at `arrived`: the next one it
+    /// flies, after any its airline cancels (plan M8 D171).
     fn next_tail_leg(&mut self, index: usize, tail: &TailOps, arrived: SimTime) -> Result<TailOps> {
-        let rotation = self.rotation(index)?;
-        let (leg, week) = next_leg(tail.leg, rotation.flights.len(), tail.week)?;
-        let scheduled = rotation.scheduled(leg, week)?;
-        let ready = add(arrived, rotation.turnaround)?;
+        let (leg, week, scheduled, ready) =
+            self.next_flown_leg(index, tail.leg, tail.week, Ready::Arrived(arrived))?;
+        self.leg_ops((leg, week), scheduled, ready, arrived)
+    }
+
+    /// A parked tail's state before leg `leg` of `week`, scheduled at
+    /// `scheduled`, for which it is ready at `ready`; at the gate since
+    /// `since`. Draws the leg's own delay.
+    fn leg_ops(
+        &mut self,
+        (leg, week): (usize, LocalDate),
+        scheduled: SimTime,
+        ready: SimTime,
+        since: SimTime,
+    ) -> Result<TailOps> {
         let delay = draw_delay(&mut self.rng)?;
         let leaves = off_block(scheduled, delay, ready)?;
         Ok(TailOps {
@@ -562,7 +578,7 @@ impl Operations {
             week,
             scheduled,
             off_block: leaves,
-            boarding_from: leaves.checked_sub(BOARDING)?.max(arrived),
+            boarding_from: leaves.checked_sub(BOARDING)?.max(since),
             late: ready.duration_since(scheduled),
             drawn: delay,
             motion: None,
@@ -682,7 +698,7 @@ mod tests {
         "2026-07-08T10:00:00Z".parse()
     }
 
-    fn setup(mode: StartMode, seed: u64) -> Result<(Scenario, Operations)> {
+    pub(super) fn setup(mode: StartMode, seed: u64) -> Result<(Scenario, Operations)> {
         let data = data()?;
         let scenario =
             Scenario::with_traffic(data.world, data.aircraft, data.airlines, data.traffic)?;

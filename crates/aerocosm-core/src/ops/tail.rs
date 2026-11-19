@@ -24,6 +24,33 @@ pub(crate) fn off_block(scheduled: SimTime, delay: SimDuration, ready: SimTime) 
     Ok(planned.max(ready))
 }
 
+/// A late tail turns in this share of its minimum turnaround, 4/5 (plan M8
+/// D168)…
+const QUICK_TURN: (i64, i64) = (4, 5);
+/// …but never in less than this.
+const QUICK_TURN_FLOOR: SimDuration = SimDuration::from_minutes(20);
+
+/// When a tail that reached the gate at `arrived` is ready for its next leg,
+/// scheduled at `scheduled`: after its minimum `turnaround`, or after a quick
+/// turn if the minimum would make it late (plan M8 D168).
+pub(crate) fn ready_at(
+    arrived: SimTime,
+    scheduled: SimTime,
+    turnaround: SimDuration,
+) -> Result<SimTime> {
+    let after = |turn: SimDuration| {
+        arrived
+            .checked_add(turn)
+            .with_context(|| format!("{arrived} + {turn} is out of range"))
+    };
+    let normal = after(turnaround)?;
+    if normal <= scheduled {
+        return Ok(normal);
+    }
+    let quick = SimDuration::from_millis(turnaround.as_millis() * QUICK_TURN.0 / QUICK_TURN.1);
+    after(quick.max(QUICK_TURN_FLOOR).min(turnaround))
+}
+
 fn seconds(rng: &mut SimRng, from: u32, spread: u32) -> Result<u32> {
     Ok(from + rng.below(spread + 1).context("empty range")?)
 }
@@ -85,6 +112,42 @@ mod tests {
             "2026-07-06T10:05:00Z".parse()?
         );
         assert_eq!(off_block(scheduled, delay, late)?, late);
+        Ok(())
+    }
+
+    #[test]
+    fn test_ready_after_the_minimum_turnaround_when_on_time() -> Result<()> {
+        let arrived: SimTime = "2026-07-06T10:00:00Z".parse()?;
+        let scheduled: SimTime = "2026-07-06T11:00:00Z".parse()?;
+        let ready = ready_at(arrived, scheduled, SimDuration::from_minutes(35))?;
+        assert_eq!(ready, "2026-07-06T10:35:00Z".parse()?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_late_tails_turn_quickly() -> Result<()> {
+        let arrived: SimTime = "2026-07-06T10:00:00Z".parse()?;
+        let scheduled: SimTime = "2026-07-06T10:20:00Z".parse()?;
+        // 35 minutes become 28, 90 become 72.
+        let ready = ready_at(arrived, scheduled, SimDuration::from_minutes(35))?;
+        assert_eq!(ready, "2026-07-06T10:28:00Z".parse()?);
+        let ready = ready_at(arrived, scheduled, SimDuration::from_minutes(90))?;
+        assert_eq!(ready, "2026-07-06T11:12:00Z".parse()?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_quick_turns_never_take_less_than_twenty_minutes() -> Result<()> {
+        let arrived: SimTime = "2026-07-06T10:00:00Z".parse()?;
+        let scheduled = arrived;
+        // 80 % of 25 is 20; of 22 it would be 17.6, so 20.
+        let ready = ready_at(arrived, scheduled, SimDuration::from_minutes(25))?;
+        assert_eq!(ready, "2026-07-06T10:20:00Z".parse()?);
+        let ready = ready_at(arrived, scheduled, SimDuration::from_minutes(22))?;
+        assert_eq!(ready, "2026-07-06T10:20:00Z".parse()?);
+        // A turnaround already under the floor stays as it is.
+        let ready = ready_at(arrived, scheduled, SimDuration::from_minutes(15))?;
+        assert_eq!(ready, "2026-07-06T10:15:00Z".parse()?);
         Ok(())
     }
 
