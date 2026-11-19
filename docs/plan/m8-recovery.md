@@ -53,7 +53,7 @@ each of the 94,010 tails was. The run's punctuality matched M7 PR 6 exactly.
 | D168 | **Quick turns.** A tail behind schedule may turn in 80 % of its minimum turnaround (M2 timetable: 25, 35, 60 and 90 minutes become 20, 28, 48 and 72), never below 20 minutes. Tried first, before any other action |
 | D169 | **Tail swaps at the base.** If a tail is still expected to leave its base past the recovery threshold (D171), and another tail of its pool is parked at the base, ready, with its own next departure later, the two exchange rotations from that point: the ready aircraft flies the late trip, the late aircraft takes the other's. Aircraft (what parks, taxis and flies) and rotations (what is scheduled) become separate, so a flight view names both. Only at the base, where both aircraft start round trips |
 | D170 | **Spare aircraft.** Pools of 10 tails or more get one spare per 20 tails (rounded down; about 1 % of the fleet). A spare has no rotation; it parks remote at its base (M5 D125) so it takes no contact stand while idle, and when no swap is possible it takes over a late trip; the late aircraft becomes the spare once it arrives. Spares are part of the generated schedule, from the same seed |
-| D171 | **Cancellation at the base, as the last resort.** A round trip whose departure from its base is still expected past the recovery threshold, after quick turns, swaps and spares, is cancelled as a whole; the aircraft stays and takes its next trip. Expected delay counts the aircraft's lateness and the flow-control delay its departure is given (M3 D59). The threshold, one figure for the whole world, is calibrated so the 7-day run cancels within D172's range; about 3 hours from the diagnosis. Never at the far end: a tail away from its base flies home |
+| D171 | **Cancellation at the base, as the last resort.** A round trip whose departure from its base is still expected past the recovery threshold, after quick turns, swaps and spares, is cancelled as a whole; the aircraft stays and takes its next trip. Expected delay counts the aircraft's lateness and the flow-control delay its departure is given (M3 D59). The threshold, one figure for the whole world, is calibrated so the 7-day run cancels within D172's range; about 3 hours from the diagnosis (*calibrated to 90 minutes in PR 2*). Never at the far end: a tail away from its base flies home |
 | D172 | **Acceptance.** M7's D163 limits, unchanged: departures on time and average departure delay within the 2019 ranges (about 75–80 %, 12–15 minutes), day 7's average delay no more than 10 % above day 2's, no airport with 100 movements a day or more averaging over 60 minutes, no taxi over 75 minutes, escapes and stand shares under 2 %, no stalls, the region E ground test, the ADV tolerance for German airports, the capacity references, the 95th-percentile tick under 8 ms. Added: cancellations 1–2.5 % of scheduled departures; late aircraft 35–50 % of departure delay. Delay of cancelled flights is not counted (as in CODA and BTS); cancellations are. Then `dev` is promoted to `main` |
 | D173 | **The viewer shows recovery.** Airport boards show cancelled flights as "Cancelled"; the flight panel says when its aircraft was swapped or is a spare; the airport's flow status counts the day's cancellations and swaps |
 | D174 | **Determinism and benchmarks** as in M7 (D164): recovery decisions are rule-based and drawn, if at all, from the operations stream; fingerprints change in each PR; each PR adds a benchmark record and checks the report before it opens |
@@ -97,6 +97,42 @@ record). The full suite passes: 873 tests.
   and the runner's output (per airport, per day, network).
 - The threshold calibrated on 36-hour and 72-hour world runs.
 - Measured: delay by day and cause, cancellations, the D172 limits on a 72-hour run.
+
+*As built (PR 2):* `ops::tail::ready_at` turns a tail that would otherwise be late in 4/5 of
+its minimum turnaround, never under 20 minutes (D168). `ops::fleet::recovery` decides at two
+points, both only where the tail's current leg leaves its base: when the tail reaches the
+gate, a round trip it would be ready for more than the threshold after schedule is
+cancelled, both legs, and the next trip is looked at the same way; at off-block, a
+departure that flow control (M3 D59) or departure management (M4 D91) would hold past the
+threshold cancels there, gives back its landing slot and stays parked for its next trip.
+Cancellations are counted at the scheduled departure of each leg, per airport, per day and
+for the network; the runner reports them with `cancelled_pct`.
+
+| 72 h, seed 3 | Days 1 / 2 / 3, min | Average | Late aircraft | Cancelled | Boston | Seattle | O'Hare |
+|---|---|---|---|---|---|---|---|
+| M7 (no recovery) | 9.7 / 16.9 / 19.4 | about 15 | 45 % (day 3) | – | 264 min | 144 | 83 |
+| 3 h, on arrival only | 8.8 / 15.1 / 13.2 | 12.3 | 25 % | 0.28 % | 246 | 140 | 44 |
+| 3 h | 8.0 / 11.4 / 11.0 | 10.1 | 20 % | 0.64 % | 139 | 73 | 29 |
+| 2 h | 7.5 / 10.1 / 10.2 | 9.2 | 18 % | 0.95 % | 119 | 53 | 28 |
+| **90 min (as built)** | 7.3 / 9.5 / 9.4 | 8.7 | 16 % | 1.26 % | 105 | 44 | 25 |
+| 90 min, quick turns 9/10 | 7.4 / 9.7 / 10.5 | 9.1 | 20 % | 1.41 % | 108 | 46 | 48 |
+| 90 min, no quick turns | 7.7 / 10.2 / 10.3 | 9.4 | 25 % | 1.34 % | 104 | 46 | 30 |
+
+(Days and airports: average departure delay; M7's average and share are from its 72-hour run
+and the diagnosis.) Delay no longer grows: day 3 is below day 2 at every threshold. Holding
+falls from M7's 323,107 minutes to 272,845, stalls stay 0, stand shares 441.
+
+What cancelling does to D172's ranges was measured, not assumed: the long chains of late
+legs it removes were most of the late-aircraft minutes, so with cancellations in range the
+average delay (8.7 minutes) falls below the 12–15 of 2019 and the share of late aircraft
+(16 %) below 35–50 %. Quick turns are not the cause: without them the share is 25 %, the
+delay 9.4. What remains is the airline's delay drawn per leg (about 5 minutes, flat since
+M2) and flow control. **Decision (2026-11-19):** quick turns stay at 4/5 (D168), the
+threshold is 90 minutes, and the delay and share are recorded below range, to be judged on
+the 7-day run in PR 6 after swaps and spares.
+
+Boston (105 minutes) and Seattle (44) still average most delay; O'Hare's longest taxi is 147
+minutes and Frankfurt's 98 (M7's 7-day run: 282 and 124). The full suite passes: 883 tests.
 
 ## PR 3 — Tail swaps (D169)
 
