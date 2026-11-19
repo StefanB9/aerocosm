@@ -216,6 +216,12 @@ waits 80, shares 50) and O'Hare (none) are unchanged by remote spares. **Decisio
 (2026-11-19):** spares stay as built and are recorded as measured; the 7-day run in PR 6 shows
 whether they matter as delay builds over days. Days 7.3 / 9.8 / 9.7 minutes; Boston 106,
 Seattle 46, O'Hare 24; stalls 0.
+The full suite passes: 891 tests.
+
+Benchmark record (D174): tick medians 2.1–2.7 ms, 95th percentiles 3.4–4.5 ms, under D107's
+8 ms; the simulated day 292 s. The fingerprints change (spares take trips). Against PR 3's
+record ticks are 11–46 % faster, in every part alike, flying included, and start-up 13 %:
+a faster container, not the code (idle spares are never looked at).
 
 ## PR 5 — Viewer (D173)
 
