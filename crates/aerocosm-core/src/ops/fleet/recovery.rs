@@ -28,7 +28,7 @@ pub(super) enum Ready {
 }
 
 impl Ready {
-    const fn time(self) -> SimTime {
+    pub(super) const fn time(self) -> SimTime {
         match self {
             Self::Arrived(time) | Self::Now(time) => time,
         }
@@ -45,11 +45,10 @@ impl Ready {
 impl Operations {
     /// The base of tail `index`.
     pub(super) fn base_of(&self, index: usize) -> Result<Id<Airport>> {
-        Ok(self
-            .schedule
-            .tail(self.rotation_id(index)?)
-            .context("tail out of range")?
-            .base())
+        self.bases
+            .get(index)
+            .copied()
+            .context("aircraft out of range")
     }
 
     /// Whether tail `index`, at off-block and held at the gate until
@@ -69,9 +68,7 @@ impl Operations {
         self.drop_landing(index);
         self.paths[index] = None;
         self.gate_blocked[index] = None;
-        let (leg, week, scheduled, ready) =
-            self.next_flown_leg(index, back.0, back.1, Ready::Now(now))?;
-        self.tails[index] = self.leg_ops((leg, week), scheduled, ready, now)?;
+        self.tails[index] = self.next_ops(index, back, Ready::Now(now))?;
         self.plan_parking(index, now);
         Ok(())
     }
@@ -94,6 +91,7 @@ impl Operations {
         for &other in &self.pools[self.pool_of[index]] {
             let tail = &self.tails[other];
             if other == index
+                || self.is_spare(other)
                 || tail.motion.is_some()
                 || tail.scheduled <= scheduled
                 || best.is_some_and(|(_, due)| due >= tail.scheduled)
@@ -114,8 +112,8 @@ impl Operations {
         let (late, early) = (self.rotation_of[index], self.rotation_of[other]);
         self.rotation_of[index] = early;
         self.rotation_of[other] = late;
-        self.aircraft_of[late] = other;
-        self.aircraft_of[early] = index;
+        self.aircraft_of[late.context("a spare is never late")?] = other;
+        self.aircraft_of[early.context("a spare is no partner")?] = index;
         let ready = partner.scheduled.checked_add(partner.late)?.max(now);
         self.tails[other] = self.leg_ops(trip, scheduled, ready, now)?;
         self.plan_parking(other, now);
@@ -157,7 +155,7 @@ impl Operations {
         leg: usize,
         week: LocalDate,
         ready: Ready,
-    ) -> Result<(usize, LocalDate, SimTime, SimTime)> {
+    ) -> Result<Option<(usize, LocalDate, SimTime, SimTime)>> {
         let base = self.base_of(index)?;
         let count = self.rotation(index)?.flights.len();
         let (mut leg, mut week) = next_leg(leg, count, week)?;
@@ -169,7 +167,7 @@ impl Operations {
             let at = ready.at(scheduled, rotation.turnaround)?;
             let origin = self.flight(index, leg)?.origin();
             if origin != base || at.duration_since(scheduled) <= RECOVERY_THRESHOLD {
-                return Ok((leg, week, scheduled, at));
+                return Ok(Some((leg, week, scheduled, at)));
             }
             // Another aircraft first (D169), once; then cancel (D171).
             if !swapped
@@ -179,13 +177,17 @@ impl Operations {
                 (leg, week) = trip;
                 continue;
             }
+            // Then a spare (D170): the aircraft becomes the spare.
+            if self.take_spare(index, (leg, week), scheduled, ready.time())? {
+                return Ok(None);
+            }
             let (back, back_week) = self.cancel_trip(index, leg, week)?;
             (leg, week) = next_leg(back, self.rotation(index)?.flights.len(), back_week)?;
         }
         let rotation = self.rotation(index)?;
         let scheduled = rotation.scheduled(leg, week)?;
         let at = ready.at(scheduled, rotation.turnaround)?;
-        Ok((leg, week, scheduled, at))
+        Ok(Some((leg, week, scheduled, at)))
     }
 }
 
@@ -262,12 +264,15 @@ mod tests {
     fn swap_case(operations: &Operations) -> Result<SwapCase> {
         for (partner, tail) in operations.tails.iter().enumerate() {
             let base = operations.base_of(partner)?;
-            if tail.motion.is_some() || operations.flight(partner, tail.leg)?.origin() != base {
+            if operations.is_spare(partner)
+                || tail.motion.is_some()
+                || operations.flight(partner, tail.leg)?.origin() != base
+            {
                 continue;
             }
             let ready = tail.scheduled.checked_add(tail.late)?;
             for &late in &operations.pools[operations.pool_of[partner]] {
-                if late == partner {
+                if late == partner || operations.is_spare(late) {
                     continue;
                 }
                 let rotation = operations.rotation(late)?;
@@ -299,8 +304,8 @@ mod tests {
         let (_, mut operations) = setup(StartMode::Warm, 3)?;
         let case = swap_case(&operations)?;
         let (rotation, partner_rotation) = (
-            operations.rotation_of[case.late],
-            operations.rotation_of[case.partner],
+            operations.rotation_of[case.late].context("late rotation")?,
+            operations.rotation_of[case.partner].context("partner rotation")?,
         );
         let partner_trip = (
             operations.tails[case.partner].leg,
@@ -309,11 +314,12 @@ mod tests {
         let count = operations.rotation(case.late)?.flights.len();
         let (before, before_week) = previous(case.leg, case.week, count)?;
         let arrived = case.scheduled.checked_add(SimDuration::from_minutes(150))?;
-        let (leg, week, ..) =
-            operations.next_flown_leg(case.late, before, before_week, Ready::Arrived(arrived))?;
+        let (leg, week, ..) = operations
+            .next_flown_leg(case.late, before, before_week, Ready::Arrived(arrived))?
+            .context("flies on")?;
         // The partner flies the late trip; the late aircraft its partner's.
-        assert_eq!(operations.rotation_of[case.partner], rotation);
-        assert_eq!(operations.rotation_of[case.late], partner_rotation);
+        assert_eq!(operations.rotation_of[case.partner], Some(rotation));
+        assert_eq!(operations.rotation_of[case.late], Some(partner_rotation));
         assert_eq!(operations.aircraft_of[rotation], case.partner);
         assert_eq!(operations.aircraft_of[partner_rotation], case.late);
         let partner = operations.tails[case.partner];
@@ -350,11 +356,12 @@ mod tests {
         let index = (0..operations.tails.len())
             .find(|&index| {
                 let tail = operations.tails[index];
-                operations
-                    .flight(index, tail.leg)
-                    .map(ScheduledFlight::origin)
-                    .ok()
-                    != operations.base_of(index).ok()
+                !operations.is_spare(index)
+                    && operations
+                        .flight(index, tail.leg)
+                        .map(ScheduledFlight::origin)
+                        .ok()
+                        != operations.base_of(index).ok()
             })
             .context("no tail away from its base")?;
         let scheduled = operations.tails[index].scheduled;
@@ -387,8 +394,9 @@ mod tests {
         let week = operations.tails[index].week;
         let due = operations.rotation(index)?.scheduled(leg + 1, week)?;
         let arrived = due.checked_add(SimDuration::from_minutes(240))?;
-        let (next, next_week, scheduled, _) =
-            operations.next_flown_leg(index, leg, week, Ready::Arrived(arrived))?;
+        let (next, next_week, scheduled, _) = operations
+            .next_flown_leg(index, leg, week, Ready::Arrived(arrived))?
+            .context("flies on")?;
         // Both legs of the late round trip go; the tail waits for the next.
         assert_eq!((next, next_week), (leg + 3, week));
         assert_eq!(
@@ -409,8 +417,9 @@ mod tests {
         // Ten minutes late, quick turns of at most 72 minutes keep it under
         // the threshold.
         let arrived = due.checked_add(SimDuration::from_minutes(10))?;
-        let (next, _, scheduled, ready) =
-            operations.next_flown_leg(index, leg, week, Ready::Arrived(arrived))?;
+        let (next, _, scheduled, ready) = operations
+            .next_flown_leg(index, leg, week, Ready::Arrived(arrived))?
+            .context("flies on")?;
         assert_eq!(next, leg + 1);
         assert_eq!(scheduled, due);
         // Late, so a quick turn: never more than the minimum after arriving.
@@ -430,7 +439,9 @@ mod tests {
         let before = leg.checked_sub(1).context("a leg before")?;
         let due = operations.rotation(index)?.scheduled(leg, week)?;
         let arrived = due.checked_add(SimDuration::from_minutes(24 * 60))?;
-        let (next, ..) = operations.next_flown_leg(index, before, week, Ready::Arrived(arrived))?;
+        let (next, ..) = operations
+            .next_flown_leg(index, before, week, Ready::Arrived(arrived))?
+            .context("flies on")?;
         assert_eq!(next, leg);
         assert_eq!(operations.statistics().network().cancellations(), 0);
         Ok(())

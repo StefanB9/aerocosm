@@ -25,6 +25,8 @@ pub struct AirportStats {
     cancellations: u32,
     /// Aircraft swapped onto a late trip here (plan M8 D169).
     swaps: u32,
+    /// Spares that took over a late trip here (plan M8 D170).
+    spares: u32,
     arrivals: u32,
     on_time_arrivals: u32,
     arrival_delay: i64,
@@ -101,6 +103,11 @@ impl AirportStats {
     /// Aircraft swapped onto a late trip here (plan M8 D169).
     pub const fn swaps(&self) -> u32 {
         self.swaps
+    }
+
+    /// Spares that took over a late trip here (plan M8 D170).
+    pub const fn spares(&self) -> u32 {
+        self.spares
     }
 
     /// Share of scheduled departures cancelled: cancellations against
@@ -218,6 +225,7 @@ impl AirportStats {
         self.delay_causes.add(other.delay_causes);
         self.cancellations += other.cancellations;
         self.swaps += other.swaps;
+        self.spares += other.spares;
         self.arrivals += other.arrivals;
         self.on_time_arrivals += other.on_time_arrivals;
         self.arrival_delay += other.arrival_delay;
@@ -337,6 +345,13 @@ impl Statistics {
     pub(crate) fn swapped(&mut self, airport: Id<Airport>) {
         if let Some(at) = self.at(airport) {
             at.swaps += 1;
+        }
+    }
+
+    /// A spare took over a late trip at `airport`.
+    pub(crate) fn spared(&mut self, airport: Id<Airport>) {
+        if let Some(at) = self.at(airport) {
+            at.spares += 1;
         }
     }
 
@@ -584,7 +599,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cancellations_per_airport_day_and_network() -> Result<()> {
+    fn test_cancellations_swaps_and_spares_per_airport_day_and_network() -> Result<()> {
         let mut stats = Statistics::new(2);
         let start: SimTime = "2026-07-06T00:00:00Z".parse()?;
         stats.set_start(start);
@@ -607,6 +622,10 @@ mod tests {
         stats.swapped(Id::new(5));
         assert_eq!(stats.airport(Id::new(1)).swaps(), 1);
         assert_eq!(stats.network().swaps(), 1);
+        stats.spared(Id::new(1));
+        stats.spared(Id::new(5));
+        assert_eq!(stats.airport(Id::new(1)).spares(), 1);
+        assert_eq!(stats.network().spares(), 1);
         Ok(())
     }
 
