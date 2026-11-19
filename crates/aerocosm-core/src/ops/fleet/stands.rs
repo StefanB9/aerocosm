@@ -393,7 +393,7 @@ mod tests {
             if view.origin() != fra || view.phase() != Phase::Boarding {
                 continue;
             }
-            let index = view.tail().as_usize();
+            let index = view.airframe().as_usize();
             let (airport, stand) = operations.parked[index].context("a boarding tail stands")?;
             assert_eq!(airport, fra);
             let at = layout.nodes()[layout.stands()[stand.as_usize()].node().as_usize()];
@@ -418,7 +418,7 @@ mod tests {
                 if view.destination() != fra || view.phase() != Phase::TaxiIn {
                     continue;
                 }
-                let index = view.tail().as_usize();
+                let index = view.airframe().as_usize();
                 let Some((airport, stand)) = operations.parked[index] else {
                     continue;
                 };
@@ -454,7 +454,7 @@ mod tests {
                 {
                     continue;
                 }
-                let path = operations.paths[view.tail().as_usize()]
+                let path = operations.paths[view.airframe().as_usize()]
                     .as_ref()
                     .context("a path")?;
                 if path.routed_out() {

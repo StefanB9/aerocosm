@@ -4,8 +4,7 @@
 
 use aerocosm_core::{
     Id,
-    ops::{FlightView, holding_pattern},
-    schedule::Tail,
+    ops::{Airframe, FlightView, holding_pattern},
 };
 use bevy::{
     app::{App, Plugin, Update},
@@ -59,14 +58,14 @@ const TRAIL_ALPHA: f32 = 0.55;
 /// One tail's aircraft symbol; `position` is where it is drawn this frame.
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub(crate) struct AircraftSprite {
-    pub(crate) tail: Id<Tail>,
+    pub(crate) airframe: Id<Airframe>,
     pub(crate) position: Vec2,
 }
 
 impl AircraftSprite {
     /// The symbol of `tail`, drawn at `position`.
-    pub(crate) const fn new(tail: Id<Tail>, position: Vec2) -> Self {
-        Self { tail, position }
+    pub(crate) const fn new(airframe: Id<Airframe>, position: Vec2) -> Self {
+        Self { airframe, position }
     }
 }
 
@@ -116,7 +115,7 @@ pub(crate) struct TrafficView {
 
 impl TrafficView {
     /// The flight `tail` is on, if it is boarding or moving.
-    pub(crate) fn flight(&self, tail: Id<Tail>) -> Option<&FlightView> {
+    pub(crate) fn flight(&self, tail: Id<Airframe>) -> Option<&FlightView> {
         self.slots.get(tail.as_usize())?.view.as_ref()
     }
 
@@ -144,13 +143,11 @@ impl TrafficView {
         }
         let single_step = self.ticks.is_some_and(|last| ticks == last + 1);
         self.ticks = Some(ticks);
-        let tails = simulation
-            .schedule()
-            .map_or(0, |schedule| schedule.tails().len());
-        self.slots.resize(tails, Slot::default());
-        let mut seen = vec![false; tails];
+        let airframes = simulation.airframe_count();
+        self.slots.resize(airframes, Slot::default());
+        let mut seen = vec![false; airframes];
         for view in simulation.flights() {
-            let index = view.tail().as_usize();
+            let index = view.airframe().as_usize();
             let Some(slot) = self.slots.get_mut(index) else {
                 continue;
             };
@@ -193,7 +190,7 @@ impl TrafficView {
     }
 
     /// The pose of `tail` a fraction `t` of the way into the next tick.
-    fn pose(&self, tail: Id<Tail>, t: f32) -> Option<Pose> {
+    fn pose(&self, tail: Id<Airframe>, t: f32) -> Option<Pose> {
         let slot = self.slots.get(tail.as_usize())?;
         Some(blend(slot.previous?, slot.current?, t))
     }
@@ -270,7 +267,9 @@ fn spawn_aircraft(
             .map_or(SizeClass::NarrowBody, size_class);
         commands
             .spawn((
-                AircraftSprite::new(tail, Vec2::ZERO),
+                // Each rotation's aircraft starts as the airframe of the
+                // same index, and swaps only within a pool of one type.
+                AircraftSprite::new(Id::new(tail.index()), Vec2::ZERO),
                 SpriteLook {
                     class,
                     band: PhaseBand::Ground,
@@ -359,9 +358,9 @@ fn draw_aircraft(
     let t = tick_fraction(&driver);
     for (mut sprite, mut look, mut transform, mut visibility, mut material) in &mut sprites {
         let shown = traffic
-            .flight(sprite.tail)
+            .flight(sprite.airframe)
             .filter(|view| flight_visible(view.phase(), scale))
-            .zip(traffic.pose(sprite.tail, t));
+            .zip(traffic.pose(sprite.airframe, t));
         let Some((view, pose)) = shown else {
             visibility.set_if_neq(Visibility::Hidden);
             continue;
@@ -371,8 +370,8 @@ fn draw_aircraft(
         sprite.position = position;
         #[allow(clippy::cast_possible_truncation)]
         let units_per_meter = MapProjection::units_per_meter(view.position()) as f32;
-        let highlighted = selection.selected_flight() == Some(sprite.tail)
-            || selection.hovered_flight() == Some(sprite.tail);
+        let highlighted = selection.selected_flight() == Some(sprite.airframe)
+            || selection.hovered_flight() == Some(sprite.airframe);
         let z = if highlighted { HIGHLIGHT_Z } else { AIRCRAFT_Z };
         *transform = Transform::from_translation(position.extend(z))
             .with_rotation(Quat::from_rotation_z(rotation(pose.heading)))
@@ -421,9 +420,9 @@ fn draw_trails(
         if *visibility == Visibility::Hidden {
             continue;
         }
-        let selected = selection.selected_flight() == Some(sprite.tail);
-        let hovered = selection.hovered_flight() == Some(sprite.tail);
-        let Some(slot) = traffic.slots.get(sprite.tail.as_usize()) else {
+        let selected = selection.selected_flight() == Some(sprite.airframe);
+        let hovered = selection.hovered_flight() == Some(sprite.airframe);
+        let Some(slot) = traffic.slots.get(sprite.airframe.as_usize()) else {
             continue;
         };
         let Some(view) = slot.view else {
@@ -503,7 +502,7 @@ mod tests {
             .enumerate()
             .find(|(_, slot)| slot.view.is_some_and(|view| view.phase().is_airborne()))
             .context("an airborne flight")?;
-        let tail = Id::<Tail>::from_usize(index)?;
+        let tail = Id::<Airframe>::from_usize(index)?;
         let first = slot.current.context("pose")?;
         assert!(traffic.flight(tail).is_some());
 

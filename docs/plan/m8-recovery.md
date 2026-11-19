@@ -145,6 +145,40 @@ faster: the container, not the code (PR 1's record was taken on an unusually fas
 - Swaps at the base within the pool; swaps in statistics.
 - Measured: swaps, cancellations and delay against PR 2 (cancellations should fall).
 
+*As built (PR 3):* operations keep aircraft apart from rotations: each aircraft flies the
+rotation `rotation_of` gives it, each rotation is flown by the aircraft `aircraft_of` gives
+it, and `FlightView` carries both, `airframe()` (an `Id<Airframe>`, the physical aircraft:
+sprites, taxi routes) and `tail()` (the rotation). The refactor alone changes nothing: a
+36-hour world run logs identical lines before and after it. The pool is the airline, base
+and aircraft type (D169); within it zone, turnaround, callsign, wake, wingspan and cargo are
+the same, so a swap changes nothing else.
+
+When a trip from the base would cancel (the tail ready more than the threshold after
+schedule), it first looks for a swap: another aircraft of the pool, parked at the base, whose
+own next trip from the base is due later and which is ready by the late trip's schedule plus
+the threshold. Of those, the one whose trip is due latest is taken. The two exchange
+rotations; the ready aircraft flies the trip, and the late one takes the later trip, which
+is looked at in turn (and may cancel). One swap is tried per trip; if none is found, the trip
+cancels as in PR 2. Swaps are counted at the base, per airport and for the network.
+
+| 72 h, seed 3 | Days 1 / 2 / 3, min | Average | Late aircraft | Cancelled | Swaps | Boston | Seattle | O'Hare |
+|---|---|---|---|---|---|---|---|---|
+| PR 2 | 7.3 / 9.5 / 9.4 | 8.7 | 16 % | 1.26 % (3,940) | – | 105 min | 44 | 25 |
+| **PR 3** | 7.3 / 9.9 / 9.6 | 8.9 | 18 % | 1.12 % (3,516) | 307 | 98 | 44 | 23 |
+
+Swaps take 11 % of cancellations away. Most of the rest are departures held at the gate by
+flow control, which a swap cannot help (the other aircraft would be held the same), most of
+Boston's and Seattle's. The flights that now fly rather than cancel add a little delay
+(8.9 against 8.7 minutes, late aircraft 18 %). Holding 269,670 minutes, stand waits 2,194
+(PR 2 2,286), stalls 0; O'Hare's longest taxi 120 minutes, Frankfurt's 96. The full suite
+passes: 884 tests.
+
+Benchmark record (D174): tick medians 3.0–4.4 ms, 95th percentiles 4.7–7.4 ms, under D107's
+8 ms; the simulated day 397 s. The fingerprints change because flight views and statistics
+carry new fields. Against PR 2's record tick 00 and 06 are 5–14 % faster and ticks 12 and 16
+20–50 % slower, in every part alike, flying included, and start-up is 19 % slower: the
+container, not the code.
+
 ## PR 4 — Spares (D170)
 
 - Spares in the generated schedule; parked remote at the base; taking over late trips.

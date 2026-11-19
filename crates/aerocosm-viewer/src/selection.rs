@@ -1,6 +1,6 @@
 //! What the pointer is over and what is selected: an airport or a flight.
 
-use aerocosm_core::{Id, schedule::Tail, world::Airport};
+use aerocosm_core::{Id, ops::Airframe, world::Airport};
 use bevy::{
     camera::visibility::Visibility,
     ecs::{
@@ -26,7 +26,7 @@ pub(crate) enum Pick {
     /// An airport symbol.
     Airport(Id<Airport>),
     /// The flight a tail is flying.
-    Flight(Id<Tail>),
+    Flight(Id<Airframe>),
 }
 
 /// What the pointer is over and what is selected.
@@ -54,7 +54,7 @@ impl Selection {
     }
 
     /// The selected flight's tail, if a flight is selected.
-    pub(crate) const fn selected_flight(&self) -> Option<Id<Tail>> {
+    pub(crate) const fn selected_flight(&self) -> Option<Id<Airframe>> {
         match self.selected {
             Some(Pick::Flight(id)) => Some(id),
             _ => None,
@@ -62,7 +62,7 @@ impl Selection {
     }
 
     /// The hovered flight's tail, if a flight is hovered.
-    pub(crate) const fn hovered_flight(&self) -> Option<Id<Tail>> {
+    pub(crate) const fn hovered_flight(&self) -> Option<Id<Airframe>> {
         match self.hovered {
             Some(Pick::Flight(id)) => Some(id),
             _ => None,
@@ -92,7 +92,7 @@ pub(crate) fn hover_and_select(
             let flights = aircraft
                 .iter()
                 .filter(|(_, visibility)| **visibility != Visibility::Hidden)
-                .map(|(sprite, _)| (Pick::Flight(sprite.tail), screen(sprite.position)));
+                .map(|(sprite, _)| (Pick::Flight(sprite.airframe), screen(sprite.position)));
             picking::nearest(airports.chain(flights), cursor, HOVER_REACH)
         }
         _ => None,

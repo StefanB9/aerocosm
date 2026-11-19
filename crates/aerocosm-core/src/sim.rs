@@ -5,11 +5,11 @@ use anyhow::{Context, Result};
 use crate::{
     Id, RngSeed, SimDuration, SimTime,
     ops::{
-        ActiveRunway, BoardEntry, BoardKind, FlightView, Operations, StartMode, Statistics,
-        TaxiRoute,
+        ActiveRunway, Airframe, BoardEntry, BoardKind, FlightView, Operations, StartMode,
+        Statistics, TaxiRoute,
     },
     scenario::Scenario,
-    schedule::{Schedule, ScheduleConfig, Tail, generate},
+    schedule::{Schedule, ScheduleConfig, generate},
     world::{Airport, World},
 };
 
@@ -111,10 +111,18 @@ impl Simulation {
         self.operations.iter().flat_map(Operations::flights)
     }
 
-    /// The taxi route of `tail` while it pushes back or taxies at a mapped
-    /// airport (plan M4 D86).
-    pub fn taxi_route(&self, tail: Id<Tail>) -> Option<TaxiRoute> {
-        self.operations.as_ref()?.taxi_route(tail.as_usize())
+    /// The taxi route of `airframe` while it pushes back or taxies at a
+    /// mapped airport (plan M4 D86).
+    pub fn taxi_route(&self, airframe: Id<Airframe>) -> Option<TaxiRoute> {
+        self.operations.as_ref()?.taxi_route(airframe.as_usize())
+    }
+
+    /// How many aircraft fly the schedule (plan M8 D169); 0 without
+    /// traffic.
+    pub fn airframe_count(&self) -> usize {
+        self.operations
+            .as_ref()
+            .map_or(0, Operations::airframe_count)
     }
 
     /// Up to `count` of `airport`'s departures or arrivals by scheduled time,
