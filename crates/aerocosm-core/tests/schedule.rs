@@ -300,3 +300,33 @@ fn test_every_airline_flies_and_few_slots_are_dropped() -> Result<()> {
     assert!(schedule.dropped_slots() * 50 < schedule.flights().len());
     Ok(())
 }
+
+#[test]
+fn test_spares_are_about_one_percent_of_the_fleet_in_large_pools() -> Result<()> {
+    let data = data()?;
+    let schedule = schedule(&data, 7)?;
+    let mut pools: HashMap<_, usize> = HashMap::new();
+    for (_, tail) in schedule.tails() {
+        *pools
+            .entry((tail.airline(), tail.base(), tail.aircraft()))
+            .or_default() += 1;
+    }
+    let mut spares: HashMap<_, usize> = HashMap::new();
+    for spare in schedule.spares() {
+        *spares
+            .entry((spare.airline(), spare.base(), spare.aircraft()))
+            .or_default() += 1;
+    }
+    for (pool, count) in &spares {
+        let tails = pools.get(pool).copied().unwrap_or_default();
+        if tails < 10 || *count != (tails / 20).max(1) {
+            bail!("{count} spares for a pool of {tails}");
+        }
+    }
+    let (spares, tails) = (schedule.spares().len(), schedule.tails().len());
+    assert!(
+        spares * 1000 >= tails * 7 && spares * 1000 <= tails * 13,
+        "{spares} spares for {tails} tails"
+    );
+    Ok(())
+}
