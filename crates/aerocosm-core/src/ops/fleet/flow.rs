@@ -392,6 +392,17 @@ impl Operations {
         }
     }
 
+    /// Gives back the landing slot booked at off-block, if any, and starts
+    /// runway control afresh: the leg was cancelled at the gate.
+    pub(super) fn drop_landing(&mut self, index: usize) {
+        if let Some(flow) = self.flows.get(index).copied()
+            && let (Some(slot), Some(key)) = (flow.provisional, flow.arrival)
+        {
+            self.control.cancel_arrival(key, slot);
+        }
+        self.reset_flow(index);
+    }
+
     /// Starts runway control afresh for a newly planned leg.
     pub(super) fn reset_flow(&mut self, index: usize) {
         if let Some(flow) = self.flows.get(index).copied()
