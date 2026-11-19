@@ -134,6 +134,11 @@ the 7-day run in PR 6 after swaps and spares.
 Boston (105 minutes) and Seattle (44) still average most delay; O'Hare's longest taxi is 147
 minutes and Frankfurt's 98 (M7's 7-day run: 282 and 124). The full suite passes: 883 tests.
 
+Benchmark record (D174): tick medians 3.1–3.9 ms, 95th percentiles 4.8–6.3 ms, under D107's
+8 ms; the simulated day 348 s. Against PR 1's record ticks are 5–48 % slower, but evenly
+across every part, flying included, which recovery does not touch, while start-up is 11 %
+faster: the container, not the code (PR 1's record was taken on an unusually fast one).
+
 ## PR 3 — Tail swaps (D169)
 
 - Aircraft apart from rotations in operations, flight views and statistics.
