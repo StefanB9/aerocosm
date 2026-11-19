@@ -23,6 +23,8 @@ pub struct AirportStats {
     delay_causes: DelayCauses,
     /// Departures cancelled by their airline (plan M8 D171).
     cancellations: u32,
+    /// Aircraft swapped onto a late trip here (plan M8 D169).
+    swaps: u32,
     arrivals: u32,
     on_time_arrivals: u32,
     arrival_delay: i64,
@@ -94,6 +96,11 @@ impl AirportStats {
     /// Departures cancelled by their airline (plan M8 D171).
     pub const fn cancellations(&self) -> u32 {
         self.cancellations
+    }
+
+    /// Aircraft swapped onto a late trip here (plan M8 D169).
+    pub const fn swaps(&self) -> u32 {
+        self.swaps
     }
 
     /// Share of scheduled departures cancelled: cancellations against
@@ -210,6 +217,7 @@ impl AirportStats {
         self.departure_delay += other.departure_delay;
         self.delay_causes.add(other.delay_causes);
         self.cancellations += other.cancellations;
+        self.swaps += other.swaps;
         self.arrivals += other.arrivals;
         self.on_time_arrivals += other.on_time_arrivals;
         self.arrival_delay += other.arrival_delay;
@@ -322,6 +330,13 @@ impl Statistics {
         }
         if let Some(at) = self.at(airport) {
             at.cancellations += 1;
+        }
+    }
+
+    /// An airline swapped aircraft at `airport` onto a late trip.
+    pub(crate) fn swapped(&mut self, airport: Id<Airport>) {
+        if let Some(at) = self.at(airport) {
+            at.swaps += 1;
         }
     }
 
@@ -588,6 +603,10 @@ mod tests {
         assert_eq!(network.cancellations(), 2);
         assert!((network.cancelled_share() - 0.4).abs() < 1e-12);
         assert!(AirportStats::default().cancelled_share().abs() < 1e-12);
+        stats.swapped(Id::new(1));
+        stats.swapped(Id::new(5));
+        assert_eq!(stats.airport(Id::new(1)).swaps(), 1);
+        assert_eq!(stats.network().swaps(), 1);
         Ok(())
     }
 

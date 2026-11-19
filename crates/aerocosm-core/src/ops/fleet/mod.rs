@@ -128,6 +128,10 @@ pub(crate) struct Operations {
     /// flying each rotation (plan M8 D169).
     rotation_of: Vec<usize>,
     aircraft_of: Vec<usize>,
+    /// The aircraft of each pool (airline, base and type), which may swap
+    /// rotations, and each aircraft's pool.
+    pools: Vec<Vec<usize>>,
+    pool_of: Vec<usize>,
     /// Punctuality, delays and movements since the start.
     stats: Statistics,
     /// Take-offs and touchdowns at controlled runways, for tests.
@@ -198,6 +202,7 @@ impl Operations {
             wingspans.push(aircraft.wingspan());
             cargoes.push(cargo);
         }
+        let (pools, pool_of) = pools(&schedule);
         let sequenced: Vec<Id<Airport>> = traffic
             .targets()
             .airports()
@@ -242,6 +247,8 @@ impl Operations {
             look_at: vec![start; tail_count],
             wanted: Vec::new(),
             wanted_edges: Vec::new(),
+            pools,
+            pool_of,
             rotation_of: (0..tail_count).collect(),
             aircraft_of: (0..tail_count).collect(),
             stats: {
@@ -676,6 +683,24 @@ impl Operations {
             })
         })
     }
+}
+
+/// The schedule's tails grouped into pools of one airline, base and type
+/// (plan M8 D169), and the pool of each tail.
+fn pools(schedule: &Schedule) -> (Vec<Vec<usize>>, Vec<usize>) {
+    let mut index = std::collections::HashMap::with_capacity(schedule.tails().len());
+    let mut pools: Vec<Vec<usize>> = Vec::new();
+    let mut pool_of = Vec::with_capacity(schedule.tails().len());
+    for (tail, info) in schedule.tails() {
+        let key = (info.airline(), info.base(), info.aircraft());
+        let pool = *index.entry(key).or_insert_with(|| {
+            pools.push(Vec::new());
+            pools.len() - 1
+        });
+        pools[pool].push(tail.as_usize());
+        pool_of.push(pool);
+    }
+    (pools, pool_of)
 }
 
 /// Runway control at the `sequenced` airports, their runways used for both
