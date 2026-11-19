@@ -73,19 +73,10 @@ impl Operations {
         Ok(())
     }
 
-    /// Hands aircraft `index`'s late trip `(leg, week)`, scheduled at
-    /// `scheduled`, to another aircraft of its pool parked at the base,
-    /// ready in time and due to leave later (plan M8 D169): the one due
-    /// latest, so the late aircraft gains the most time. The two exchange
-    /// rotations; returns the trip the late aircraft takes instead, `None`
-    /// without a partner.
-    fn swap(
-        &mut self,
-        index: usize,
-        trip: (usize, LocalDate),
-        scheduled: SimTime,
-        now: SimTime,
-    ) -> Result<Option<(usize, LocalDate)>> {
+    /// Another aircraft of `index`'s pool parked at the base, ready by
+    /// `scheduled` plus the threshold and due to leave later (plan M8 D169):
+    /// the one due latest, so the late aircraft gains the most time.
+    pub(super) fn swap_partner(&self, index: usize, scheduled: SimTime) -> Result<Option<usize>> {
         let base = self.base_of(index)?;
         let mut best: Option<(usize, SimTime)> = None;
         for &other in &self.pools[self.pool_of[index]] {
@@ -105,7 +96,22 @@ impl Operations {
                 best = Some((other, tail.scheduled));
             }
         }
-        let Some((other, _)) = best else {
+        Ok(best.map(|(other, _)| other))
+    }
+
+    /// Hands aircraft `index`'s late trip `(leg, week)`, scheduled at
+    /// `scheduled`, to its [swap partner](Self::swap_partner). The two
+    /// exchange rotations; returns the trip the late aircraft takes
+    /// instead, `None` without a partner.
+    fn swap(
+        &mut self,
+        index: usize,
+        trip: (usize, LocalDate),
+        scheduled: SimTime,
+        now: SimTime,
+    ) -> Result<Option<(usize, LocalDate)>> {
+        let base = self.base_of(index)?;
+        let Some(other) = self.swap_partner(index, scheduled)? else {
             return Ok(None);
         };
         let partner = self.tails[other];

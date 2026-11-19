@@ -132,6 +132,9 @@ pub(crate) struct Operations {
     aircraft_of: Vec<usize>,
     /// Each aircraft's base.
     bases: Vec<Id<Airport>>,
+    /// Aircraft relieved by a spare on their way in: they hand their
+    /// rotation over at the gate (plan M8 D170).
+    relieved: Vec<bool>,
     /// The aircraft of each pool (airline, base and type), which may swap
     /// rotations, and each aircraft's pool.
     pools: Vec<Vec<usize>>,
@@ -244,6 +247,7 @@ impl Operations {
                 .collect(),
             aircraft_of: (0..rotations).collect(),
             bases,
+            relieved: vec![false; tail_count],
             stats: {
                 let mut stats = Statistics::new(world.airport_count());
                 stats.set_start(start);
@@ -517,6 +521,7 @@ impl Operations {
                         let origin = self.flight(index, leg)?.origin();
                         self.count(origin);
                         self.stats.moved(origin, now);
+                        self.dispatch_spare(index, leg, now)?;
                     }
                     Some(Event::Landing) => {
                         self.airborne = self.airborne.saturating_sub(1);
@@ -599,6 +604,9 @@ impl Operations {
         ready: Ready,
     ) -> Result<TailOps> {
         let since = ready.time();
+        if self.hand_over(index)? {
+            return Ok(TailOps::idle(week, add(since, self.turnarounds[index])?));
+        }
         match self.next_flown_leg(index, leg, week, ready)? {
             Some((leg, week, scheduled, at)) => self.leg_ops((leg, week), scheduled, at, since),
             None => Ok(TailOps::idle(week, add(since, self.turnarounds[index])?)),
