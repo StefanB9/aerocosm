@@ -89,7 +89,7 @@ fn describe(flight: &FlightView, simulation: &Simulation) -> String {
 /// The taxi route of a taxiing `flight` (D86) runs through where it is, and
 /// it is cleared at least that far.
 fn check_route(simulation: &Simulation, flight: &FlightView) -> Result<bool> {
-    let Some(route) = simulation.taxi_route(flight.tail()) else {
+    let Some(route) = simulation.taxi_route(flight.airframe()) else {
         return Ok(false);
     };
     let (along, cleared, end) = (

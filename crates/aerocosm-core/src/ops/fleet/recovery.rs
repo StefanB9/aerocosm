@@ -41,7 +41,7 @@ impl Operations {
     pub(super) fn base_of(&self, index: usize) -> Result<Id<Airport>> {
         Ok(self
             .schedule
-            .tail(Id::from_usize(index)?)
+            .tail(self.rotation_id(index)?)
             .context("tail out of range")?
             .base())
     }

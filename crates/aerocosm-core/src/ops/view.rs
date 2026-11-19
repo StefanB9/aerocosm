@@ -67,9 +67,16 @@ impl Holding {
     }
 }
 
+/// A physical aircraft (plan M8 D169): what parks, taxis and flies. It
+/// flies the legs of one rotation (a schedule [`Tail`]) at a time; airlines
+/// swap rotations between aircraft of a pool at its base.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Airframe;
+
 /// A snapshot of one active flight: boarding, moving or just landed.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FlightView {
+    pub(super) airframe: Id<Airframe>,
     pub(super) tail: Id<Tail>,
     pub(super) callsign: Callsign,
     pub(super) airline: Id<Airline>,
@@ -95,6 +102,11 @@ pub struct FlightView {
 
 impl FlightView {
     /// The aircraft flying it.
+    pub const fn airframe(&self) -> Id<Airframe> {
+        self.airframe
+    }
+
+    /// The rotation it belongs to: the schedule's tail.
     pub const fn tail(&self) -> Id<Tail> {
         self.tail
     }

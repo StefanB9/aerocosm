@@ -3,7 +3,10 @@
 use std::fmt::Write as _;
 
 use aerocosm_core::{
-    Id, LatLon, Scenario, SimTime, ops::FlightView, schedule::Tail, time::Zone, world::Airport,
+    Id, LatLon, Scenario, SimTime,
+    ops::{Airframe, FlightView},
+    time::Zone,
+    world::Airport,
 };
 use bevy::{
     app::{App, Plugin, Startup, Update},
@@ -46,7 +49,7 @@ const REFRESH_SECONDS: f64 = 0.2;
 
 /// Which flight the camera follows.
 #[derive(Resource, Default, Debug, PartialEq, Eq)]
-pub(crate) struct Follow(pub(crate) Option<Id<Tail>>);
+pub(crate) struct Follow(pub(crate) Option<Id<Airframe>>);
 
 /// Shows details of the selected flight and follows it on request.
 pub(super) struct FlightPanelPlugin;
@@ -291,7 +294,7 @@ fn refresh_panel(
     fonts: Res<Fonts>,
     time: Res<Time<Real>>,
     panel: Single<(Entity, &mut Node), With<FlightPanel>>,
-    mut shown: Local<Option<(Id<Tail>, f64, bool)>>,
+    mut shown: Local<Option<(Id<Airframe>, f64, bool)>>,
 ) {
     let (panel, mut node) = panel.into_inner();
     let selected = selection.selected_flight();
@@ -437,7 +440,7 @@ fn place_callsign_label(
         .zip(selection.selected_flight())
         .and_then(|(rig, tail)| {
             let (sprite, _) = sprites.iter().find(|(sprite, visibility)| {
-                sprite.tail == tail && **visibility != Visibility::Hidden
+                sprite.airframe == tail && **visibility != Visibility::Hidden
             })?;
             let view = traffic.flight(tail)?;
             let screen =
@@ -462,7 +465,10 @@ fn place_callsign_label(
 }
 
 /// Whether following `selected` should be switched on or off.
-pub(crate) fn toggled(follow: Option<Id<Tail>>, selected: Option<Id<Tail>>) -> Option<Id<Tail>> {
+pub(crate) fn toggled(
+    follow: Option<Id<Airframe>>,
+    selected: Option<Id<Airframe>>,
+) -> Option<Id<Airframe>> {
     match (follow, selected) {
         (Some(current), Some(tail)) if current == tail => None,
         (_, selected) => selected,
@@ -495,7 +501,7 @@ fn follow_flight(
     };
     let target = sprites
         .iter()
-        .find(|(sprite, visibility)| sprite.tail == tail && **visibility != Visibility::Hidden)
+        .find(|(sprite, visibility)| sprite.airframe == tail && **visibility != Visibility::Hidden)
         .map(|(sprite, _)| sprite.position);
     match target {
         Some(position) if !rig.dragging() && selection.selected_flight() == Some(tail) => {

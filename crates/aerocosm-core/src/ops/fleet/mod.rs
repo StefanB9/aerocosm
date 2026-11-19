@@ -29,7 +29,7 @@ use super::{
     stats::{DelayCauses, Statistics},
     tail::{draw_delay, draw_taxi_in, draw_taxi_out, off_block},
     timing::{NoTimer, Part, Timer},
-    view::{FlightView, Holding},
+    view::{Airframe, FlightView, Holding},
 };
 use crate::{
     Id, RngSeed, SimDuration, SimRng, SimTime, StreamId, TICK, WakeCategory,
@@ -124,6 +124,10 @@ pub(crate) struct Operations {
     /// (airport, tail, edge, forward). Nobody less urgent is cleared onto
     /// them the other way.
     wanted_edges: Vec<(usize, u32, u32, bool)>,
+    /// The rotation (schedule tail) each aircraft flies now, and the aircraft
+    /// flying each rotation (plan M8 D169).
+    rotation_of: Vec<usize>,
+    aircraft_of: Vec<usize>,
     /// Punctuality, delays and movements since the start.
     stats: Statistics,
     /// Take-offs and touchdowns at controlled runways, for tests.
@@ -238,6 +242,8 @@ impl Operations {
             look_at: vec![start; tail_count],
             wanted: Vec::new(),
             wanted_edges: Vec::new(),
+            rotation_of: (0..tail_count).collect(),
+            aircraft_of: (0..tail_count).collect(),
             stats: {
                 let mut stats = Statistics::new(world.airport_count());
                 stats.set_start(start);
@@ -259,9 +265,24 @@ impl Operations {
         Ok(operations)
     }
 
+    /// The rotation aircraft `index` flies now.
+    fn rotation_id(&self, index: usize) -> Result<Id<Tail>> {
+        Id::from_usize(
+            *self
+                .rotation_of
+                .get(index)
+                .context("aircraft out of range")?,
+        )
+    }
+
+    /// How many aircraft fly the schedule.
+    pub(crate) const fn airframe_count(&self) -> usize {
+        self.tails.len()
+    }
+
     fn rotation(&self, index: usize) -> Result<Rotation<'_>> {
         Ok(Rotation {
-            flights: self.schedule.flights_of(Id::from_usize(index)?),
+            flights: self.schedule.flights_of(self.rotation_id(index)?),
             zone: self.zones.get(index).context("tail out of range")?,
             turnaround: self.turnarounds[index],
         })
@@ -269,7 +290,7 @@ impl Operations {
 
     fn flight(&self, index: usize, leg: usize) -> Result<&ScheduledFlight> {
         self.schedule
-            .flights_of(Id::from_usize(index)?)
+            .flights_of(self.rotation_id(index)?)
             .get(leg)
             .context("leg out of range")
     }
@@ -624,7 +645,8 @@ impl Operations {
             let flight = self.flight(index, tail.leg).ok()?;
             let (position, heading) = path.locate(&motion);
             Some(FlightView {
-                tail: Id::<Tail>::from_usize(index).ok()?,
+                airframe: Id::<Airframe>::from_usize(index).ok()?,
+                tail: self.rotation_id(index).ok()?,
                 callsign: self.callsign(index)?,
                 airline: flight.airline(),
                 aircraft: flight.aircraft(),

@@ -108,8 +108,10 @@ impl Operations {
         let from = self.time.checked_sub(KEEP).unwrap_or(self.time);
         let until = self.time.checked_add(HORIZON).unwrap_or(self.time);
         let mut entries = Vec::with_capacity(count * 2);
-        for (index, tail) in self.tails.iter().enumerate() {
-            let Ok(tail_id) = Id::<Tail>::from_usize(index) else {
+        for (rotation, &index) in self.aircraft_of.iter().enumerate() {
+            let (Ok(tail_id), Some(tail)) =
+                (Id::<Tail>::from_usize(rotation), self.tails.get(index))
+            else {
                 continue;
             };
             let flights = self.schedule.flights_of(tail_id);
