@@ -5,12 +5,20 @@ build-std = ["std", "panic_abort", "panic_unwind", "core", "alloc"]
 #jobs = 1
 rustflags = ["-C", "target-cpu=native", "-Z", "location-detail=none"]
 
+# A target's own rustflags replace `[build]`'s instead of adding to them, so each target
+# repeats the shared flags (plan M9 D180).
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld.exe"
-rustflags = ["-C", "link-arg=/OPT:REF", "-C", "link-arg=/OPT:ICF"]
+rustflags = [
+    "-C", "target-cpu=native", "-Z", "location-detail=none",
+    "-C", "link-arg=/OPT:REF", "-C", "link-arg=/OPT:ICF",
+]
 
 [target.x86_64-unknown-linux-gnu]
-rustflags = ["-Ctarget-cpu=native", "-C", "link-arg=-Wl,--icf=all"]
+rustflags = [
+    "-C", "target-cpu=native", "-Z", "location-detail=none",
+    "-C", "link-arg=-Wl,--icf=all",
+]
 
 # `[build]` rustflags add `target-cpu=native`, which names the host's x86 CPU and is
 # meaningless for wasm ("not a recognized processor" on every crate).
