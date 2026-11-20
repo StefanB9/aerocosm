@@ -226,6 +226,30 @@ takes its peak traffic badly; their aircraft carry the delay on.
 
 **Decision (2026-11-18):** recorded; airline recovery is the next milestone's subject.
 
+**After plan M8 (PR 6):** airlines recover: late aircraft turn quickly, swap with others of
+their pool or hand their trips to spares, and round trips expected to leave their base more
+than 90 minutes late are cancelled (`docs/plan/m8-recovery.md`). Delay no longer grows: 7.3
+minutes on the first day, 9.7–11.7 after, 9.9 over the week; 1.30 % of departures cancelled.
+Boston still averages 131 minutes, the only airport with 100 movements a day over an hour;
+O'Hare (214 minutes), Frankfurt (101) and Boston (78) still have a taxi over 75 minutes.
+**Decision (2026-11-20):** recorded; Boston's runways and O'Hare's ground stay open.
+
+### Delay is lower than 2019's, and little of it is late aircraft
+
+**What:** in the 7-day world run (plan M8 PR 6) the average departure delay is 9.9 minutes
+against 12–15 in 2019 (EUROCONTROL 13.1), and late aircraft are 19.8 % of it against BTS's
+39.7 %.
+
+**Why:** most of the delay is the airline's own, drawn per leg since plan M2 (about 5
+minutes a departure); with recovery ending long chains of late legs, the late-aircraft
+minutes those chains carried are gone, and the drawn delay was never calibrated against the
+2019 totals. Nearly all cancellations (99 %) are departures held at the gate by flow control,
+so spares, which cannot leave sooner, are rarely used (8 in a week).
+
+**Intended fix:** calibrate the drawn delay's distribution against CODA's and BTS's delay by
+cause, then the recovery threshold again. **Decision (2026-11-20):** recorded; M8 is
+accepted without these limits.
+
 ### The fallback traffic model underestimates the largest unobserved hubs
 
 **What:** airports outside well-covered countries take their traffic from the fitted model

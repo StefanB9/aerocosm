@@ -253,9 +253,45 @@ slower than PR 4's record, flying alike: the container.
 - The 7-day run, benchmark record, `docs/known-issues.md`, README; promotion to `main` on the
   user's word.
 
+*As built (PR 6):* the world for 7 days from Monday 2026-07-06, seed 3, release build on this
+container: 724,234 flights (103,462 a day), peak 16,632 airborne, 39 minutes in all (261 ticks
+a second). References for 2019 as in M7 and PR 1: EUROCONTROL's CODA digest (13.1 minutes,
+1.7 % cancelled), BTS (79.0 % of arrivals on time, 1.9 % cancelled, late aircraft 39.7 % of
+delay).
+
+| D172 limit | M7's week | M8's week | |
+|---|---|---|---|
+| Departures on time | 76.7 % | 80.2 % | met (about 75–80 %) |
+| Arrivals on time | 73.1 % | 76.7 % | below BTS's 79.0 % |
+| Average departure delay | 20.4 min | 9.9 min | not met (12–15): below |
+| Day 7 within 10 % of day 2 | 30.0 against 16.9 min | 10.2 against 9.8 min | met |
+| No airport (100+ a day) over 60 min of delay | six, Boston 474 | Boston 131 | not met |
+| No taxi over 75 min | O'Hare 282, Frankfurt 124, Boston 87 | O'Hare 214, Frankfurt 101, Boston 78 | not met |
+| Cancellations 1–2.5 % | – | 9,538 (1.30 %) | met |
+| Late aircraft 35–50 % of delay | 45 % (day 3) | 19.8 % | not met |
+| Escapes under 2 % | 1.3 % | 8,740 of 768,031 (1.1 %) | met |
+| Stand shares under 2 % | 2,266 (0.3 %) | 1,186 (0.15 %) | met |
+| No stalls | 0 | 0 | met |
+| Region E ground test, capacity and delay references, ADV | pass | pass (PR 5's suite, 895 tests) | met |
+| 95th-percentile tick under 8 ms | 3.9–6.0 ms | 3.9–5.5 ms (PR 5's record, same code) | met |
+
+Delay by day: 7.3, 9.8, 9.7, 10.2, 10.8, 11.7, 10.2 minutes (M7: 9.7 rising to 30.0). Recovery
+ends the chains of late legs: 941 swaps, 8 spares, and the cancellations above; holding falls
+to 614,346 minutes (M7: 707,046). Seattle 46 minutes, O'Hare 36, Newark 24, Tokyo Haneda 18.
+
+What remains: the airline's own delay drawn per leg (about 5 minutes since M2) is most of
+the delay, so the average and the share of late aircraft sit below 2019's; Boston's landings
+crowd one runway, and O'Hare's and Frankfurt's ground takes their peaks badly (both recorded
+in `docs/known-issues.md`). **Decision (2026-11-20):** M8 is recorded with these limits not
+met and promoted to `main` on the user's word; the drawn delay's calibration and the Boston
+and O'Hare overloads are left for a later milestone. No code changed in PR 6, so PR 5's
+benchmark record stands for it.
+
 ## Definition of done
 
-- D172's limits hold in the 7-day world run.
+- D172's limits hold in the 7-day world run. *Not met (PR 6): average departure delay 9.9
+  minutes and late aircraft 19.8 % of it, both below range; Boston 131 minutes; taxis over 75
+  minutes at O'Hare, Frankfurt and Boston; recorded and accepted 2026-11-20.*
 - The full test suite passes, with the delay references, the capacity references and the
   region E ground test.
 - No per-airport or per-airline input was added.
