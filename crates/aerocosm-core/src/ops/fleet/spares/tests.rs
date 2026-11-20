@@ -97,6 +97,10 @@ fn test_a_late_trip_without_a_swap_is_taken_over_by_a_spare() -> Result<()> {
     );
     assert!(taken.off_block >= arrived);
     assert_eq!(operations.look_at[spare], operations.time);
+    assert_eq!(
+        operations.recovery_note(spare),
+        Some(crate::ops::Recovery::Spare)
+    );
     // …and the late aircraft is the pool's spare now, towed off its
     // stand after deplaning.
     assert!(operations.is_spare(late));

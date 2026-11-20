@@ -39,6 +39,8 @@ pub enum FlightStatus {
     Departed,
     /// Touched down at the destination.
     Landed,
+    /// Cancelled by its airline (plan M8 D171).
+    Cancelled,
 }
 
 /// One line of a board.
@@ -141,14 +143,21 @@ impl Operations {
                         continue;
                     }
                     let (status, estimated, regulated) =
-                        self.status(index, (week, leg), kind, scheduled);
+                        if self.cancelled.contains_key(&(rotation, week, leg)) {
+                            (FlightStatus::Cancelled, scheduled, false)
+                        } else {
+                            self.status(index, (week, leg), kind, scheduled)
+                        };
                     // Finished flights leave the board after a while; late
                     // ones stay until they go.
                     let done = match kind {
-                        BoardKind::Departures => {
-                            matches!(status, FlightStatus::Departed | FlightStatus::Landed)
+                        BoardKind::Departures => matches!(
+                            status,
+                            FlightStatus::Departed | FlightStatus::Landed | FlightStatus::Cancelled
+                        ),
+                        BoardKind::Arrivals => {
+                            matches!(status, FlightStatus::Landed | FlightStatus::Cancelled)
                         }
-                        BoardKind::Arrivals => status == FlightStatus::Landed,
                     };
                     if scheduled < from && done {
                         continue;

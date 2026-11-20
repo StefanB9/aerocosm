@@ -7,7 +7,10 @@ use anyhow::{Context, Result};
 use super::Operations;
 use crate::{
     Id, SimDuration, SimTime,
-    ops::tail::{next_leg, ready_at},
+    ops::{
+        Recovery,
+        tail::{next_leg, ready_at},
+    },
     time::LocalDate,
     world::Airport,
 };
@@ -125,6 +128,8 @@ impl Operations {
         self.plan_parking(other, now);
         // Looked at again on the next tick, for its new boarding time.
         self.look_at[other] = self.time;
+        self.note_recovery(other, Recovery::Swapped, trip)?;
+        self.note_recovery(index, Recovery::Swapped, (partner.leg, partner.week))?;
         self.stats.swapped(base);
         Ok(Some((partner.leg, partner.week)))
     }
@@ -146,6 +151,10 @@ impl Operations {
         let far_end = self.flight(index, back)?.origin();
         self.stats.cancelled(origin, scheduled);
         self.stats.cancelled(far_end, back_scheduled);
+        let rotation = self.rotation_id(index)?.as_usize();
+        self.cancelled.insert((rotation, week, leg), scheduled);
+        self.cancelled
+            .insert((rotation, back_week, back), back_scheduled);
         Ok((back, back_week))
     }
 
@@ -203,7 +212,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        ops::{StartMode, fleet::tests::setup},
+        ops::{BoardKind, FlightStatus, Recovery, StartMode, fleet::tests::setup},
         schedule::ScheduledFlight,
     };
 
@@ -338,6 +347,14 @@ mod tests {
         if operations.statistics().network().cancellations() == 0 {
             assert_eq!((leg, week), partner_trip);
         }
+        // Both are noted as swapped while they fly the trips they took.
+        assert_eq!(
+            operations.recovery_note(case.partner),
+            Some(Recovery::Swapped)
+        );
+        assert_eq!(operations.recovery_note(case.late), Some(Recovery::Swapped));
+        operations.tails[case.partner].leg += 2;
+        assert_eq!(operations.recovery_note(case.partner), None);
         let base = operations.base_of(case.late)?;
         assert_eq!(operations.statistics().airport(base).swaps(), 1);
         assert_eq!(operations.statistics().network().swaps(), 1);
@@ -373,6 +390,35 @@ mod tests {
         let scheduled = operations.tails[index].scheduled;
         let late = scheduled.checked_add(SimDuration::from_minutes(600))?;
         assert!(!operations.cancels_at_gate(index, late)?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_a_cancelled_trip_shows_on_the_boards() -> Result<()> {
+        let (_, mut operations) = setup(StartMode::Warm, 3)?;
+        let index = tail_at_base(&operations)?;
+        let tail = operations.tails[index];
+        let rotation = operations.rotation_id(index)?;
+        let out = *operations.flight(index, tail.leg)?;
+        let back = *operations.flight(index, tail.leg + 1)?;
+        let now = tail.scheduled.checked_add(SimDuration::from_minutes(10))?;
+        operations.cancel_at_gate(index, now)?;
+        // Both legs read "Cancelled": the outbound where it leaves, the
+        // return where it would have left the far end.
+        for (airport, flight) in [(out.origin(), out), (back.origin(), back)] {
+            let board = operations.board(airport, BoardKind::Departures, 2_000);
+            let entry = board
+                .iter()
+                .find(|entry| {
+                    entry.tail() == rotation && entry.callsign().number() == flight.number()
+                })
+                .context("the cancelled leg stays on the board")?;
+            assert_eq!(entry.status(), FlightStatus::Cancelled);
+        }
+        let arrivals = operations.board(out.destination(), BoardKind::Arrivals, 2_000);
+        assert!(arrivals.iter().any(|entry| entry.tail() == rotation
+            && entry.callsign().number() == out.number()
+            && entry.status() == FlightStatus::Cancelled));
         Ok(())
     }
 
