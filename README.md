@@ -351,10 +351,10 @@ The full suite takes about half an hour on 4 cores; `--quick` runs a few ticks a
 check that everything works, and is never recorded.
 
 A run is recorded only from a clean working tree, so each record names its commit; commit
-the record afterwards. Records carry the machine (CPU, cores, memory), and the comparison
-printed after a run, or by `cargo xtask bench report`, is with the previous record on the
-same machine. Expect noise: on a shared cloud machine the same ticks vary by a quarter from
-one run to the next, so compare ranges, not single values.
+the record afterwards. Records carry the machine (CPU, cores, memory; read on Linux and
+Windows), and the comparison printed after a run, or by `cargo xtask bench report`, is with
+the previous record on the same machine. Expect noise: on a shared cloud machine the same
+ticks vary by a quarter from one run to the next, so compare ranges, not single values.
 
 Single pieces run directly:
 

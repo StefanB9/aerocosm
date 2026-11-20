@@ -276,7 +276,7 @@ with `build-std`; bench targets must unwind, and the plain bench profile then bu
 ### Lints (Cargo.toml, applied to all targets)
 
 ```
-unsafe_code       = "forbid"
+unsafe_code       = "deny"
 unwrap_used       = "deny"
 expect_used       = "deny"
 panic             = "deny"
@@ -286,7 +286,10 @@ print_stderr      = "warn"
 clippy::pedantic  = "warn" (priority -1)
 ```
 
-Every crate opts in with `[lints] workspace = true`. Run `cargo clippy --all-targets` to verify.
+Every crate opts in with `[lints] workspace = true`. `unsafe_code` is `deny`, not `forbid`, only
+so that the two Win32 calls behind the benchmarks' memory figures (`aerocosm` bench/memory.rs,
+`xtask` bench/machine.rs) can `#[allow(unsafe_code)]` locally with a `// SAFETY:` comment;
+everything else stays free of `unsafe`. Run `cargo clippy --all-targets` to verify.
 
 ### Formatting (`rustfmt.toml`, nightly)
 

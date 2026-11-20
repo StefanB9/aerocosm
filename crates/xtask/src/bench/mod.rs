@@ -3,6 +3,7 @@
 //! working tree, and compares it with the previous record on the same
 //! machine.
 
+pub(crate) mod machine;
 pub(crate) mod parse;
 pub(crate) mod record;
 pub(crate) mod report;
@@ -17,7 +18,7 @@ use tracing::info;
 
 use self::{
     parse::{Sample, bench_lines, bencher_lines},
-    record::{FORMAT, Machine, Record, combine, read_history},
+    record::{FORMAT, Record, combine, read_history},
 };
 use crate::host::Host;
 
@@ -202,15 +203,7 @@ pub(crate) fn run(host: &mut impl Host, options: &Options) -> Result<Outcome> {
         .trim()
         .to_owned();
     let toolchain = host.output("rustc", &strings(&["-V"]))?.trim().to_owned();
-    let machine = Machine::from_proc(
-        &host
-            .read_to_string(Path::new("/proc/cpuinfo"))
-            .unwrap_or_default(),
-        &host
-            .read_to_string(Path::new("/proc/meminfo"))
-            .unwrap_or_default(),
-        &options.os,
-    );
+    let machine = host.machine(&options.os);
     if groups.contains(&Group::Startup) || groups.contains(&Group::World) {
         host.run(
             &options.cargo,
@@ -263,7 +256,7 @@ pub(crate) fn compare_with_history(host: &mut impl Host, latest: &Record) -> Res
 mod tests {
     use anyhow::{Result, bail};
 
-    use super::*;
+    use super::{record::Machine, *};
     use crate::host::join_args;
 
     /// Answers with canned output and notes every call.
@@ -320,10 +313,7 @@ mod tests {
         }
 
         fn read_to_string(&mut self, path: &Path) -> Result<String> {
-            match path.to_str() {
-                Some("/proc/cpuinfo") => Ok("processor : 0\nmodel name : X\n".to_owned()),
-                _ => bail!("no {}", path.display()),
-            }
+            bail!("no {}", path.display())
         }
 
         fn reset_dir(&mut self, _path: &Path) -> Result<()> {
@@ -341,6 +331,10 @@ mod tests {
         fn append(&mut self, path: &Path, text: &str) -> Result<()> {
             self.appended.push(format!("{}: {text}", path.display()));
             Ok(())
+        }
+
+        fn machine(&mut self, os: &str) -> Machine {
+            Machine::from_proc("processor : 0\nmodel name : X\n", "", os)
         }
     }
 

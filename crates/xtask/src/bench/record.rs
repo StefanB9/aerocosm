@@ -23,6 +23,7 @@ pub(crate) struct Machine {
 impl Machine {
     /// The machine as `/proc/cpuinfo` and `/proc/meminfo` describe it;
     /// what they lack is unknown.
+    #[cfg(any(not(windows), test))]
     pub(crate) fn from_proc(cpuinfo: &str, meminfo: &str, os: &str) -> Self {
         let cpu = cpuinfo
             .lines()
