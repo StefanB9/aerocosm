@@ -260,16 +260,24 @@ fn spawn_aircraft(
     let dark = materials.add(theme::AIRCRAFT_HALO);
     let bands = BandMaterials(PhaseBand::ALL.map(|band| materials.add(band.color())));
     let layer = RenderLayers::layer(OVERLAY_LAYER);
-    for (tail, info) in schedule.tails() {
+    // Aircraft are numbered as the core numbers them: the schedule's tails,
+    // then its spares (plan M8 D170). Each starts as the airframe of its
+    // rotation's index, and swaps only within a pool of one type.
+    let airframes = schedule
+        .tails()
+        .map(|(_, info)| info)
+        .chain(schedule.spares());
+    for (airframe, info) in airframes.enumerate() {
+        let Ok(airframe) = Id::from_usize(airframe) else {
+            break;
+        };
         let class = traffic
             .aircraft()
             .get(info.aircraft())
             .map_or(SizeClass::NarrowBody, size_class);
         commands
             .spawn((
-                // Each rotation's aircraft starts as the airframe of the
-                // same index, and swaps only within a pool of one type.
-                AircraftSprite::new(Id::new(tail.index()), Vec2::ZERO),
+                AircraftSprite::new(airframe, Vec2::ZERO),
                 SpriteLook {
                     class,
                     band: PhaseBand::Ground,

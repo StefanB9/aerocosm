@@ -184,6 +184,45 @@ container, not the code.
 - Spares in the generated schedule; parked remote at the base; taking over late trips.
 - Measured: stand waits and shares, remote parking at O'Hare and Boston, cancellations.
 
+*As built (PR 4):* the schedule keeps spares per pool (`schedule::spares`): none under ten
+tails, then one per twenty, at least one. Read as "rounded down" alone, D170 would give pools
+of 10–19 none and the world 263 spares (0.28 %); with at least one from ten tails it gives
+924 spares for 94,404 tails (0.98 %), the plan's "about 1 %". Operations number the aircraft
+as the schedule's tails, then its spares; a spare flies no rotation, parks remote at a
+mapped base and is not looked at until needed. With spares idle, a 72-hour run logs the
+same lines as PR 3.
+
+A spare takes over a late trip, and the rest of its rotation, in two places, both after a
+swap was looked for (D169) and before a cancellation (D171). First, when an aircraft takes
+off for its base, expected ready for its next trip (off-block plus block, then a quick turn)
+more than the threshold late, with no swap partner: the pool's spare ready earliest takes
+the next trip, if it can leave within the threshold. The late aircraft keeps its rotation
+until the gate, then becomes the spare and is towed off its stand after deplaning. Second,
+at the gate, as in PR 2's check. Deciding only at the gate saved two trips in 72 hours: a
+spare there leaves no earlier than the late aircraft arrives. **Decision (2026-11-19):**
+spares are dispatched at the inbound take-off.
+
+| 72 h, seed 3 | Average | Late aircraft | Cancelled | Swaps | Spares | Stand waits | Stand shares |
+|---|---|---|---|---|---|---|---|
+| PR 3 | 8.9 min | 18.4 % | 1.12 % (3,516) | 307 | – | 2,194 | 425 |
+| At the gate only | 8.9 | 18.5 % | 1.11 % (3,466) | – | 2 | – | 432 |
+| **PR 4** | 8.9 | 18.3 % | 1.12 % (3,510) | 315 | 3 | 2,229 | 460 |
+
+Spares change little, and the reason was measured: of the 1,755 round trips cancelled, 1,739
+are departures held at the gate past the threshold by flow control (M3 D59) or departure
+management (M4 D91), which hold a spare the same way; only 16 cancel for an aircraft arriving
+late, and in pools of ten or more swaps and quick turns cover those first. Boston (stand
+waits 80, shares 50) and O'Hare (none) are unchanged by remote spares. **Decision
+(2026-11-19):** spares stay as built and are recorded as measured; the 7-day run in PR 6 shows
+whether they matter as delay builds over days. Days 7.3 / 9.8 / 9.7 minutes; Boston 106,
+Seattle 46, O'Hare 24; stalls 0.
+The full suite passes: 891 tests.
+
+Benchmark record (D174): tick medians 2.1–2.7 ms, 95th percentiles 3.4–4.5 ms, under D107's
+8 ms; the simulated day 292 s. The fingerprints change (spares take trips). Against PR 3's
+record ticks are 11–46 % faster, in every part alike, flying included, and start-up 13 %:
+a faster container, not the code (idle spares are never looked at).
+
 ## PR 5 — Viewer (D173)
 
 - Boards, flight panel, flow status; screenshots; web build.

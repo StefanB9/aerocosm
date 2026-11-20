@@ -6,6 +6,7 @@ use super::{
     Schedule, ScheduleConfig, ScheduleInputs, ScheduledFlight, Tail,
     network::plan_services,
     rotation::{Trip, WEEK, assign},
+    spares::spares,
     trips::{DAY, TripContext, build_trips},
 };
 use crate::{Id, SimDuration, StreamId};
@@ -104,6 +105,7 @@ pub fn generate(inputs: &ScheduleInputs<'_>, config: ScheduleConfig) -> Result<S
     }
     tail_starts.push(flights.len());
     Ok(Schedule {
+        spares: spares(&tails),
         tails,
         flights,
         tail_starts,

@@ -298,7 +298,7 @@ impl Operations {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use anyhow::{Context, Result};
 
     use super::*;
@@ -313,7 +313,10 @@ mod tests {
         "2026-07-08T10:00:00Z".parse()
     }
 
-    fn mapped(mode: StartMode, seed: u64) -> Result<(Scenario, Operations)> {
+    pub(in crate::ops::fleet) fn mapped(
+        mode: StartMode,
+        seed: u64,
+    ) -> Result<(Scenario, Operations)> {
         let data = data()?;
         let scenario =
             Scenario::with_traffic(data.world, data.aircraft, data.airlines, data.traffic)?
@@ -528,7 +531,10 @@ mod tests {
         };
         let mut remote = 0;
         for index in 0..operations.tails.len() {
-            if operations.tails[index].motion.is_some() || !at_fra(index)? {
+            if operations.is_spare(index)
+                || operations.tails[index].motion.is_some()
+                || !at_fra(index)?
+            {
                 continue;
             }
             if let super::super::remote::Parking::Remote(_) = operations.parking[index] {

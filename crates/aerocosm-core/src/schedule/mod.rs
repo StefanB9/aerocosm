@@ -18,6 +18,7 @@ mod generate;
 mod network;
 mod rotation;
 mod slots;
+mod spares;
 mod timetable;
 mod trips;
 
@@ -229,6 +230,8 @@ impl ScheduledFlight {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Schedule {
     tails: Vec<Tail>,
+    /// Spare aircraft: no rotation, parked at their base (plan M8 D170).
+    spares: Vec<Tail>,
     /// Grouped by tail, each tail's flights in departure order.
     flights: Vec<ScheduledFlight>,
     /// Start of each tail's flights in `flights`, plus a final end marker.
@@ -245,6 +248,12 @@ impl Schedule {
             .iter()
             .enumerate()
             .map(|(index, tail)| (Id::new(u32::try_from(index).unwrap_or(u32::MAX)), tail))
+    }
+
+    /// The spare aircraft, each kept at its base with no rotation of its own
+    /// (plan M8 D170): a copy of a tail of its pool.
+    pub fn spares(&self) -> &[Tail] {
+        &self.spares
     }
 
     /// One tail.
@@ -322,6 +331,12 @@ mod tests {
                 base: Id::new(2),
                 utc_offset_minutes: 60,
             }],
+            spares: vec![Tail {
+                airline: Id::new(0),
+                aircraft: Id::new(1),
+                base: Id::new(2),
+                utc_offset_minutes: 60,
+            }],
             flights: vec![flight(600, 70), flight(700, 70)],
             tail_starts: vec![0, 2],
             movements: vec![[0; 7], [0; 7], [1, 0, 0, 0, 0, 0, 1]],
@@ -367,6 +382,7 @@ mod tests {
             (1, 0)
         );
         assert_eq!(schedule.dropped_slots(), 3);
+        assert_eq!(schedule.spares().len(), 1);
     }
 
     #[test]

@@ -9,6 +9,7 @@ mod ground;
 mod recovery;
 mod remote;
 mod runways;
+mod spares;
 mod stands;
 mod start;
 
@@ -124,10 +125,16 @@ pub(crate) struct Operations {
     /// (airport, tail, edge, forward). Nobody less urgent is cleared onto
     /// them the other way.
     wanted_edges: Vec<(usize, u32, u32, bool)>,
-    /// The rotation (schedule tail) each aircraft flies now, and the aircraft
-    /// flying each rotation (plan M8 D169).
-    rotation_of: Vec<usize>,
+    /// The rotation (schedule tail) each aircraft flies now, `None` for a
+    /// spare (plan M8 D170), and the aircraft flying each rotation (D169).
+    /// The schedule's tails come first, then its spares.
+    rotation_of: Vec<Option<usize>>,
     aircraft_of: Vec<usize>,
+    /// Each aircraft's base.
+    bases: Vec<Id<Airport>>,
+    /// Aircraft relieved by a spare on their way in: they hand their
+    /// rotation over at the gate (plan M8 D170).
+    relieved: Vec<bool>,
     /// The aircraft of each pool (airline, base and type), which may swap
     /// rotations, and each aircraft's pool.
     pools: Vec<Vec<usize>>,
@@ -178,30 +185,16 @@ impl Operations {
             .traffic()
             .context("operations need traffic inputs")?;
         let world = scenario.world();
-        let utc = Zone::new("UTC")?;
-        let mut zones = Vec::with_capacity(schedule.tails().len());
-        let mut turnarounds = Vec::with_capacity(schedule.tails().len());
-        let mut wakes = Vec::with_capacity(schedule.tails().len());
-        let mut wingspans = Vec::with_capacity(schedule.tails().len());
-        let mut cargoes = Vec::with_capacity(schedule.tails().len());
-        for (_, tail) in schedule.tails() {
-            let base = world
-                .airport(tail.base())
-                .context("tail base out of range")?;
-            zones.push(traffic.targets().zone(base.ident()).unwrap_or(&utc).clone());
-            let aircraft = traffic
-                .aircraft()
-                .get(tail.aircraft())
-                .context("tail type")?;
-            let cargo = traffic
-                .airlines()
-                .get(tail.airline())
-                .is_some_and(|a| a.kind() == crate::airline::AirlineKind::Cargo);
-            turnarounds.push(min_turnaround(aircraft, cargo));
-            wakes.push(aircraft.wake());
-            wingspans.push(aircraft.wingspan());
-            cargoes.push(cargo);
-        }
+        let rotations = schedule.tails().len();
+        let tail_count = rotations + schedule.spares().len();
+        let Facts {
+            zones,
+            turnarounds,
+            wakes,
+            wingspans,
+            cargoes,
+            bases,
+        } = facts(scenario, &schedule)?;
         let (pools, pool_of) = pools(&schedule);
         let sequenced: Vec<Id<Airport>> = traffic
             .targets()
@@ -209,7 +202,6 @@ impl Operations {
             .filter_map(|target| world.airport_by_ident(target.airport()))
             .collect();
         let control = runway_control(scenario, &sequenced);
-        let tail_count = schedule.tails().len();
         let mut operations = Self {
             time: start,
             tails: Vec::with_capacity(tail_count),
@@ -249,8 +241,13 @@ impl Operations {
             wanted_edges: Vec::new(),
             pools,
             pool_of,
-            rotation_of: (0..tail_count).collect(),
-            aircraft_of: (0..tail_count).collect(),
+            rotation_of: (0..rotations)
+                .map(Some)
+                .chain(std::iter::repeat_n(None, tail_count - rotations))
+                .collect(),
+            aircraft_of: (0..rotations).collect(),
+            bases,
+            relieved: vec![false; tail_count],
             stats: {
                 let mut stats = Statistics::new(world.airport_count());
                 stats.set_start(start);
@@ -260,8 +257,13 @@ impl Operations {
             log: Vec::new(),
             schedule,
         };
-        for index in 0..operations.zones.len() {
+        for index in 0..rotations {
             let tail = operations.place_tail(scenario, index, mode)?;
+            operations.tails.push(tail);
+        }
+        for index in rotations..tail_count {
+            let week = super::timeline::week_of(&operations.zones[index], start)?;
+            let tail = operations.place_spare(scenario, index, week);
             operations.tails.push(tail);
         }
         operations.airborne = operations
@@ -275,10 +277,10 @@ impl Operations {
     /// The rotation aircraft `index` flies now.
     fn rotation_id(&self, index: usize) -> Result<Id<Tail>> {
         Id::from_usize(
-            *self
-                .rotation_of
+            self.rotation_of
                 .get(index)
-                .context("aircraft out of range")?,
+                .context("aircraft out of range")?
+                .context("a spare flies no rotation")?,
         )
     }
 
@@ -423,6 +425,10 @@ impl Operations {
     /// A tail on the ground before boarding: towed if due (D125), then on to
     /// boarding when its time comes.
     fn step_parked(&mut self, scenario: &Scenario, index: usize, now: SimTime) -> Result<()> {
+        if self.is_spare(index) {
+            self.step_spare(index, now);
+            return Ok(());
+        }
         if self.parking[index] != Parking::Stand {
             let leg = self.tails[index].leg;
             let origin = self.flight(index, leg)?.origin();
@@ -515,6 +521,7 @@ impl Operations {
                         let origin = self.flight(index, leg)?.origin();
                         self.count(origin);
                         self.stats.moved(origin, now);
+                        self.dispatch_spare(index, leg, now)?;
                     }
                     Some(Event::Landing) => {
                         self.airborne = self.airborne.saturating_sub(1);
@@ -584,9 +591,26 @@ impl Operations {
     /// The tail's next leg after arriving at `arrived`: the next one it
     /// flies, after any its airline cancels (plan M8 D171).
     fn next_tail_leg(&mut self, index: usize, tail: &TailOps, arrived: SimTime) -> Result<TailOps> {
-        let (leg, week, scheduled, ready) =
-            self.next_flown_leg(index, tail.leg, tail.week, Ready::Arrived(arrived))?;
-        self.leg_ops((leg, week), scheduled, ready, arrived)
+        self.next_ops(index, (tail.leg, tail.week), Ready::Arrived(arrived))
+    }
+
+    /// Aircraft `index`'s state after leg `(leg, week)`, ready as `ready`:
+    /// parked before the next leg it flies, or idle if a spare took its
+    /// trips over (plan M8 D170), ready for others after its turnaround.
+    fn next_ops(
+        &mut self,
+        index: usize,
+        (leg, week): (usize, LocalDate),
+        ready: Ready,
+    ) -> Result<TailOps> {
+        let since = ready.time();
+        if self.hand_over(index)? {
+            return Ok(TailOps::idle(week, add(since, self.turnarounds[index])?));
+        }
+        match self.next_flown_leg(index, leg, week, ready)? {
+            Some((leg, week, scheduled, at)) => self.leg_ops((leg, week), scheduled, at, since),
+            None => Ok(TailOps::idle(week, add(since, self.turnarounds[index])?)),
+        }
     }
 
     /// A parked tail's state before leg `leg` of `week`, scheduled at
@@ -685,19 +709,78 @@ impl Operations {
     }
 }
 
-/// The schedule's tails grouped into pools of one airline, base and type
-/// (plan M8 D169), and the pool of each tail.
+/// What each aircraft, the schedule's tails then its spares, keeps from its
+/// pool: zone, minimum turnaround, wake, wingspan, cargo and base.
+struct Facts {
+    zones: Vec<Zone>,
+    turnarounds: Vec<SimDuration>,
+    wakes: Vec<WakeCategory>,
+    wingspans: Vec<Meters>,
+    cargoes: Vec<bool>,
+    bases: Vec<Id<Airport>>,
+}
+
+fn facts(scenario: &Scenario, schedule: &Schedule) -> Result<Facts> {
+    let traffic = scenario
+        .traffic()
+        .context("operations need traffic inputs")?;
+    let world = scenario.world();
+    let utc = Zone::new("UTC")?;
+    let count = schedule.tails().len() + schedule.spares().len();
+    let mut facts = Facts {
+        zones: Vec::with_capacity(count),
+        turnarounds: Vec::with_capacity(count),
+        wakes: Vec::with_capacity(count),
+        wingspans: Vec::with_capacity(count),
+        cargoes: Vec::with_capacity(count),
+        bases: Vec::with_capacity(count),
+    };
+    for tail in schedule
+        .tails()
+        .map(|(_, tail)| tail)
+        .chain(schedule.spares())
+    {
+        let base = world
+            .airport(tail.base())
+            .context("tail base out of range")?;
+        facts
+            .zones
+            .push(traffic.targets().zone(base.ident()).unwrap_or(&utc).clone());
+        let aircraft = traffic
+            .aircraft()
+            .get(tail.aircraft())
+            .context("tail type")?;
+        let cargo = traffic
+            .airlines()
+            .get(tail.airline())
+            .is_some_and(|a| a.kind() == crate::airline::AirlineKind::Cargo);
+        facts.turnarounds.push(min_turnaround(aircraft, cargo));
+        facts.wakes.push(aircraft.wake());
+        facts.wingspans.push(aircraft.wingspan());
+        facts.cargoes.push(cargo);
+        facts.bases.push(tail.base());
+    }
+    Ok(facts)
+}
+
+/// The aircraft, the schedule's tails then its spares, grouped into pools of
+/// one airline, base and type (plan M8 D169), and the pool of each.
 fn pools(schedule: &Schedule) -> (Vec<Vec<usize>>, Vec<usize>) {
-    let mut index = std::collections::HashMap::with_capacity(schedule.tails().len());
+    let count = schedule.tails().len() + schedule.spares().len();
+    let mut index = std::collections::HashMap::with_capacity(count);
     let mut pools: Vec<Vec<usize>> = Vec::new();
-    let mut pool_of = Vec::with_capacity(schedule.tails().len());
-    for (tail, info) in schedule.tails() {
+    let mut pool_of = Vec::with_capacity(count);
+    let airframes = schedule
+        .tails()
+        .map(|(_, tail)| tail)
+        .chain(schedule.spares());
+    for (tail, info) in airframes.enumerate() {
         let key = (info.airline(), info.base(), info.aircraft());
         let pool = *index.entry(key).or_insert_with(|| {
             pools.push(Vec::new());
             pools.len() - 1
         });
-        pools[pool].push(tail.as_usize());
+        pools[pool].push(tail);
         pool_of.push(pool);
     }
     (pools, pool_of)
