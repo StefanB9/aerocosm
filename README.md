@@ -144,6 +144,14 @@ What to check:
   within its capacity when schedules are built. The `day` lines report departures and their
   delay per day of a run. A world week averages 20.4 minutes of departure delay and grows
   after the third day; see `docs/plan/m7-capacity.md` and `docs/known-issues.md`.
+- Since M8, airlines recover: late aircraft turn quickly, swap with ready aircraft of their
+  pool at the base, hand trips to spares (about 1 % of the fleet), and as the last resort
+  cancel round trips expected to leave their base more than 90 minutes late. The
+  `punctuality`, `day` and `movements` lines split delay by cause (`late_aircraft_min`,
+  `airline_min`, `flow_and_ground_min`) and count `cancellations`, `swaps` and `spares`;
+  the viewer's boards show cancelled flights. A world week averages 9.9 minutes of
+  departure delay without growing, with 1.3 % of departures cancelled; see
+  `docs/plan/m8-recovery.md`.
 - The run starts warm, with aircraft mid-flight; `--cold-start` starts with every aircraft on
   the ground, so `peak_airborne` grows from zero.
 - `--no-traffic` simulates the static world only; without `--world` the world is empty.
