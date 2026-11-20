@@ -227,6 +227,27 @@ a faster container, not the code (idle spares are never looked at).
 
 - Boards, flight panel, flow status; screenshots; web build.
 
+*As built (PR 5):* operations keep each cancelled leg (rotation, week, leg) for a day, and a
+board shows it as `FlightStatus::Cancelled`, "Cancelled" in red, where it would have left and
+arrived, both legs of the round trip; it leaves the board a quarter of an hour after its
+scheduled time, as departed flights do. Flight views carry `recovery()`: `Swapped` when the
+aircraft was swapped onto the round trip it flies (both aircraft of a swap) and `Spare` when a
+spare took it over, until the trip's return leg; the flight panel's first note reads "Aircraft
+swapped in by the airline" or "Flown by a spare aircraft". The airport's flow status ends
+with "Recovery: 3 cancelled · 1 swap · 0 spares", counted since the start like the
+punctuality line above it, not per day: the counts are kept since the start per airport, and
+a line per day would need statistics per airport and day.
+
+Screenshot (Boston after 11 simulated hours): the flow status reads "Recovery: 62 cancelled ·
+0 swaps · 0 spares"; its six board rows are held by departures delayed two to four hours
+away from their bases, which never cancel. The web build (WebGPU and WebGL2) passes. The
+full suite passes: 895 tests.
+
+Benchmark record (D174): tick medians 2.1–3.2 ms, 95th percentiles 3.9–5.5 ms, under D107's
+8 ms; the simulated day 319 s. The fingerprints change because flight views carry the new
+field; behaviour does not: a 12-hour run logs the same lines as PR 4. Ticks are 0–20 %
+slower than PR 4's record, flying alike: the container.
+
 ## PR 6 — Acceptance (D172)
 
 - The 7-day run, benchmark record, `docs/known-issues.md`, README; promotion to `main` on the

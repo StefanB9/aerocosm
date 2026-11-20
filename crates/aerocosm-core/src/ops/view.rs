@@ -73,6 +73,16 @@ impl Holding {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Airframe;
 
+/// How an airline's recovery put an aircraft on the trip it flies (plan M8
+/// D173).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Recovery {
+    /// Swapped onto it with another aircraft of its pool (D169).
+    Swapped,
+    /// A spare that took it over from a late aircraft (D170).
+    Spare,
+}
+
 /// A snapshot of one active flight: boarding, moving or just landed.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FlightView {
@@ -98,9 +108,16 @@ pub struct FlightView {
     pub(super) speed_factor: f64,
     pub(super) ground_conflict: bool,
     pub(super) taxi: Option<TaxiState>,
+    pub(super) recovery: Option<Recovery>,
 }
 
 impl FlightView {
+    /// Whether its aircraft was swapped onto this round trip or is a spare
+    /// flying it (plan M8 D173).
+    pub const fn recovery(&self) -> Option<Recovery> {
+        self.recovery
+    }
+
     /// The aircraft flying it.
     pub const fn airframe(&self) -> Id<Airframe> {
         self.airframe

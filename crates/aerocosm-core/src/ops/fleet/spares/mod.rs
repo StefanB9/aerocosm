@@ -6,7 +6,10 @@ use anyhow::{Context, Result};
 use super::{Operations, TailOps, recovery::RECOVERY_THRESHOLD, remote::Parking};
 use crate::{
     SimDuration, SimTime,
-    ops::tail::{next_leg, ready_at},
+    ops::{
+        Recovery,
+        tail::{next_leg, ready_at},
+    },
     scenario::Scenario,
     time::LocalDate,
 };
@@ -65,6 +68,7 @@ impl Operations {
         };
         let rotation = self.rotation_of[index].context("a spare is never late")?;
         self.rotation_of[index] = None;
+        self.took_over[index] = None;
         self.aircraft_of[rotation] = spare;
         self.assign_spare(spare, rotation, (trip, scheduled), ready, now)?;
         self.stats.spared(self.base_of(index)?);
@@ -110,7 +114,7 @@ impl Operations {
         // Towed in from remote parking (or kept on its stand) for the trip.
         self.plan_parking(spare, now);
         self.look_at[spare] = self.time;
-        Ok(())
+        self.note_recovery(spare, Recovery::Spare, trip)
     }
 
     /// Aircraft `index` took off at `now` on leg `leg`. On its way back to
@@ -155,6 +159,7 @@ impl Operations {
         }
         let rotation = self.rotation_of[index].context("a spare is never relieved")?;
         self.rotation_of[index] = None;
+        self.took_over[index] = None;
         // The spare, or whoever it has swapped the rotation with since.
         if let Some(&holder) = self.pools[self.pool_of[index]]
             .iter()

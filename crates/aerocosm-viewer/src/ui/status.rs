@@ -6,8 +6,9 @@ use std::fmt::Write as _;
 use aerocosm_core::{Id, Simulation, ops::Phase, world::Airport};
 
 /// Runways in use, aircraft holding for or queuing at `airport` now, its
-/// punctuality since the start, and its taxiing under ground control (plan
-/// M4 D88); runway line only without traffic.
+/// punctuality since the start, its taxiing under ground control (plan
+/// M4 D88) and its airlines' recovery (M8 D173); runway line only without
+/// traffic.
 pub(crate) fn status_lines(simulation: &Simulation, airport: Id<Airport>) -> Vec<String> {
     let mut lines = Vec::with_capacity(4);
     let runways = simulation.world().runways_of(airport);
@@ -71,7 +72,27 @@ pub(crate) fn status_lines(simulation: &Simulation, airport: Id<Airport>) -> Vec
             at.average_clearance_wait().as_secs_f64() / 60.0
         ));
     }
+    lines.extend(recovery_line(at.cancellations(), at.swaps(), at.spares()));
     lines
+}
+
+/// An airport's recovery since the start (plan M8 D173): cancelled
+/// departures, swaps and spares; `None` before any.
+pub(crate) fn recovery_line(cancelled: u32, swaps: u32, spares: u32) -> Option<String> {
+    let plural = |count: u32, one: &str| {
+        if count == 1 {
+            format!("{count} {one}")
+        } else {
+            format!("{count} {one}s")
+        }
+    };
+    (cancelled + swaps + spares > 0).then(|| {
+        format!(
+            "Recovery: {cancelled} cancelled · {} · {}",
+            plural(swaps, "swap"),
+            plural(spares, "spare")
+        )
+    })
 }
 
 #[cfg(test)]
@@ -105,6 +126,19 @@ mod tests {
         assert!(lines[3].starts_with("Ground: "), "{}", lines[3]);
         assert!(lines[3].contains("waiting for clearance"), "{}", lines[3]);
         Ok(())
+    }
+
+    #[test]
+    fn test_recovery_line_counts_cancellations_swaps_and_spares() {
+        assert_eq!(recovery_line(0, 0, 0), None);
+        assert_eq!(
+            recovery_line(3, 1, 0).as_deref(),
+            Some("Recovery: 3 cancelled · 1 swap · 0 spares")
+        );
+        assert_eq!(
+            recovery_line(1, 2, 1).as_deref(),
+            Some("Recovery: 1 cancelled · 2 swaps · 1 spare")
+        );
     }
 
     #[test]

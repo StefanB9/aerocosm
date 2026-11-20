@@ -4,7 +4,7 @@ use std::fmt::Write as _;
 
 use aerocosm_core::{
     Id, LatLon, Scenario, SimTime,
-    ops::{Airframe, FlightView},
+    ops::{Airframe, FlightView, Recovery},
     time::Zone,
     world::Airport,
 };
@@ -175,6 +175,18 @@ fn notes_at_fix(destination_zone: Option<&Zone>) -> Vec<String> {
     )
 }
 
+/// The flight panel's line on how recovery put the aircraft on this trip
+/// (plan M8 D173).
+pub(crate) fn recovery_note(recovery: Option<Recovery>) -> Option<String> {
+    recovery.map(|recovery| {
+        match recovery {
+            Recovery::Swapped => "Aircraft swapped in by the airline",
+            Recovery::Spare => "Flown by a spare aircraft",
+        }
+        .to_owned()
+    })
+}
+
 /// IATA code if there is one, else the identifier.
 fn code(airport: &Airport) -> String {
     airport
@@ -243,10 +255,9 @@ pub(crate) fn flight_lines(scenario: &Scenario, view: &FlightView) -> Option<Fli
         progress: progress(origin.location(), destination.location(), view.position()),
         departure,
         arrival,
-        notes: view
-            .taxi()
-            .map(format::taxi_state)
+        notes: recovery_note(view.recovery())
             .into_iter()
+            .chain(view.taxi().map(format::taxi_state))
             .chain(notes(
                 origin_zone,
                 destination_zone,
@@ -555,6 +566,19 @@ mod tests {
             vec!["Holding at the final fix".to_owned()]
         );
         Ok(())
+    }
+
+    #[test]
+    fn test_recovery_notes_name_swaps_and_spares() {
+        assert_eq!(
+            recovery_note(Some(Recovery::Swapped)).as_deref(),
+            Some("Aircraft swapped in by the airline")
+        );
+        assert_eq!(
+            recovery_note(Some(Recovery::Spare)).as_deref(),
+            Some("Flown by a spare aircraft")
+        );
+        assert_eq!(recovery_note(None), None);
     }
 
     #[test]

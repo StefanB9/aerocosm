@@ -421,6 +421,10 @@ impl Operations {
             .checked_sub(SimDuration::from_hours(1))
             .context("prune cutoff")?;
         self.control.prune(cutoff);
+        let day = now
+            .checked_sub(SimDuration::from_hours(24))
+            .context("prune cutoff")?;
+        self.cancelled.retain(|_, scheduled| *scheduled >= day);
         Ok(())
     }
 

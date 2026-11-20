@@ -28,9 +28,9 @@ use super::{
     motion::{Event, Motion, Profile},
     path::{Leg, LegGround, Origin, Path, plan_leg},
     stats::{DelayCauses, Statistics},
-    tail::{draw_delay, draw_taxi_in, draw_taxi_out, off_block},
+    tail::{draw_delay, draw_taxi_in, draw_taxi_out, next_leg, off_block},
     timing::{NoTimer, Part, Timer},
-    view::{Airframe, FlightView, Holding},
+    view::{Airframe, FlightView, Holding, Recovery},
 };
 use crate::{
     Id, RngSeed, SimDuration, SimRng, SimTime, StreamId, TICK, WakeCategory,
@@ -135,6 +135,12 @@ pub(crate) struct Operations {
     /// Aircraft relieved by a spare on their way in: they hand their
     /// rotation over at the gate (plan M8 D170).
     relieved: Vec<bool>,
+    /// Cancelled legs, (rotation, week, leg), with their scheduled
+    /// departure: boards show them (plan M8 D173). Pruned after a day.
+    cancelled: std::collections::BTreeMap<(usize, LocalDate, usize), SimTime>,
+    /// How each aircraft came to its current round trip by recovery, and
+    /// the trip's return leg (week, leg): noted until then (plan M8 D173).
+    took_over: Vec<Option<(Recovery, LocalDate, usize)>>,
     /// The aircraft of each pool (airline, base and type), which may swap
     /// rotations, and each aircraft's pool.
     pools: Vec<Vec<usize>>,
@@ -248,6 +254,8 @@ impl Operations {
             aircraft_of: (0..rotations).collect(),
             bases,
             relieved: vec![false; tail_count],
+            cancelled: std::collections::BTreeMap::new(),
+            took_over: vec![None; tail_count],
             stats: {
                 let mut stats = Statistics::new(world.airport_count());
                 stats.set_start(start);
@@ -668,6 +676,28 @@ impl Operations {
         self.flights_flown
     }
 
+    /// How aircraft `index` came to fly its current round trip, while it
+    /// flies it (plan M8 D173).
+    fn recovery_note(&self, index: usize) -> Option<Recovery> {
+        let tail = self.tails.get(index)?;
+        let (recovery, week, leg) = (*self.took_over.get(index)?)?;
+        ((tail.week, tail.leg) <= (week, leg)).then_some(recovery)
+    }
+
+    /// Notes that aircraft `index` came to the round trip leaving at
+    /// `(leg, week)` of its rotation by `recovery`.
+    fn note_recovery(
+        &mut self,
+        index: usize,
+        recovery: Recovery,
+        (leg, week): (usize, LocalDate),
+    ) -> Result<()> {
+        let count = self.rotation(index)?.flights.len();
+        let (back, back_week) = next_leg(leg, count, week)?;
+        self.took_over[index] = Some((recovery, back_week, back));
+        Ok(())
+    }
+
     /// Every boarding or moving flight.
     pub(crate) fn flights(&self) -> impl Iterator<Item = FlightView> + '_ {
         self.tails.iter().enumerate().filter_map(|(index, tail)| {
@@ -704,6 +734,7 @@ impl Operations {
                 speed_factor: motion.speed_factor(),
                 ground_conflict: self.escaped(index),
                 taxi: self.taxi_state(index, motion.phase(), motion.speed()),
+                recovery: self.recovery_note(index),
             })
         })
     }

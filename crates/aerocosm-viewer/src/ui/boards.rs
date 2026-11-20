@@ -1,7 +1,7 @@
 //! Departure and arrival boards in the airport panel.
 
 use aerocosm_core::{
-    Id, Scenario,
+    Id, Scenario, SimDuration,
     ops::{BoardEntry, BoardKind, FlightStatus},
     world::Airport,
 };
@@ -49,6 +49,19 @@ pub(crate) enum Tone {
     Late,
     /// Gone or landed.
     Done,
+    /// Cancelled by its airline (plan M8 D173).
+    Cancelled,
+}
+
+/// How a row with `status`, `late` behind its schedule, reads.
+fn tone(status: FlightStatus, late: SimDuration) -> Tone {
+    match status {
+        FlightStatus::Cancelled => Tone::Cancelled,
+        FlightStatus::Departed | FlightStatus::Landed => Tone::Done,
+        _ if format::delay(late).is_some() => Tone::Late,
+        FlightStatus::Boarding => Tone::Active,
+        FlightStatus::Scheduled => Tone::Normal,
+    }
 }
 
 /// One board line.
@@ -81,12 +94,7 @@ pub(crate) fn board_rows(
             } else {
                 format::status(entry.status(), late)
             };
-            let tone = match entry.status() {
-                FlightStatus::Departed | FlightStatus::Landed => Tone::Done,
-                _ if format::delay(late).is_some() => Tone::Late,
-                FlightStatus::Boarding => Tone::Active,
-                FlightStatus::Scheduled => Tone::Normal,
-            };
+            let tone = tone(entry.status(), late);
             BoardRow {
                 time: format::local_clock(zone, entry.scheduled()),
                 callsign: entry.callsign().to_string(),
@@ -110,6 +118,7 @@ const fn tone_color(tone: Tone) -> Color {
         Tone::Active => Color::srgb(0.45, 0.85, 0.55),
         Tone::Late => theme::ACCENT,
         Tone::Done => theme::TEXT_MUTED,
+        Tone::Cancelled => Color::srgb(0.93, 0.42, 0.40),
     }
 }
 
@@ -264,11 +273,33 @@ mod tests {
 
     #[test]
     fn test_tone_colours_differ() {
-        let tones = [Tone::Normal, Tone::Active, Tone::Late, Tone::Done];
+        let tones = [
+            Tone::Normal,
+            Tone::Active,
+            Tone::Late,
+            Tone::Done,
+            Tone::Cancelled,
+        ];
         for (i, a) in tones.iter().enumerate() {
             for b in &tones[i + 1..] {
                 assert_ne!(tone_color(*a), tone_color(*b));
             }
         }
+    }
+
+    #[test]
+    fn test_tone_follows_status_and_delay() {
+        let late = SimDuration::from_minutes(20);
+        assert_eq!(tone(FlightStatus::Cancelled, late), Tone::Cancelled);
+        assert_eq!(tone(FlightStatus::Landed, late), Tone::Done);
+        assert_eq!(tone(FlightStatus::Scheduled, late), Tone::Late);
+        assert_eq!(
+            tone(FlightStatus::Boarding, SimDuration::ZERO),
+            Tone::Active
+        );
+        assert_eq!(
+            tone(FlightStatus::Scheduled, SimDuration::ZERO),
+            Tone::Normal
+        );
     }
 }
