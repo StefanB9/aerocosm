@@ -242,6 +242,10 @@ mod tests {
             self.calls.push(format!("append {}", path.display()));
             Ok(())
         }
+
+        fn machine(&mut self, os: &str) -> crate::bench::record::Machine {
+            crate::bench::record::Machine::from_proc("", "", os)
+        }
     }
 
     fn host(bindgen: &str) -> FakeHost {

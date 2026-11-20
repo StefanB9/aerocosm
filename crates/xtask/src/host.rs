@@ -6,6 +6,8 @@ use std::{ffi::OsString, fs, path::Path, process::Command};
 use anyhow::{Context, Result, bail};
 use tracing::info;
 
+use crate::bench::{machine::this_machine, record::Machine};
+
 /// Side effects of a task (processes and files), so that task logic can be
 /// tested with a fake.
 pub(crate) trait Host {
@@ -23,6 +25,8 @@ pub(crate) trait Host {
     fn list_dir(&mut self, path: &Path) -> Result<Vec<String>>;
     /// Appends `text` to a file, creating it if needed.
     fn append(&mut self, path: &Path, text: &str) -> Result<()>;
+    /// The machine this runs on, with `os` as its operating system's name.
+    fn machine(&mut self, os: &str) -> Machine;
 }
 
 /// Formats command-line arguments for human-readable logging.
@@ -111,6 +115,10 @@ impl Host for SystemHost {
             .with_context(|| format!("cannot open {}", path.display()))?;
         file.write_all(text.as_bytes())
             .with_context(|| format!("cannot write {}", path.display()))
+    }
+
+    fn machine(&mut self, os: &str) -> Machine {
+        this_machine(os)
     }
 }
 

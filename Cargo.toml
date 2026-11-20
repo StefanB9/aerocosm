@@ -16,7 +16,9 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+# `deny`, not `forbid`: the Windows memory calls in the bench tools allow it
+# locally, each with a `SAFETY:` comment; nothing else may.
+unsafe_code = "deny"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
@@ -70,6 +72,8 @@ serde_json = { version = "1.0.154", default-features = false, features = ["float
 thiserror = { version = "2.0.21", default-features = false }
 tracing = { version = "0.1.44", default-features = false, features = ["attributes", "std"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["env-filter", "fmt", "std"] }
+# Windows only: memory figures for the benchmarks (the Win32 calls take `unsafe`).
+windows-sys = { version = "0.61.2", default-features = false }
 
 # --- Dev dependencies ---
 criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
