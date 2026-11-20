@@ -129,6 +129,7 @@ pub(crate) fn status(status: FlightStatus, late: SimDuration) -> String {
         FlightStatus::Boarding => "Boarding",
         FlightStatus::Departed => "Departed",
         FlightStatus::Landed => "Landed",
+        FlightStatus::Cancelled => "Cancelled",
     };
     match (status, delay(late)) {
         (FlightStatus::Scheduled | FlightStatus::Boarding, Some(late)) => format!("Delayed {late}"),
@@ -279,6 +280,7 @@ mod tests {
         assert_eq!(status(FlightStatus::Boarding, late), "Delayed +12 min");
         assert_eq!(status(FlightStatus::Departed, late), "Departed");
         assert_eq!(status(FlightStatus::Landed, SimDuration::ZERO), "Landed");
+        assert_eq!(status(FlightStatus::Cancelled, late), "Cancelled");
         assert_eq!(slot("09:15"), "Slot 09:15");
     }
 }
