@@ -700,42 +700,46 @@ impl Operations {
 
     /// Every boarding or moving flight.
     pub(crate) fn flights(&self) -> impl Iterator<Item = FlightView> + '_ {
-        self.tails.iter().enumerate().filter_map(|(index, tail)| {
-            let motion = tail.motion?;
-            let path = self.paths.get(index)?.as_ref()?;
-            let flight = self.flight(index, tail.leg).ok()?;
-            let (position, heading) = path.locate(&motion);
-            Some(FlightView {
-                airframe: Id::<Airframe>::from_usize(index).ok()?,
-                tail: self.rotation_id(index).ok()?,
-                callsign: self.callsign(index)?,
-                airline: flight.airline(),
-                aircraft: flight.aircraft(),
-                kind: flight.kind(),
-                origin: flight.origin(),
-                destination: flight.destination(),
-                phase: motion.phase(),
-                position,
-                heading,
-                altitude: Meters::from_raw(motion.altitude()).to_feet(),
-                ground_speed: MetersPerSecond::from_raw(motion.speed()).to_knots(),
-                scheduled_departure: tail.scheduled,
-                scheduled_arrival: tail.scheduled.checked_add(flight.block()).ok()?,
-                off_block: tail.off_block,
-                holding: path.hold_fix(&motion).map(|(fix, inbound)| Holding {
-                    fix,
-                    inbound,
-                    until: self.flows[index].hold_until(),
-                }),
-                slot_time: self.flows[index]
-                    .slot_time
-                    .filter(|_| motion.phase() == Phase::Boarding),
-                expected_landing: self.flows[index].landing,
-                speed_factor: motion.speed_factor(),
-                ground_conflict: self.escaped(index),
-                taxi: self.taxi_state(index, motion.phase(), motion.speed()),
-                recovery: self.recovery_note(index),
-            })
+        (0..self.tails.len()).filter_map(|index| self.flight_view(index))
+    }
+
+    /// The flight of the aircraft at `index`, if it is boarding or moving.
+    pub(crate) fn flight_view(&self, index: usize) -> Option<FlightView> {
+        let tail = self.tails.get(index)?;
+        let motion = tail.motion?;
+        let path = self.paths.get(index)?.as_ref()?;
+        let flight = self.flight(index, tail.leg).ok()?;
+        let (position, heading) = path.locate(&motion);
+        Some(FlightView {
+            airframe: Id::<Airframe>::from_usize(index).ok()?,
+            tail: self.rotation_id(index).ok()?,
+            callsign: self.callsign(index)?,
+            airline: flight.airline(),
+            aircraft: flight.aircraft(),
+            kind: flight.kind(),
+            origin: flight.origin(),
+            destination: flight.destination(),
+            phase: motion.phase(),
+            position,
+            heading,
+            altitude: Meters::from_raw(motion.altitude()).to_feet(),
+            ground_speed: MetersPerSecond::from_raw(motion.speed()).to_knots(),
+            scheduled_departure: tail.scheduled,
+            scheduled_arrival: tail.scheduled.checked_add(flight.block()).ok()?,
+            off_block: tail.off_block,
+            holding: path.hold_fix(&motion).map(|(fix, inbound)| Holding {
+                fix,
+                inbound,
+                until: self.flows[index].hold_until(),
+            }),
+            slot_time: self.flows[index]
+                .slot_time
+                .filter(|_| motion.phase() == Phase::Boarding),
+            expected_landing: self.flows[index].landing,
+            speed_factor: motion.speed_factor(),
+            ground_conflict: self.escaped(index),
+            taxi: self.taxi_state(index, motion.phase(), motion.speed()),
+            recovery: self.recovery_note(index),
         })
     }
 }
