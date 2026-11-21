@@ -3,6 +3,75 @@
 //! few changes from frame to frame; slots of aircraft no longer shown are
 //! reused before the pool grows.
 
+/// Which aircraft holds which slot of the pool. Aircraft are plain indices
+/// (an airframe's index); a slot is an index into the pool's sprites.
+#[derive(Debug, Default)]
+pub(crate) struct Assignment {
+    /// The slot of each aircraft, by aircraft index.
+    slot_of: Vec<Option<usize>>,
+    /// The aircraft in each slot.
+    airframe_in: Vec<Option<usize>>,
+    /// Slots shown last frame, to free those not shown now.
+    shown: Vec<usize>,
+    /// Marks this frame's aircraft, by aircraft index; cleared after use.
+    seen: Vec<bool>,
+}
+
+impl Assignment {
+    /// Gives each of `shown` (distinct aircraft) a slot: the one it had if
+    /// it was shown last frame, else a free one, else a new one. Frees the
+    /// slots of aircraft no longer shown. Returns the pool's size, which
+    /// never shrinks.
+    pub(crate) fn assign(&mut self, shown: impl IntoIterator<Item = usize>) -> usize {
+        let shown: Vec<usize> = shown.into_iter().collect();
+        let needed = shown.iter().max().map_or(0, |&most| most + 1);
+        if self.seen.len() < needed {
+            self.seen.resize(needed, false);
+            self.slot_of.resize(needed, None);
+        }
+        for &airframe in &shown {
+            self.seen[airframe] = true;
+        }
+        // Free the slots of aircraft not shown this frame.
+        for airframe in std::mem::take(&mut self.shown) {
+            if !self.seen.get(airframe).copied().unwrap_or(false)
+                && let Some(slot) = self.slot_of.get_mut(airframe).and_then(Option::take)
+                && let Some(held) = self.airframe_in.get_mut(slot)
+            {
+                *held = None;
+            }
+        }
+        let mut free = (0..self.airframe_in.len())
+            .filter(|&slot| self.airframe_in[slot].is_none())
+            .collect::<Vec<_>>()
+            .into_iter();
+        for &airframe in &shown {
+            self.seen[airframe] = false;
+            if self.slot_of[airframe].is_some() {
+                continue;
+            }
+            let slot = free.next().unwrap_or_else(|| {
+                self.airframe_in.push(None);
+                self.airframe_in.len() - 1
+            });
+            self.airframe_in[slot] = Some(airframe);
+            self.slot_of[airframe] = Some(slot);
+        }
+        self.shown = shown;
+        self.airframe_in.len()
+    }
+
+    /// The slot `airframe` holds, if it is shown.
+    pub(crate) fn slot_of(&self, airframe: usize) -> Option<usize> {
+        self.slot_of.get(airframe).copied().flatten()
+    }
+
+    /// The aircraft holding `slot`, if any.
+    pub(crate) fn airframe_in(&self, slot: usize) -> Option<usize> {
+        self.airframe_in.get(slot).copied().flatten()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -15,7 +84,11 @@ mod tests {
         assert!(a.is_some() && b.is_some() && c.is_some());
         assert_ne!(a, b);
         assert_ne!(b, c);
-        assert_eq!(pool.assign([9, 3, 7]), 3, "the same aircraft need no new slot");
+        assert_eq!(
+            pool.assign([9, 3, 7]),
+            3,
+            "the same aircraft need no new slot"
+        );
         assert_eq!(
             (pool.slot_of(3), pool.slot_of(7), pool.slot_of(9)),
             (a, b, c),
