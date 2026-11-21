@@ -76,6 +76,24 @@ Findings:
 - Measured: the full suite on the reference machine, fingerprints equal to the baseline's; F3
   readings with vsync off.
 
+*As built:* the flags, the F4 switch (F3's readout ends "vsync on" or "vsync off"; without a
+window, as in the headless benchmark, it counts as on) and the baseline record. Fingerprints
+are equal to the baseline's in every world scenario. The reference machine's record
+(`542eb0f`) against the baseline (`a80e567`):
+
+| Measure | Baseline | PR 1 | D176 target |
+|---|---|---|---|
+| Midday tick p95 / median / worst | 9.93 / 4.20 / 40.6 ms | 2.58 / 1.61 / 17.0 ms | p95 < 3, worst < 10 ms |
+| Simulated day | 363 s | 138 s | < 120 s |
+| Start-up | 9.98 s | 9.73 s | < 3 s |
+| Viewer CPU per frame, headless, p95: world / Frankfurt | 24.8 / 26.2 ms | 8.3 / 10.0 ms | < 8.3 ms |
+
+Every part of the tick fell by about half to four fifths; start-up hardly moved. F3 in the
+viewer did not move (world at 60× 21 ms, paused 16 ms, Frankfurt at 60× 29 ms, paused
+16.7 ms), although the viewer's CPU work per frame is now about 5.6 ms: the window's frames are
+held by something the headless benchmark does not measure, the render thread's work for
+262,000 entities or vsync. PR 2 is judged on F3 as well as on the headless benchmark.
+
 ## PR 2 — The viewer (D176)
 
 - Aircraft are sampled after a tick only where they changed and can be seen; callsigns are
