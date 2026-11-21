@@ -19,6 +19,7 @@ mod labels;
 mod loading;
 mod lod;
 mod map;
+mod measure;
 mod picking;
 mod pool;
 mod projection;
@@ -58,7 +59,7 @@ use crate::{
     map::MapPlugin,
     projection::MapProjection,
     runway_use::RunwayUsePlugin,
-    start::StartView,
+    start::{Launch, StartView},
     ui::UiPlugin,
 };
 
@@ -74,9 +75,11 @@ const ASSETS: &str = "../../assets";
 #[cfg(target_arch = "wasm32")]
 const ASSETS: &str = "assets";
 
-/// Opens the viewer's window with the view the command line asks for.
+/// Opens the viewer's window with the view the command line asks for; with
+/// `--measure`, plays the measured scenes and closes (plan M9 D182).
 pub fn run() -> Result<()> {
-    let view = StartView::from_args(std::env::args().skip(1))?;
+    let launch = Launch::from_args(std::env::args().skip(1))?;
+    let view = launch.view;
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -99,6 +102,9 @@ pub fn run() -> Result<()> {
             }),
     );
     assemble(&mut app, view)?;
+    if let Some(measure) = launch.measure {
+        app.add_plugins(measure::MeasurePlugin(measure));
+    }
     app.run();
     Ok(())
 }

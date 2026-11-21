@@ -246,6 +246,10 @@ mod tests {
         fn machine(&mut self, os: &str) -> crate::bench::record::Machine {
             crate::bench::record::Machine::from_proc("", "", os)
         }
+
+        fn has_display(&mut self) -> bool {
+            false
+        }
     }
 
     fn host(bindgen: &str) -> FakeHost {

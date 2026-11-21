@@ -65,6 +65,7 @@ Findings:
 | D179 | **Workflow per PR:** red-green TDD; fingerprints compared before and after in the cloud; then the user runs `cargo xtask bench` on the PR's branch and pushes the record to it, and `cargo xtask bench report` against the baseline decides whether the PR is a win before it is opened. Profiles are recorded again on the reference machine where a PR needs them |
 | D180 | **Native CPU on every target.** The Windows and Linux sections of `.cargo/config.toml` repeat the shared `target-cpu=native` and `-Z location-detail=none`, so no target loses them. Measured as the first improvement against the `a80e567` baseline |
 | D181 | **Vsync switch.** F4 turns the viewer's vsync off and on, and F3's readout says which, so frame times can be read without rounding to refresh intervals |
+| D182 | **The viewer measures itself.** `aerocosm-viewer --measure` plays five scenes in its real window with vsync off (the world at 60×, paused and as fast as possible; Frankfurt's stands at 60× and paused), each settled for 5 s and measured for 10 s, and prints frame times, ticks per frame and the simulation's share as benchmark lines. `cargo xtask bench` runs it as the group `window`, by default wherever a display exists, so the reference machine's records carry the F3 readings (added on the user's request, 2026-11-21) |
 
 ## PR 1 — Native CPU and the vsync switch (D180, D181)
 

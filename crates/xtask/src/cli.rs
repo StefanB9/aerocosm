@@ -58,6 +58,8 @@ pub(crate) enum BenchGroup {
     Micro,
     /// The viewer's frames, headless.
     Viewer,
+    /// The viewer's frames in a real window (needs a display).
+    Window,
 }
 
 /// `cargo xtask web …`
@@ -146,14 +148,17 @@ mod tests {
         assert!(args.groups.is_empty() && args.command.is_none() && !args.quick);
         assert_eq!(args.repeat, 3);
         let Command::Bench(args) = Cli::try_parse_from([
-            "xtask", "bench", "world", "micro", "--quick", "--repeat", "1",
+            "xtask", "bench", "world", "micro", "window", "--quick", "--repeat", "1",
         ])
         .context("parse")?
         .command
         else {
             bail!("expected bench");
         };
-        assert_eq!(args.groups, [BenchGroup::World, BenchGroup::Micro]);
+        assert_eq!(
+            args.groups,
+            [BenchGroup::World, BenchGroup::Micro, BenchGroup::Window]
+        );
         assert!(args.quick);
         assert_eq!(args.repeat, 1);
         let Command::Bench(args) = Cli::try_parse_from(["xtask", "bench", "report"])

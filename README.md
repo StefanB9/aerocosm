@@ -176,6 +176,11 @@ elsewhere, e.g. at Frankfurt's terminal 1 (`--view 50.0485,8.57,0.8`) or the Pac
 cargo run --release -p aerocosm-viewer -- --view 50.0485,8.57,0.8
 ```
 
+`--measure` times the viewer's frames in its real window (plan M9 D182): it plays five scenes
+(the world at 60×, paused and as fast as possible; Frankfurt's stands at 60× and paused) with
+vsync off, prints each scene's frame times, ticks per frame and simulation share as benchmark
+lines, and closes; `--measure quick` gives each scene a second only.
+
 The airport ground layouts are not compiled in: the viewer reads them from `assets/ground` at
 start (plan M5 D132; "Loading airport layouts… n of 21" shows meanwhile), and the simulation
 starts once all are in.
@@ -337,7 +342,7 @@ One command builds and runs it and appends a record to `benchmarks/history.jsonl
 cargo xtask bench
 ```
 
-It runs four groups, each also on its own (`cargo xtask bench world micro`):
+It runs five groups, each also on its own (`cargo xtask bench world micro`):
 
 | Group | What it measures |
 |---|---|
@@ -345,6 +350,7 @@ It runs four groups, each also on its own (`cargo xtask bench world micro`):
 | `world` | The world with every ground region at 00:00, 06:00, 12:00 and 16:00 UTC: ms per tick (median, 95th percentile, worst), the tick split by part (flow control, ground control, taxiing, flying, parked), aircraft airborne and taxiing, memory; a simulated day's wall time and throughput |
 | `micro` | Criterion: geometry, the empty world's ticks, route search and stand choice at Frankfurt; the viewer's basemap decoding, label placement, reprojection, ground streaming plan and tessellation |
 | `viewer` | The viewer's CPU work per frame, headless (no window, no GPU), at the world, Europe and Frankfurt's stands |
+| `window` | The viewer's frames in a real window with vsync off (`aerocosm-viewer --measure`), render thread and GPU included: frame times, ticks per frame and the simulation's share at five scenes. In the default run only where a display exists (Windows, macOS, or `DISPLAY`/`WAYLAND_DISPLAY` set) |
 
 Every world scenario also records a fingerprint of the simulation's state: a change that
 alters it changed behaviour, not only speed. Start-up and tick scenarios run three times

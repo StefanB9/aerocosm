@@ -28,6 +28,8 @@ pub(crate) const HISTORY: &str = "benchmarks/history.jsonl";
 pub(crate) const LAST_RUN: &str = "target/bench-runs.jsonl";
 /// The runner the world scenarios run in, built in release.
 const RUNNER: &str = "target/release/aerocosm";
+/// The viewer the window group measures, built in release.
+const VIEWER: &str = "target/release/aerocosm-viewer";
 /// The hours whose ticks are measured (plan M5 D135).
 const TICK_SCENARIOS: [&str; 4] = ["tick-00", "tick-06", "tick-12", "tick-16"];
 
@@ -42,10 +44,19 @@ pub(crate) enum Group {
     Micro,
     /// The viewer's frames, headless.
     Viewer,
+    /// The viewer's frames in a real window, render thread and GPU included
+    /// (plan M9 D182); in the default run only where a display exists.
+    Window,
 }
 
 impl Group {
-    pub(crate) const ALL: [Self; 4] = [Self::Startup, Self::World, Self::Micro, Self::Viewer];
+    pub(crate) const ALL: [Self; 5] = [
+        Self::Startup,
+        Self::World,
+        Self::Micro,
+        Self::Viewer,
+        Self::Window,
+    ];
 
     const fn name(self) -> &'static str {
         match self {
@@ -53,6 +64,7 @@ impl Group {
             Self::World => "world",
             Self::Micro => "micro",
             Self::Viewer => "viewer",
+            Self::Window => "window",
         }
     }
 }
@@ -167,6 +179,13 @@ fn run_group(host: &mut impl Host, group: Group, options: &Options) -> Result<Ve
                 runs.push(bencher_lines(&output, "micro/"));
             }
         }
+        Group::Window => {
+            let mut args = strings(&["--measure"]);
+            if options.quick {
+                args.extend(strings(&["quick"]));
+            }
+            runs.push(bench_lines(&host.output(VIEWER, &args)?));
+        }
         Group::Viewer => {
             let frames = if options.quick { "5" } else { "300" };
             let output = host.output(
@@ -183,7 +202,11 @@ fn run_group(host: &mut impl Host, group: Group, options: &Options) -> Result<Ve
 /// is not quick.
 pub(crate) fn run(host: &mut impl Host, options: &Options) -> Result<Outcome> {
     let groups = if options.groups.is_empty() {
-        Group::ALL.to_vec()
+        let display = host.has_display();
+        Group::ALL
+            .into_iter()
+            .filter(|group| *group != Group::Window || display)
+            .collect()
     } else {
         let mut groups = options.groups.clone();
         groups.sort();
@@ -208,6 +231,12 @@ pub(crate) fn run(host: &mut impl Host, options: &Options) -> Result<Outcome> {
         host.run(
             &options.cargo,
             &strings(&["build", "--release", "-p", "aerocosm"]),
+        )?;
+    }
+    if groups.contains(&Group::Window) {
+        host.run(
+            &options.cargo,
+            &strings(&["build", "--release", "-p", "aerocosm-viewer"]),
         )?;
     }
     let mut runs = Vec::new();
@@ -262,6 +291,7 @@ mod tests {
     /// Answers with canned output and notes every call.
     struct FakeHost {
         dirty: bool,
+        display: bool,
         fingerprint: Vec<&'static str>,
         calls: Vec<String>,
         appended: Vec<String>,
@@ -271,6 +301,7 @@ mod tests {
         fn new(dirty: bool) -> Self {
             Self {
                 dirty,
+                display: false,
                 fingerprint: Vec::new(),
                 calls: Vec::new(),
                 appended: Vec::new(),
@@ -301,6 +332,9 @@ mod tests {
                         "INFO started\nbench {scenario}/tick_median 10 ms\nbench \
                          {scenario}/fingerprint {print} hash\n"
                     )
+                }
+                (VIEWER, Some("--measure")) => {
+                    "INFO loading\nbench window/world-60x/frame_median 4.5 ms\n".to_owned()
                 }
                 (_, Some("bench")) if line.contains("--bench frames") => {
                     "bench viewer/world/frame_median 20 ms\n".to_owned()
@@ -335,6 +369,10 @@ mod tests {
 
         fn machine(&mut self, os: &str) -> Machine {
             Machine::from_proc("processor : 0\nmodel name : X\n", "", os)
+        }
+
+        fn has_display(&mut self) -> bool {
+            self.display
         }
     }
 
@@ -387,6 +425,41 @@ mod tests {
         assert!(host.calls.iter().any(|c| c
             == "cargo bench -p aerocosm-core --bench core --profile bench-unwind -- \
                 --output-format bencher"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_window_group_runs_where_a_display_exists() -> Result<()> {
+        let mut host = FakeHost::new(false);
+        host.display = true;
+        let outcome = run(&mut host, &options(&[], false))?;
+        assert_eq!(
+            outcome.record.groups,
+            ["startup", "world", "micro", "viewer", "window"]
+        );
+        assert!(
+            outcome
+                .record
+                .results
+                .contains_key("window/world-60x/frame_median")
+        );
+        assert!(
+            host.calls
+                .contains(&"cargo build --release -p aerocosm-viewer".to_owned())
+        );
+        assert!(host.calls.contains(&format!("{VIEWER} --measure")));
+
+        let mut host = FakeHost::new(false);
+        host.display = true;
+        run(&mut host, &options(&[Group::Window], true))?;
+        assert!(host.calls.contains(&format!("{VIEWER} --measure quick")));
+        assert!(!host.calls.iter().any(|c| c.contains("-p aerocosm ")));
+
+        // Without a display the default suite leaves it out.
+        let mut host = FakeHost::new(false);
+        let outcome = run(&mut host, &options(&[], false))?;
+        assert!(!outcome.record.groups.contains(&"window".to_owned()));
+        assert!(!host.calls.iter().any(|c| c.contains("--measure")));
         Ok(())
     }
 

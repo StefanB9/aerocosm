@@ -27,6 +27,9 @@ pub(crate) trait Host {
     fn append(&mut self, path: &Path, text: &str) -> Result<()>;
     /// The machine this runs on, with `os` as its operating system's name.
     fn machine(&mut self, os: &str) -> Machine;
+    /// Whether windows can be opened here: always on Windows and macOS, on
+    /// other systems when an X or Wayland display is set.
+    fn has_display(&mut self) -> bool;
 }
 
 /// Formats command-line arguments for human-readable logging.
@@ -119,6 +122,13 @@ impl Host for SystemHost {
 
     fn machine(&mut self, os: &str) -> Machine {
         this_machine(os)
+    }
+
+    fn has_display(&mut self) -> bool {
+        cfg!(any(windows, target_os = "macos"))
+            || ["DISPLAY", "WAYLAND_DISPLAY"]
+                .iter()
+                .any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()))
     }
 }
 

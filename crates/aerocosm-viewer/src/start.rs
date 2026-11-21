@@ -2,6 +2,8 @@
 //! the native command line as `--view <lat>,<lon>,<metres per pixel>`, for
 //! looking at one airport or taking screenshots.
 
+use std::time::Duration;
+
 use aerocosm_core::LatLon;
 use anyhow::{Context, Result, bail};
 use bevy::ecs::resource::Resource;
@@ -9,6 +11,63 @@ use bevy::ecs::resource::Resource;
 /// Centre of the opening world view: Europe and Africa in the middle, the
 /// Americas and Asia either side.
 const HOME: (f64, f64) = (25.0, 10.0);
+
+/// How long the measured scenes settle and run (plan M9 D182).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Measure {
+    /// Time given to each scene before frames count: the ground loads, the
+    /// pool fills.
+    pub(crate) settle: Duration,
+    /// Time each scene is measured.
+    pub(crate) span: Duration,
+}
+
+impl Measure {
+    /// A run for the record.
+    pub(crate) const FULL: Self = Self {
+        settle: Duration::from_secs(5),
+        span: Duration::from_secs(10),
+    };
+    /// A run that only checks everything works.
+    pub(crate) const QUICK: Self = Self {
+        settle: Duration::from_secs(2),
+        span: Duration::from_secs(1),
+    };
+}
+
+/// What the command line asks for: where to open, and whether to measure.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Launch {
+    pub(crate) view: StartView,
+    pub(crate) measure: Option<Measure>,
+}
+
+impl Launch {
+    /// The launch the command-line `args` (without the program name) ask
+    /// for: `--measure [quick]`, `--view <lat>,<lon>,<metres per pixel>` or
+    /// nothing.
+    pub(crate) fn from_args(args: impl Iterator<Item = String>) -> Result<Self> {
+        let args: Vec<String> = args.collect();
+        if args.first().map(String::as_str) != Some("--measure") {
+            return Ok(Self {
+                view: StartView::from_args(args.into_iter())?,
+                measure: None,
+            });
+        }
+        let measure = match args.get(1).map(String::as_str) {
+            None => Measure::FULL,
+            Some("quick") => Measure::QUICK,
+            Some(other) => bail!("--measure {other}: expected nothing or quick"),
+        };
+        if let Some(extra) = args.get(2) {
+            bail!("unexpected argument {extra}");
+        }
+        Ok(Self {
+            view: StartView::home()?,
+            measure: Some(measure),
+        })
+    }
+}
 
 /// The opening view.
 #[derive(Resource, Debug, Clone, Copy, PartialEq)]
@@ -78,6 +137,30 @@ mod tests {
             .map(|s| (*s).to_owned())
             .collect::<Vec<_>>()
             .into_iter()
+    }
+
+    #[test]
+    fn test_launch_reads_measure_and_view() -> Result<()> {
+        assert_eq!(
+            Launch::from_args(args(&[]))?,
+            Launch {
+                view: StartView::home()?,
+                measure: None,
+            }
+        );
+        let full = Launch::from_args(args(&["--measure"]))?;
+        assert_eq!(full.view, StartView::home()?);
+        assert_eq!(full.measure, Some(Measure::FULL));
+        assert_eq!(
+            Launch::from_args(args(&["--measure", "quick"]))?.measure,
+            Some(Measure::QUICK)
+        );
+        let view = Launch::from_args(args(&["--view", "50.03,8.57,0.8"]))?;
+        assert_eq!(view.measure, None);
+        assert_eq!(view.view.scale, Some(0.8));
+        assert!(Launch::from_args(args(&["--measure", "slow"])).is_err());
+        assert!(Launch::from_args(args(&["--measure", "quick", "--view", "1,2,3"])).is_err());
+        Ok(())
     }
 
     #[test]
