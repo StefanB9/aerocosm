@@ -4,7 +4,10 @@
 use std::collections::VecDeque;
 
 use aerocosm_core::{SimTime, ops::Phase};
-use bevy::{color::Color, math::Vec2};
+use bevy::{
+    color::Color,
+    math::{Rect, Vec2},
+};
 
 /// Above this zoom (map units per pixel) aircraft on the ground are hidden.
 const GROUND_SCALE: f32 = 150.0;
@@ -203,6 +206,16 @@ impl Trail {
     }
 }
 
+/// Pixels around the screen within which aircraft still get a sprite, so
+/// that symbols at the edge do not pop in.
+const VIEW_MARGIN: f32 = 128.0;
+
+/// Whether an aircraft drawn at `position` (world units) can be seen in
+/// `view` at `scale` world units per pixel (plan M9 PR 2).
+pub(crate) fn in_view(position: Vec2, view: Rect, scale: f32) -> bool {
+    view.inflate(VIEW_MARGIN * scale).contains(position)
+}
+
 #[cfg(test)]
 mod tests {
     use aerocosm_core::{SimDuration, SimTime};
@@ -210,6 +223,21 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
+
+    #[test]
+    fn test_in_view_keeps_a_margin_around_the_screen() {
+        let view = Rect::from_corners(Vec2::new(0.0, 0.0), Vec2::new(100.0, 50.0));
+        assert!(in_view(Vec2::new(50.0, 25.0), view, 1.0));
+        assert!(
+            in_view(Vec2::new(-100.0, 25.0), view, 1.0),
+            "within the margin"
+        );
+        assert!(!in_view(Vec2::new(-200.0, 25.0), view, 1.0));
+        assert!(
+            in_view(Vec2::new(-200.0, 25.0), view, 2.0),
+            "the margin is in pixels"
+        );
+    }
 
     /// Relative luminance of `color` over the dark map, alpha blended
     /// with the apron.

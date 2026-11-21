@@ -16,7 +16,8 @@ use bevy::{
     DefaultPlugins,
     app::{App, PluginGroup},
     asset::{AssetMetaCheck, AssetPlugin},
-    ecs::entity::Entity,
+    camera::visibility::Visibility,
+    ecs::{entity::Entity, query::With},
     log::LogPlugin,
     math::{Rect, Vec2},
     render::{
@@ -158,6 +159,24 @@ impl Headless {
     pub fn entities(&mut self) -> usize {
         let world = self.app.world_mut();
         world.query::<Entity>().iter(world).count()
+    }
+
+    /// How many aircraft sprites the viewer has, and how many of them are
+    /// shown (plan M9 PR 2: a pool for the aircraft on screen).
+    pub fn aircraft_sprites(&mut self) -> (usize, usize) {
+        let world = self.app.world_mut();
+        let mut sprites = 0;
+        let mut shown = 0;
+        for visibility in world
+            .query_filtered::<&Visibility, With<crate::aircraft::AircraftSprite>>()
+            .iter(world)
+        {
+            sprites += 1;
+            if *visibility != Visibility::Hidden {
+                shown += 1;
+            }
+        }
+        (sprites, shown)
     }
 }
 
@@ -354,6 +373,22 @@ mod tests {
         }
         // Frankfurt's ground is built over the first frames.
         assert!(viewer.entities() > before, "{before}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_headless_viewer_makes_sprites_for_shown_aircraft_only() -> Result<()> {
+        let mut viewer = Headless::new(View::World)?;
+        for _ in 0..3 {
+            viewer.frame();
+        }
+        let (sprites, shown) = viewer.aircraft_sprites();
+        assert!(shown > 1_000, "the world's airborne flights: {shown}");
+        assert!(sprites >= shown);
+        assert!(
+            sprites < 40_000,
+            "a pool for those shown, not one per airframe: {sprites}"
+        );
         Ok(())
     }
 
