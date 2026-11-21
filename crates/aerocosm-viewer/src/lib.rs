@@ -20,6 +20,7 @@ mod loading;
 mod lod;
 mod map;
 mod picking;
+mod pool;
 mod projection;
 mod runway_use;
 mod selection;
