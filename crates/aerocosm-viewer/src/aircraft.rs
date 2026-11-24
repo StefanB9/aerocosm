@@ -3,7 +3,7 @@
 //! `flights` and `silhouette`; these systems gather state and apply it.
 
 use aerocosm_core::{
-    Id,
+    Id, SimTime,
     ops::{Airframe, FlightView, holding_pattern},
 };
 use bevy::{
@@ -126,6 +126,43 @@ pub(crate) struct Slot {
     trail: Trail,
 }
 
+impl Slot {
+    /// Takes the airframe's flight at a new tick, sampled at `time`: none if
+    /// it is parked. `single_step` says the tick follows the last one
+    /// sampled, so the last pose is where the blend starts.
+    fn update(&mut self, sampled: Option<&(FlightView, Pose)>, single_step: bool, time: SimTime) {
+        let Some(&(view, pose)) = sampled else {
+            if self.view.is_some() {
+                *self = Self::default();
+            }
+            return;
+        };
+        let new_leg = self
+            .view
+            .is_none_or(|old| old.scheduled_departure() != view.scheduled_departure());
+        if new_leg {
+            self.trail.clear();
+        }
+        // Interpolate across exactly one tick; after a jump, start afresh.
+        self.previous = if single_step && !new_leg {
+            // Across the antimeridian, from the copy next to it.
+            self.current
+                .map(|previous| Pose {
+                    position: wrap_near(previous.position, pose.position),
+                    ..previous
+                })
+                .or(Some(pose))
+        } else {
+            Some(pose)
+        };
+        self.current = Some(pose);
+        if view.phase().is_airborne() {
+            self.trail.push(time, pose.position);
+        }
+        self.view = Some(view);
+    }
+}
+
 /// Every tail's flight as last sampled from the simulation.
 #[derive(Resource, Debug, Default)]
 pub(crate) struct TrafficView {
@@ -167,47 +204,21 @@ impl TrafficView {
         self.ticks = Some(ticks);
         let airframes = simulation.airframe_count();
         self.slots.resize(airframes, Slot::default());
-        let mut seen = vec![false; airframes];
-        for (index, sampled) in sample_flights(simulation, projection)
-            .into_iter()
-            .enumerate()
-        {
-            let Some((view, pose)) = sampled else {
-                continue;
-            };
-            let Some(slot) = self.slots.get_mut(index) else {
-                continue;
-            };
-            seen[index] = true;
-            let new_leg = slot
-                .view
-                .is_none_or(|old| old.scheduled_departure() != view.scheduled_departure());
-            if new_leg {
-                slot.trail.clear();
+        // Each airframe's slot depends on that airframe alone, so tasks
+        // update their own slots in place (plan M9 PR 2).
+        let time = simulation.time();
+        let pool = ComputeTaskPool::get_or_init(TaskPool::default);
+        pool.scope(|scope| {
+            for (part, slots) in self.slots.chunks_mut(SAMPLED_PER_TASK).enumerate() {
+                scope.spawn(async move {
+                    let start = part * SAMPLED_PER_TASK;
+                    for (offset, slot) in slots.iter_mut().enumerate() {
+                        let sampled = sample_flight(simulation, projection, start + offset);
+                        slot.update(sampled.as_ref(), single_step, time);
+                    }
+                });
             }
-            // Interpolate across exactly one tick; after a jump, start afresh.
-            slot.previous = if single_step && !new_leg {
-                // Across the antimeridian, from the copy next to it.
-                slot.current
-                    .map(|previous| Pose {
-                        position: wrap_near(previous.position, pose.position),
-                        ..previous
-                    })
-                    .or(Some(pose))
-            } else {
-                Some(pose)
-            };
-            slot.current = Some(pose);
-            if view.phase().is_airborne() {
-                slot.trail.push(simulation.time(), pose.position);
-            }
-            slot.view = Some(view);
-        }
-        for (slot, seen) in self.slots.iter_mut().zip(seen) {
-            if !seen && slot.view.is_some() {
-                *slot = Slot::default();
-            }
-        }
+        });
     }
 
     /// The pose of `tail` a fraction `t` of the way into the next tick.
@@ -221,36 +232,21 @@ impl TrafficView {
 /// Aircraft sampled per task: enough to outweigh starting a task.
 const SAMPLED_PER_TASK: usize = 2048;
 
-/// Every aircraft's flight, if boarding or moving, with its pose in
-/// `projection`, by airframe. Built in parallel on the compute pool (plan M9
-/// PR 2), in chunks whose results are joined in order.
-fn sample_flights(
+/// The flight of the aircraft at `index`, if boarding or moving, with its
+/// pose in `projection`.
+fn sample_flight(
     simulation: &aerocosm_core::Simulation,
     projection: &MapProjection,
-) -> Vec<Option<(FlightView, Pose)>> {
-    let airframes = simulation.airframe_count();
-    let sample = |index: usize| {
-        let view = simulation.flight(Id::from_usize(index).ok()?)?;
-        let pose = Pose {
-            position: projection.project(view.position()),
-            // Courses are in [0, 360); f32 is ample for drawing.
-            #[allow(clippy::cast_possible_truncation)]
-            heading: view.heading().value() as f32,
-        };
-        Some((view, pose))
+    index: usize,
+) -> Option<(FlightView, Pose)> {
+    let view = simulation.flight(Id::from_usize(index).ok()?)?;
+    let pose = Pose {
+        position: projection.project(view.position()),
+        // Courses are in [0, 360); f32 is ample for drawing.
+        #[allow(clippy::cast_possible_truncation)]
+        heading: view.heading().value() as f32,
     };
-    let pool = ComputeTaskPool::get_or_init(TaskPool::default);
-    let parts = pool.scope(|scope| {
-        for start in (0..airframes).step_by(SAMPLED_PER_TASK) {
-            let end = (start + SAMPLED_PER_TASK).min(airframes);
-            scope.spawn(async move { (start..end).map(sample).collect::<Vec<_>>() });
-        }
-    });
-    let mut flights = Vec::with_capacity(airframes);
-    for part in parts {
-        flights.extend(part);
-    }
-    flights
+    Some((view, pose))
 }
 
 /// Systems that place the aircraft sprites; readers of their positions run
