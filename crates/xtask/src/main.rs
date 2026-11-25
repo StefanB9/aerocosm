@@ -74,6 +74,7 @@ fn run_bench(args: &BenchArgs) -> Result<()> {
                     BenchGroup::World => bench::Group::World,
                     BenchGroup::Micro => bench::Group::Micro,
                     BenchGroup::Viewer => bench::Group::Viewer,
+                    BenchGroup::Window => bench::Group::Window,
                 })
                 .collect(),
             repeat: args.repeat,

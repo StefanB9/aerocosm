@@ -3,7 +3,7 @@
 //! `flights` and `silhouette`; these systems gather state and apply it.
 
 use aerocosm_core::{
-    Id,
+    Id, SimTime,
     ops::{Airframe, FlightView, holding_pattern},
 };
 use bevy::{
@@ -14,6 +14,7 @@ use bevy::{
     ecs::{
         change_detection::DetectChangesMut,
         component::Component,
+        entity::Entity,
         hierarchy::ChildOf,
         resource::Resource,
         schedule::{IntoScheduleConfigs, common_conditions::resource_added},
@@ -21,19 +22,22 @@ use bevy::{
     },
     gizmos::gizmos::Gizmos,
     log::error,
-    math::{Quat, Vec2, Vec3},
+    math::{Quat, Rect, Vec2, Vec3},
     mesh::{Mesh, Mesh2d},
     sprite_render::{ColorMaterial, MeshMaterial2d},
+    tasks::{ComputeTaskPool, TaskPool},
     transform::components::Transform,
 };
 
 use crate::{
-    camera::{CameraRig, CameraSet},
+    camera::{CameraRig, CameraSet, PointerState},
     data::OVERLAY_LAYER,
     driver::{SimDriver, SimReady, SimSet},
     flights::{
-        PhaseBand, Pose, Trail, blend, display_length, flight_visible, rotation, trail_visible,
+        PhaseBand, Pose, Trail, blend, display_length, flight_visible, in_view, rotation,
+        trail_visible,
     },
+    pool::Assignment,
     projection::{MapProjection, wrap_near},
     selection::Selection,
     silhouette::{
@@ -78,10 +82,28 @@ struct SpriteLook {
     small: bool,
 }
 
-/// The halo behind a sprite, and whether it is the wide one.
+/// The halo behind a sprite: which class and width its mesh is for.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 struct Halo {
+    class: SizeClass,
     wide: bool,
+}
+
+/// What sprites are made of: each airframe's size class, the silhouettes
+/// by class and the halos' material.
+#[derive(Resource)]
+struct SpriteParts {
+    classes: Vec<SizeClass>,
+    shapes: Vec<Handle<Mesh>>,
+    dark: Handle<ColorMaterial>,
+}
+
+/// The sprites, one per aircraft shown, reused from frame to frame (plan M9
+/// PR 2): slot `i` of `assignment` is sprite `entities[i]`.
+#[derive(Resource, Default)]
+struct SpritePool {
+    entities: Vec<Entity>,
+    assignment: Assignment,
 }
 
 /// Halo meshes per size class: thin, and wide for aircraft small on screen.
@@ -102,6 +124,43 @@ pub(crate) struct Slot {
     current: Option<Pose>,
     view: Option<FlightView>,
     trail: Trail,
+}
+
+impl Slot {
+    /// Takes the airframe's flight at a new tick, sampled at `time`: none if
+    /// it is parked. `single_step` says the tick follows the last one
+    /// sampled, so the last pose is where the blend starts.
+    fn update(&mut self, sampled: Option<&(FlightView, Pose)>, single_step: bool, time: SimTime) {
+        let Some(&(view, pose)) = sampled else {
+            if self.view.is_some() {
+                *self = Self::default();
+            }
+            return;
+        };
+        let new_leg = self
+            .view
+            .is_none_or(|old| old.scheduled_departure() != view.scheduled_departure());
+        if new_leg {
+            self.trail.clear();
+        }
+        // Interpolate across exactly one tick; after a jump, start afresh.
+        self.previous = if single_step && !new_leg {
+            // Across the antimeridian, from the copy next to it.
+            self.current
+                .map(|previous| Pose {
+                    position: wrap_near(previous.position, pose.position),
+                    ..previous
+                })
+                .or(Some(pose))
+        } else {
+            Some(pose)
+        };
+        self.current = Some(pose);
+        if view.phase().is_airborne() {
+            self.trail.push(time, pose.position);
+        }
+        self.view = Some(view);
+    }
 }
 
 /// Every tail's flight as last sampled from the simulation.
@@ -145,55 +204,49 @@ impl TrafficView {
         self.ticks = Some(ticks);
         let airframes = simulation.airframe_count();
         self.slots.resize(airframes, Slot::default());
-        let mut seen = vec![false; airframes];
-        for view in simulation.flights() {
-            let index = view.airframe().as_usize();
-            let Some(slot) = self.slots.get_mut(index) else {
-                continue;
-            };
-            seen[index] = true;
-            let pose = Pose {
-                position: projection.project(view.position()),
-                // Courses are in [0, 360); f32 is ample for drawing.
-                #[allow(clippy::cast_possible_truncation)]
-                heading: view.heading().value() as f32,
-            };
-            let new_leg = slot
-                .view
-                .is_none_or(|old| old.scheduled_departure() != view.scheduled_departure());
-            if new_leg {
-                slot.trail.clear();
+        // Each airframe's slot depends on that airframe alone, so tasks
+        // update their own slots in place (plan M9 PR 2).
+        let time = simulation.time();
+        let pool = ComputeTaskPool::get_or_init(TaskPool::default);
+        pool.scope(|scope| {
+            for (part, slots) in self.slots.chunks_mut(SAMPLED_PER_TASK).enumerate() {
+                scope.spawn(async move {
+                    let start = part * SAMPLED_PER_TASK;
+                    for (offset, slot) in slots.iter_mut().enumerate() {
+                        let sampled = sample_flight(simulation, projection, start + offset);
+                        slot.update(sampled.as_ref(), single_step, time);
+                    }
+                });
             }
-            // Interpolate across exactly one tick; after a jump, start afresh.
-            slot.previous = if single_step && !new_leg {
-                // Across the antimeridian, from the copy next to it.
-                slot.current
-                    .map(|previous| Pose {
-                        position: wrap_near(previous.position, pose.position),
-                        ..previous
-                    })
-                    .or(Some(pose))
-            } else {
-                Some(pose)
-            };
-            slot.current = Some(pose);
-            if view.phase().is_airborne() {
-                slot.trail.push(simulation.time(), pose.position);
-            }
-            slot.view = Some(view);
-        }
-        for (slot, seen) in self.slots.iter_mut().zip(seen) {
-            if !seen && slot.view.is_some() {
-                *slot = Slot::default();
-            }
-        }
+        });
     }
 
     /// The pose of `tail` a fraction `t` of the way into the next tick.
+    #[cfg(test)]
     fn pose(&self, tail: Id<Airframe>, t: f32) -> Option<Pose> {
         let slot = self.slots.get(tail.as_usize())?;
         Some(blend(slot.previous?, slot.current?, t))
     }
+}
+
+/// Aircraft sampled per task: enough to outweigh starting a task.
+const SAMPLED_PER_TASK: usize = 2048;
+
+/// The flight of the aircraft at `index`, if boarding or moving, with its
+/// pose in `projection`.
+fn sample_flight(
+    simulation: &aerocosm_core::Simulation,
+    projection: &MapProjection,
+    index: usize,
+) -> Option<(FlightView, Pose)> {
+    let view = simulation.flight(Id::from_usize(index).ok()?)?;
+    let pose = Pose {
+        position: projection.project(view.position()),
+        // Courses are in [0, 360); f32 is ample for drawing.
+        #[allow(clippy::cast_possible_truncation)]
+        heading: view.heading().value() as f32,
+    };
+    Some((view, pose))
 }
 
 /// Systems that place the aircraft sprites; readers of their positions run
@@ -209,7 +262,7 @@ impl Plugin for AircraftPlugin {
         app.init_resource::<TrafficView>().add_systems(
             Update,
             (
-                spawn_aircraft.run_if(resource_added::<SimDriver>),
+                prepare_sprites.run_if(resource_added::<SimDriver>),
                 sample_traffic.after(SimSet).after(CameraSet),
                 draw_aircraft
                     .in_set(DrawSet)
@@ -223,7 +276,7 @@ impl Plugin for AircraftPlugin {
     }
 }
 
-fn spawn_aircraft(
+fn prepare_sprites(
     mut commands: Commands,
     driver: Res<SimDriver>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -259,51 +312,31 @@ fn spawn_aircraft(
     }
     let dark = materials.add(theme::AIRCRAFT_HALO);
     let bands = BandMaterials(PhaseBand::ALL.map(|band| materials.add(band.color())));
-    let layer = RenderLayers::layer(OVERLAY_LAYER);
     // Aircraft are numbered as the core numbers them: the schedule's tails,
     // then its spares (plan M8 D170). Each starts as the airframe of its
     // rotation's index, and swaps only within a pool of one type.
-    let airframes = schedule
+    let classes = schedule
         .tails()
         .map(|(_, info)| info)
-        .chain(schedule.spares());
-    for (airframe, info) in airframes.enumerate() {
-        let Ok(airframe) = Id::from_usize(airframe) else {
-            break;
-        };
-        let class = traffic
-            .aircraft()
-            .get(info.aircraft())
-            .map_or(SizeClass::NarrowBody, size_class);
-        commands
-            .spawn((
-                AircraftSprite::new(airframe, Vec2::ZERO),
-                SpriteLook {
-                    class,
-                    band: PhaseBand::Ground,
-                    small: true,
-                },
-                Mesh2d(shapes[class.index()].clone()),
-                MeshMaterial2d(bands.0[PhaseBand::Ground.index()].clone()),
-                Transform::from_xyz(0.0, 0.0, AIRCRAFT_Z),
-                Visibility::Hidden,
-                layer.clone(),
-            ))
-            .with_children(|sprite| {
-                sprite.spawn((
-                    Halo { wide: true },
-                    Mesh2d(halos.wide[class.index()].clone()),
-                    MeshMaterial2d(dark.clone()),
-                    Transform::from_xyz(0.0, 0.0, HALO_Z),
-                    layer.clone(),
-                ));
-            });
-    }
+        .chain(schedule.spares())
+        .map(|info| {
+            traffic
+                .aircraft()
+                .get(info.aircraft())
+                .map_or(SizeClass::NarrowBody, size_class)
+        })
+        .collect();
+    commands.insert_resource(SpriteParts {
+        classes,
+        shapes,
+        dark,
+    });
+    commands.init_resource::<SpritePool>();
     commands.insert_resource(bands);
     commands.insert_resource(halos);
 }
 
-/// Gives each halo the width for its aircraft's size on screen.
+/// Gives each halo the mesh for its aircraft's class and size on screen.
 fn size_halos(
     meshes: Option<Res<HaloMeshes>>,
     looks: Query<&SpriteLook>,
@@ -316,8 +349,12 @@ fn size_halos(
         let Ok(look) = looks.get(child_of.parent()) else {
             continue;
         };
-        if halo.wide != look.small {
-            halo.wide = look.small;
+        let wanted = Halo {
+            class: look.class,
+            wide: look.small,
+        };
+        if *halo != wanted {
+            *halo = wanted;
             let set = if look.small {
                 &meshes.wide
             } else {
@@ -343,58 +380,160 @@ fn tick_fraction(driver: &SimDriver) -> f32 {
     t.clamp(0.0, 1.0)
 }
 
+/// A new sprite of the pool, hidden until it is given an aircraft.
+fn spawn_sprite(
+    commands: &mut Commands,
+    parts: &SpriteParts,
+    halos: &HaloMeshes,
+    bands: &BandMaterials,
+) -> Entity {
+    let layer = RenderLayers::layer(OVERLAY_LAYER);
+    let class = SizeClass::NarrowBody;
+    commands
+        .spawn((
+            AircraftSprite::new(Id::new(0), Vec2::ZERO),
+            SpriteLook {
+                class,
+                band: PhaseBand::Ground,
+                small: true,
+            },
+            Mesh2d(parts.shapes[class.index()].clone()),
+            MeshMaterial2d(bands.0[PhaseBand::Ground.index()].clone()),
+            Transform::from_xyz(0.0, 0.0, AIRCRAFT_Z),
+            Visibility::Hidden,
+            layer.clone(),
+        ))
+        .with_children(|sprite| {
+            sprite.spawn((
+                Halo { class, wide: true },
+                Mesh2d(halos.wide[class.index()].clone()),
+                MeshMaterial2d(parts.dark.clone()),
+                Transform::from_xyz(0.0, 0.0, HALO_Z),
+                layer,
+            ));
+        })
+        .id()
+}
+
+/// What sprites are drawn with, once the simulation is ready.
+type SpriteAssets<'w> = (
+    Option<Res<'w, BandMaterials>>,
+    Option<Res<'w, SpriteParts>>,
+    Option<Res<'w, HaloMeshes>>,
+);
+
+/// The pool's sprites, as `draw_aircraft` changes them.
+type PooledSprites<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static mut AircraftSprite,
+        &'static mut SpriteLook,
+        &'static mut Mesh2d,
+        &'static mut Transform,
+        &'static mut Visibility,
+        &'static mut MeshMaterial2d<ColorMaterial>,
+    ),
+>;
+
+#[allow(clippy::too_many_arguments)]
 fn draw_aircraft(
+    mut commands: Commands,
     rig: Option<Res<CameraRig>>,
+    pointer: Res<PointerState>,
     driver: Res<SimDriver>,
     traffic: Res<TrafficView>,
     selection: Res<Selection>,
-    bands: Option<Res<BandMaterials>>,
-    mut sprites: Query<(
-        &mut AircraftSprite,
-        &mut SpriteLook,
-        &mut Transform,
-        &mut Visibility,
-        &mut MeshMaterial2d<ColorMaterial>,
-    )>,
+    assets: SpriteAssets,
+    pool: Option<ResMut<SpritePool>>,
+    mut sprites: PooledSprites,
 ) {
-    let (Some(rig), Some(bands)) = (rig, bands) else {
+    let (Some(rig), (Some(bands), Some(parts), Some(halos)), Some(mut pool)) = (rig, assets, pool)
+    else {
         return;
     };
     let scale = rig.state.scale();
     let centre = rig.state.center();
+    let screen = Rect::from_corners(
+        rig.state.screen_to_world(Vec2::ZERO, pointer.viewport),
+        rig.state
+            .screen_to_world(pointer.viewport, pointer.viewport),
+    );
     let symbol_factor = crate::lod::symbol_factor(scale);
     let t = tick_fraction(&driver);
-    for (mut sprite, mut look, mut transform, mut visibility, mut material) in &mut sprites {
-        let shown = traffic
-            .flight(sprite.airframe)
-            .filter(|view| flight_visible(view.phase(), scale))
-            .zip(traffic.pose(sprite.airframe, t));
-        let Some((view, pose)) = shown else {
+    // The aircraft shown this frame: visible at this zoom and on screen,
+    // drawn at the copy nearest the camera (plan M5 D131).
+    let shown: Vec<(usize, &FlightView, Pose)> = traffic
+        .slots
+        .iter()
+        .enumerate()
+        .filter_map(|(index, slot)| {
+            let view = slot.view.as_ref()?;
+            if !flight_visible(view.phase(), scale) {
+                return None;
+            }
+            let pose = blend(slot.previous?, slot.current?, t);
+            let position = wrap_near(pose.position, centre);
+            in_view(position, screen, scale).then_some((index, view, Pose { position, ..pose }))
+        })
+        .collect();
+    let size = pool
+        .assignment
+        .assign(shown.iter().map(|(index, _, _)| *index));
+    while pool.entities.len() < size {
+        let entity = spawn_sprite(&mut commands, &parts, &halos, &bands);
+        pool.entities.push(entity);
+    }
+    let mut by_slot: Vec<Option<(&FlightView, Pose)>> = vec![None; size];
+    for &(index, view, pose) in &shown {
+        if let Some(slot) = pool.assignment.slot_of(index) {
+            by_slot[slot] = Some((view, pose));
+        }
+    }
+    for (slot, &entity) in pool.entities.iter().enumerate() {
+        let Ok((mut sprite, mut look, mut mesh, mut transform, mut visibility, mut material)) =
+            sprites.get_mut(entity)
+        else {
+            // Spawned this frame: shown from the next.
+            continue;
+        };
+        let (Some((view, pose)), Some(airframe)) = (
+            by_slot.get(slot).copied().flatten(),
+            pool.assignment
+                .airframe_in(slot)
+                .and_then(|index| Id::<Airframe>::from_usize(index).ok()),
+        ) else {
             visibility.set_if_neq(Visibility::Hidden);
             continue;
         };
-        // Drawn at the copy nearest the camera (plan M5 D131).
-        let position = wrap_near(pose.position, centre);
-        sprite.position = position;
+        sprite.airframe = airframe;
+        sprite.position = pose.position;
+        let class = parts
+            .classes
+            .get(airframe.as_usize())
+            .copied()
+            .unwrap_or(SizeClass::NarrowBody);
+        if look.class != class {
+            look.class = class;
+            mesh.0 = parts.shapes[class.index()].clone();
+        }
         #[allow(clippy::cast_possible_truncation)]
         let units_per_meter = MapProjection::units_per_meter(view.position()) as f32;
-        let highlighted = selection.selected_flight() == Some(sprite.airframe)
-            || selection.hovered_flight() == Some(sprite.airframe);
+        let highlighted = selection.selected_flight() == Some(airframe)
+            || selection.hovered_flight() == Some(airframe);
         let z = if highlighted { HIGHLIGHT_Z } else { AIRCRAFT_Z };
-        *transform = Transform::from_translation(position.extend(z))
+        let length = display_length(
+            pixel_length(class) * symbol_factor,
+            real_length(class),
+            scale,
+            units_per_meter,
+        );
+        look.small = halo_width(length / scale.max(f32::EPSILON)) > HALO_WIDTH;
+        // z unscaled: the halo stays just behind at every zoom.
+        let placed = Transform::from_translation(pose.position.extend(z))
             .with_rotation(Quat::from_rotation_z(rotation(pose.heading)))
-            .with_scale({
-                let length = display_length(
-                    pixel_length(look.class) * symbol_factor,
-                    real_length(look.class),
-                    scale,
-                    units_per_meter,
-                );
-                let small = halo_width(length / scale.max(f32::EPSILON)) > HALO_WIDTH;
-                look.small = small;
-                // z unscaled: the halo stays just behind at every zoom.
-                Vec3::new(length, length, 1.0)
-            });
+            .with_scale(Vec3::new(length, length, 1.0));
+        transform.set_if_neq(placed);
         let band = PhaseBand::of(view.phase());
         if look.band != band {
             look.band = band;
@@ -504,6 +643,16 @@ mod tests {
             .filter(|slot| slot.view.is_some_and(|view| view.phase().is_airborne()))
             .count();
         assert_eq!(airborne, driver.simulation().airborne());
+        // Sampled in parallel, the views are the core's, by airframe.
+        let mut listed = 0;
+        for view in driver.simulation().flights() {
+            assert_eq!(traffic.flight(view.airframe()), Some(&view));
+            listed += 1;
+        }
+        assert_eq!(
+            traffic.slots.iter().filter(|s| s.view.is_some()).count(),
+            listed
+        );
         let (index, slot) = traffic
             .slots
             .iter()

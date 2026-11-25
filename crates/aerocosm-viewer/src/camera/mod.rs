@@ -66,6 +66,12 @@ impl CameraRig {
 
     /// A rig at `state`; the home view defaults to the whole of
     /// `limits.bounds`.
+    /// The whole world in a `viewport`-sized window, with a margin: the
+    /// view the viewer opens at.
+    pub(crate) fn home_view(&self, viewport: Vec2) -> CameraState {
+        CameraState::fit(self.home, viewport * 0.92, &self.limits)
+    }
+
     pub(crate) fn new(state: CameraState, limits: CameraLimits) -> Self {
         Self {
             state,
@@ -200,7 +206,7 @@ fn handle_input(
                 state.zoom_about(viewport / 2.0, 1.0, viewport, &rig.limits);
                 state
             }
-            None => CameraState::fit(rig.home, viewport * 0.92, &rig.limits),
+            None => rig.home_view(viewport),
         };
         rig.initialised = true;
     }

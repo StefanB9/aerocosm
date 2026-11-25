@@ -111,6 +111,13 @@ impl Simulation {
         self.operations.iter().flat_map(Operations::flights)
     }
 
+    /// The flight `airframe` is on, if it is boarding or moving: the view
+    /// [`Simulation::flights`] lists for it, one aircraft at a time, so that
+    /// callers can build views in parallel (plan M9 PR 2).
+    pub fn flight(&self, airframe: Id<Airframe>) -> Option<FlightView> {
+        self.operations.as_ref()?.flight_view(airframe.as_usize())
+    }
+
     /// The taxi route of `airframe` while it pushes back or taxies at a
     /// mapped airport (plan M4 D86).
     pub fn taxi_route(&self, airframe: Id<Airframe>) -> Option<TaxiRoute> {
@@ -430,6 +437,18 @@ mod tests {
         sim.run_ticks(600)?;
         let airborne = sim.flights().filter(|f| f.phase().is_airborne()).count();
         assert_eq!(airborne, sim.airborne());
+        // One flight at a time gives the same views (plan M9 PR 2).
+        let mut listed = vec![false; sim.airframe_count()];
+        for view in sim.flights() {
+            assert_eq!(sim.flight(view.airframe()), Some(view));
+            listed[view.airframe().as_usize()] = true;
+        }
+        let parked = listed
+            .iter()
+            .position(|listed| !listed)
+            .context("a parked one")?;
+        assert_eq!(sim.flight(Id::from_usize(parked)?), None);
+        assert_eq!(sim.flight(Id::from_usize(sim.airframe_count())?), None);
         assert!(sim.flights_flown() > 0);
         let frankfurt = sim
             .world()
