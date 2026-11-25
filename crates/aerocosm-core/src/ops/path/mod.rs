@@ -215,11 +215,11 @@ impl Path {
 }
 
 fn at(segment: &Segment, along: Meters) -> (LatLon, Degrees) {
-    (segment.point_at(along), segment.bearing_at(along))
+    segment.pose_at(along)
 }
 
 fn on(line: &Polyline, along: Meters) -> (LatLon, Degrees) {
-    (line.point_at(along), line.bearing_at(along))
+    line.pose_at(along)
 }
 
 #[cfg(test)]
