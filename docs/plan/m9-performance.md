@@ -106,6 +106,42 @@ held by something the headless benchmark does not measure, the render thread's w
   shows the latest finished tick.
 - Measured: the headless frames benchmark and F3 (vsync off) at the world view and Frankfurt.
 
+*As built:* a profile of the viewer on PR 1's build showed the main and render threads mostly
+waiting on Bevy's task pool, where the systems run: per frame, rebuilding the traffic view
+after a tick took about 10.6 ms on one thread, and Bevy's batching, transforms and visibility
+for 262,000 entities most of the rest.
+
+- **Sprite pool:** `pool::Assignment` gives the aircraft shown (visible at the zoom, and on
+  screen with a 128-pixel margin, `flights::in_view`) a slot each; an aircraft keeps its slot
+  while shown, freed slots are reused before the pool grows. Sprites are spawned as the pool
+  grows, never per airframe; trails, halos, picking and the callsign label follow the pool.
+  Entities fell from about 262,000 to 99,000 at the world view and 73,000 at Frankfurt.
+- **Sampling:** the core gives one aircraft's view at a time (`Simulation::flight`, built by
+  the same function as `flights()`); each compute-pool task samples its own 2,048 airframes and
+  updates their slots in place. A first version built the views in parallel and then copied
+  them into the slots on one thread, which still cost 8–9 ms per tick.
+- **Not built:** ticking on a background task. With the sampling in place, a frame with a
+  tick costs about the tick itself more than a paused one; PR 3 and PR 5 shrink the tick, and
+  background ticking is reconsidered at acceptance if world view at 60× still misses the
+  target (decided with the user, 2026-11-24). Trails needed nothing beyond the pool.
+- **Window measurement (D182)** was added here, on the user's request.
+
+The reference machine's records: one taken while the machine was in use (browser, video) ran
+untouched code about twice as slow and was dropped; `db421af` measured the pool, `6a12777` the
+in-place sampling. Fingerprints are equal to the baseline's throughout.
+
+| Real window, vsync off (median / p95) | PR 1, F3 average | Pool (`db421af`) | PR 2 (`6a12777`) | D176 target p95 |
+|---|---|---|---|---|
+| World, 60× | 21 ms | 16.0 / 18.2 ms | 7.3 / 9.0 ms | < 8.3 ms |
+| World, paused | 16 ms | 5.6 / 5.8 ms | 5.5 / 5.7 ms | < 8.3 ms |
+| World, as fast as possible | 43 ms | 40.4 / 46.0 ms (14 ticks) | 33.5 / 38.1 ms (14 ticks) | — |
+| Frankfurt's stands, 60× | 29 ms | 13.3 / 14.6 ms | 3.1 / 6.8 ms | < 8.3 ms |
+| Frankfurt's stands, paused | 16.7 ms | 3.0 / 3.3 ms | 2.9 / 3.3 ms | < 8.3 ms |
+| Headless CPU, world / Frankfurt p95 | 8.3 / 10.0 ms (PR 1) | 3.8 / 2.3 ms | 4.1 / 2.1 ms | < 8.3 ms |
+
+Every scene but the world view at 60× meets the target; there, the ~2.5 ms tick inside the
+frame leaves p95 at 9.0 ms, and the slow ticks (worst 15 ms at midday) the 20 ms worst frames.
+
 ## PR 3 — Tick hotspots
 
 - The ground survey empties only the lists it wrote to.
