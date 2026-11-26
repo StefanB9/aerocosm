@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 
 use super::{
     AirportGroundDefinition,
+    cache::RouteCache,
     definition::{EdgeDefinition, Point, StandDefinition},
     elements::{Edge, Exit, HoldingPosition, Node, Stand, stand_base},
     footprint::{CODES, Parked},
@@ -53,6 +54,8 @@ pub struct AirportGround {
     pub(super) intermediate_holds: Vec<Id<Node>>,
     pub(super) exits: Vec<Exit>,
     pub(super) aprons: Vec<Vec<LatLon>>,
+    /// Routes found so far (plan M9 PR 4).
+    pub(super) routes: RouteCache,
 }
 
 /// Checks a definition's numbers against the airport, for error messages.
@@ -180,6 +183,7 @@ impl AirportGround {
             origin,
             east,
             nodes,
+            routes: RouteCache::new(edges.iter().filter_map(Edge::max_wingspan)),
             edges,
             link_starts,
             links,

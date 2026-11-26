@@ -9,6 +9,7 @@ use crate::{
 };
 
 mod airport;
+mod cache;
 mod choice;
 mod definition;
 mod elements;

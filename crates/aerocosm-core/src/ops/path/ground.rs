@@ -76,7 +76,7 @@ pub(crate) fn departure(
         Origin::Node(node) => (node, None),
     };
     let entry = ground.departure_entry(runway, threshold)?;
-    let route = ground.route(from, entry.node(), wingspan)?;
+    let route = ground.route_cached(from, entry.node(), wingspan)?;
     let whole = Polyline::new(route.points()).ok()?;
     let pushback = parked.map_or(0.0, |heading| {
         pushback_length(ground, &route, &whole, heading)
@@ -263,7 +263,7 @@ pub(crate) fn arrival(
     wingspan: Meters,
 ) -> Option<(Polyline, Degrees)> {
     let stand = ground.stands().get(stand.as_usize())?;
-    let route = ground.route(from, stand.node(), wingspan)?;
+    let route = ground.route_cached(from, stand.node(), wingspan)?;
     Some((Polyline::new(route.points()).ok()?, stand.heading()))
 }
 

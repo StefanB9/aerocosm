@@ -113,6 +113,27 @@ impl AirportGround {
         self.route_with(from, to, wingspan, |_, _| 0.0)
     }
 
+    /// [`Self::route`], kept once found (plan M9 PR 4): the same route,
+    /// searched only the first time. For the simulation, whose layouts never
+    /// change.
+    pub(crate) fn route_cached(
+        &self,
+        from: Id<Node>,
+        to: Id<Node>,
+        wingspan: Meters,
+    ) -> Option<GroundRoute> {
+        self.routes
+            .get_or_search((from.index(), to.index()), wingspan, || {
+                self.route(from, to, wingspan)
+            })
+    }
+
+    /// How many routes are kept.
+    #[cfg(test)]
+    pub(crate) fn cached_routes(&self) -> usize {
+        self.routes.len()
+    }
+
     /// Like [`Self::route`], with each edge costing `extra(edge, forward)`
     /// times its length more, e.g. against the traffic on it.
     pub(crate) fn route_with(
@@ -382,6 +403,59 @@ mod tests {
     }
 
     #[test]
+    fn test_cached_routes_are_the_searched_ones_by_wingspan_class() -> Result<()> {
+        // The long way round 0-4-5-2 admits 52 m; built in, so the cache
+        // knows the limit.
+        let mut edges = vec![
+            edge(0, 1, EdgeKind::Taxiway),
+            edge(1, 2, EdgeKind::Taxiway),
+            edge(0, 4, EdgeKind::Taxiway),
+            edge(4, 5, EdgeKind::Taxiway),
+            edge(5, 2, EdgeKind::Taxiway),
+        ];
+        edges[1].max_wingspan = Some(span(52.0)?);
+        let (_, ground) = layout(
+            vec![
+                at(0.0, 0.0),
+                at(1.0, 0.0),
+                at(1.0, 1.0),
+                at(0.0, 1.0),
+                at(-1.0, 0.0),
+                at(-1.0, 2.0),
+            ],
+            edges,
+        )?;
+        let (from, to) = (Id::new(0), Id::new(2));
+        for metres in [36.0, 40.0, 65.0, 36.0, 65.0, 80.0] {
+            let wingspan = span(metres)?;
+            assert_eq!(
+                ground.route_cached(from, to, wingspan),
+                ground.route(from, to, wingspan),
+                "{metres} m"
+            );
+        }
+        assert_eq!(
+            ground.cached_routes(),
+            2,
+            "one per class: up to 52 m and wider"
+        );
+        let narrow = ground
+            .route_cached(from, to, span(36.0)?)
+            .context("short way")?;
+        assert_eq!(nodes_of(&ground, &narrow), vec![0, 1, 2]);
+        let wide = ground
+            .route_cached(from, to, span(65.0)?)
+            .context("long way")?;
+        assert_eq!(nodes_of(&ground, &wide), vec![0, 4, 5, 2]);
+        // A copy of the layout starts without the routes; equality ignores
+        // them.
+        let copy = ground.clone();
+        assert_eq!(copy.cached_routes(), 0);
+        assert_eq!(copy, ground);
+        Ok(())
+    }
+
+    #[test]
     fn test_reachable_from_follows_one_way_edges() -> Result<()> {
         let (_, mut ground) = square()?;
         assert!(
@@ -526,6 +600,21 @@ mod tests {
                 let edge = ground.edge(edge).ok_or_else(|| TestCaseError::fail("edge"))?;
                 prop_assert!(forward || !edge.oneway());
             }
+        }
+
+        #[test]
+        fn test_cached_routes_on_shipped_layouts_equal_searched_ones(
+            airport in 0_usize..22, stand in 0_usize..400, hold in 0_usize..400,
+            metres in 20.0_f64..85.0,
+        ) {
+            let (_, network) = SHIPPED.as_ref().map_err(|e| TestCaseError::fail(e.clone()))?;
+            let ground = &network.airports()[airport % network.airports().len()];
+            let from = ground.stands()[stand % ground.stands().len()].node();
+            let to = ground.holding_positions()[hold % ground.holding_positions().len()].node();
+            let wingspan = Meters::from_raw(metres);
+            let searched = ground.route(from, to, wingspan);
+            prop_assert_eq!(ground.route_cached(from, to, wingspan), searched.clone());
+            prop_assert_eq!(ground.route_cached(from, to, wingspan), searched);
         }
     }
 
