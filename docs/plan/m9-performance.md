@@ -177,11 +177,21 @@ Not built, as nothing measured supported them: a queue for parked aircraft (the 
 skips them; their part is aircraft that start boarding and plan) and a segment cursor for
 flying (flying does no geometry per tick).
 
-## PR 4 — Departure runway choice
+## PR 4 — Planning (widened 2026-11-26)
 
-- The runway end a departure takes no longer needs an A* taxi route to every candidate end:
-  routes are reused where the ground's state allows, with results unchanged. If unchanged
-  results prove impossible, a cheaper score is proposed under D177.
+Widened with the user's agreement after PR 3's diagnosis: the slowest ticks are planning bursts
+on whole minutes, not only the departure runway choice.
+
+- **Taxi routes reused:** a taxi route depends only on the airport's static layout, its two
+  ends and which taxiways the aircraft's wingspan may use; routes found are kept per airport
+  and reused, with results unchanged. This serves the runway choice (an A* route to every
+  candidate end, at leg planning and again at pushback), arrival planning at landing, and the
+  warm start.
+- **Landings:** choosing the exit, stand and taxi-in, measured and made cheaper where results
+  can stay unchanged.
+- **Landing-slot booking** and **the ground controller's own work** (over 1.5 ms on about half
+  the ticks): measured, and made cheaper where results can stay unchanged.
+- Anything that would change results is proposed under D177.
 
 ## PR 5 — Parallel ticks (D178)
 
