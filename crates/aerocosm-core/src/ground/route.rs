@@ -39,6 +39,52 @@ impl GroundRoute {
     }
 }
 
+/// What a search works in (plan M9 PR 4): per node the cheapest cost found
+/// and the way in, kept between searches and reset only where a search
+/// wrote, instead of filled anew for every node of the airport each time.
+#[derive(Debug, Default)]
+struct Scratch {
+    cost: Vec<f64>,
+    came: Vec<Option<(Id<Edge>, bool)>>,
+    /// The nodes this search reached.
+    touched: Vec<usize>,
+    heap: BinaryHeap<Entry>,
+}
+
+impl Scratch {
+    /// Room for `count` nodes, none reached.
+    fn prepare(&mut self, count: usize) {
+        if self.cost.len() < count {
+            self.cost.resize(count, f64::INFINITY);
+            self.came.resize(count, None);
+        }
+        self.heap.clear();
+    }
+
+    /// Node `node` reached at `cost` through `came`.
+    fn reach(&mut self, node: usize, cost: f64, came: Option<(Id<Edge>, bool)>) {
+        if self.cost[node].is_infinite() {
+            self.touched.push(node);
+        }
+        self.cost[node] = cost;
+        self.came[node] = came;
+    }
+
+    /// Every node unreached again.
+    fn reset(&mut self) {
+        for node in self.touched.drain(..) {
+            self.cost[node] = f64::INFINITY;
+            self.came[node] = None;
+        }
+        self.heap.clear();
+    }
+}
+
+thread_local! {
+    /// Each thread's search scratch.
+    static SCRATCH: std::cell::RefCell<Scratch> = std::cell::RefCell::new(Scratch::default());
+}
+
 /// A queue entry: estimated total cost, then node index for determinism.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Entry {
@@ -143,25 +189,55 @@ impl AirportGround {
         wingspan: Meters,
         extra: impl Fn(Id<Edge>, bool) -> f64,
     ) -> Option<GroundRoute> {
+        SCRATCH.with(|scratch| {
+            // A search inside a search's costs would find the scratch in
+            // use: it gets its own.
+            match scratch.try_borrow_mut() {
+                Ok(mut scratch) => self.search(from, to, wingspan, &extra, &mut scratch),
+                Err(_) => self.search(from, to, wingspan, &extra, &mut Scratch::default()),
+            }
+        })
+    }
+
+    /// A* from `from` to `to` in `scratch`, which it leaves as it found it.
+    fn search(
+        &self,
+        from: Id<Node>,
+        to: Id<Node>,
+        wingspan: Meters,
+        extra: &impl Fn(Id<Edge>, bool) -> f64,
+        scratch: &mut Scratch,
+    ) -> Option<GroundRoute> {
         let count = self.nodes().len();
         let (start, goal) = (from.as_usize(), to.as_usize());
         if start >= count || goal >= count {
             return None;
         }
-        let mut cost = vec![f64::INFINITY; count];
-        let mut came: Vec<Option<(Id<Edge>, bool)>> = vec![None; count];
-        let mut heap = BinaryHeap::with_capacity(64);
-        cost[start] = 0.0;
-        heap.push(Entry {
+        scratch.prepare(count);
+        let route = self.explore((start, goal), from, wingspan, extra, scratch);
+        scratch.reset();
+        route
+    }
+
+    fn explore(
+        &self,
+        (start, goal): (usize, usize),
+        from: Id<Node>,
+        wingspan: Meters,
+        extra: &impl Fn(Id<Edge>, bool) -> f64,
+        scratch: &mut Scratch,
+    ) -> Option<GroundRoute> {
+        scratch.reach(start, 0.0, None);
+        scratch.heap.push(Entry {
             estimate: self.remaining(start, goal),
             node: from.index(),
         });
-        while let Some(Entry { estimate, node }) = heap.pop() {
+        while let Some(Entry { estimate, node }) = scratch.heap.pop() {
             let here = node as usize;
             if here == goal {
                 break;
             }
-            if estimate - self.remaining(here, goal) > cost[here] + 1e-9 {
+            if estimate - self.remaining(here, goal) > scratch.cost[here] + 1e-9 {
                 // A stale entry: the node was reached more cheaply since.
                 continue;
             }
@@ -179,21 +255,20 @@ impl AirportGround {
                 let next = if forward { edge.to() } else { edge.from() }.as_usize();
                 let step = edge.length().value()
                     * (Self::penalty(edge, start, goal) + extra(edge_id, forward));
-                let reached = cost[here] + step;
-                if reached < cost[next] {
-                    cost[next] = reached;
-                    came[next] = Some((edge_id, forward));
-                    heap.push(Entry {
+                let reached = scratch.cost[here] + step;
+                if reached < scratch.cost[next] {
+                    scratch.reach(next, reached, Some((edge_id, forward)));
+                    scratch.heap.push(Entry {
                         estimate: reached + self.remaining(next, goal),
                         node: u32::try_from(next).ok()?,
                     });
                 }
             }
         }
-        if cost[goal].is_infinite() {
+        if scratch.cost[goal].is_infinite() {
             return None;
         }
-        self.trace(start, goal, &came)
+        self.trace(start, goal, &scratch.came)
     }
 
     /// How much more an edge costs than its length.
@@ -600,6 +675,30 @@ mod tests {
                 let edge = ground.edge(edge).ok_or_else(|| TestCaseError::fail("edge"))?;
                 prop_assert!(forward || !edge.oneway());
             }
+        }
+
+        #[test]
+        fn test_searches_leave_nothing_behind_for_the_next(
+            first in 0_usize..22, second in 0_usize..22,
+            stand in 0_usize..400, hold in 0_usize..400,
+        ) {
+            let (_, network) = SHIPPED.as_ref().map_err(|e| TestCaseError::fail(e.clone()))?;
+            let airports = network.airports();
+            let ends = |ground: &AirportGround| {
+                (
+                    ground.stands()[stand % ground.stands().len()].node(),
+                    ground.holding_positions()[hold % ground.holding_positions().len()].node(),
+                )
+            };
+            let a = &airports[first % airports.len()];
+            let b = &airports[second % airports.len()];
+            let wingspan = Meters::from_raw(36.0);
+            let (from, to) = ends(a);
+            let before = a.route(from, to, wingspan);
+            let (other_from, other_to) = ends(b);
+            let _ = b.route(other_from, other_to, wingspan);
+            let _ = b.route_with(other_to, other_from, wingspan, |_, forward| f64::from(u8::from(forward)));
+            prop_assert_eq!(a.route(from, to, wingspan), before);
         }
 
         #[test]
