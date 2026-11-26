@@ -151,6 +151,32 @@ frame leaves p95 at 9.0 ms, and the slow ticks (worst 15 ms at midday) the 20 ms
 - The benchmark reports the slowest ticks split by part; the cause of the 40 ms ticks is found
   and removed.
 
+*As built:* two changes, results unchanged (fingerprints equal; tests require bit-equal
+results where the arithmetic was regrouped).
+
+- **The survey empties only what it wrote:** `ground::lists::TickLists` remembers which
+  junction and chain lists a tick wrote to and clears only those.
+- **Position and course together:** `Segment::pose_at` and `Polyline::pose_at` give a taxiing
+  aircraft's point and course in one pass with the same formulas as `point_at` and
+  `bearing_at`, which repeated each other's trigonometry.
+
+The reference machine's record (`525eb3b`) against PR 2's (`6a12777`): ground control's part
+of a midday tick 0.517 → 0.439 ms (−15 %), the tick's median 1.33 → 1.25 ms (−6 %), a simulated
+day 128.7 → 121.7 s (−5.5 %); p95 and worst ticks unchanged (1.98 and 15.6 ms), the window's
+world view at 60× 8.7 ms at p95. The survey's 22 % of the tick was measured on the build
+before PR 1's flags, which had already made clearing cheap.
+
+**Slow ticks (diagnosed with temporary timing per aircraft, reverted):** the slowest ticks
+fall on whole minutes, when the schedule's times put many aircraft into boarding, pushback and
+leg planning at once. Steps over 1 ms in a midday half hour were planning, not movement:
+landings choosing exit, stand and taxi-in (120, up to 4.9 ms), boarding aircraft choosing the
+departure runway again at pushback (82, up to 4.3 ms) and pushing back (76), parked aircraft
+planning the leg with an A* route to every candidate runway end (46), cruise booking a landing
+slot (20, up to 7.9 ms); ground control itself exceeded 1.5 ms on about half the ticks.
+Not built, as nothing measured supported them: a queue for parked aircraft (the loop already
+skips them; their part is aircraft that start boarding and plan) and a segment cursor for
+flying (flying does no geometry per tick).
+
 ## PR 4 — Departure runway choice
 
 - The runway end a departure takes no longer needs an A* taxi route to every candidate end:
