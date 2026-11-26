@@ -85,19 +85,28 @@ impl Segment {
 
     /// True course at `distance` along the segment, `[0, 360)`.
     pub(crate) fn bearing_at(&self, distance: Meters) -> Degrees {
+        self.pose_at(distance).1
+    }
+
+    /// The point and true course at `distance` along the segment, computed
+    /// together: exactly [`Segment::point_at`] and [`Segment::bearing_at`]
+    /// for the price of one (plan M9 PR 3).
+    pub(crate) fn pose_at(&self, distance: Meters) -> (LatLon, Degrees) {
         let theta = self.theta(distance);
-        let p = combine(self.start, theta.cos(), self.tangent, theta.sin());
-        let direction = combine(self.start, -theta.sin(), self.tangent, theta.cos());
+        let (cos, sin) = (theta.cos(), theta.sin());
+        let p = combine(self.start, cos, self.tangent, sin);
+        let direction = combine(self.start, -sin, self.tangent, cos);
         let lon = p[1].atan2(p[0]);
         let lat = p[2].clamp(-1.0, 1.0).asin();
         let east = [-lon.sin(), lon.cos(), 0.0];
         let north = [-lat.sin() * lon.cos(), -lat.sin() * lon.sin(), lat.cos()];
-        Degrees::from_raw(
+        let course = Degrees::from_raw(
             dot(direction, east)
                 .atan2(dot(direction, north))
                 .to_degrees(),
         )
-        .normalized()
+        .normalized();
+        (LatLon::from_radians_unchecked(lat, lon), course)
     }
 }
 
@@ -171,6 +180,24 @@ mod tests {
             let towards = point.initial_bearing_to(b).value();
             let difference = Degrees::new(course - towards + 180.0).map_err(fail)?.normalized();
             prop_assert!((difference.value() - 180.0).abs() < 1e-3);
+        }
+
+        #[test]
+        fn test_segment_pose_is_point_and_bearing_exactly(
+            lat1 in -80.0_f64..80.0, lon1 in -180.0_f64..180.0,
+            lat2 in -80.0_f64..80.0, lon2 in -180.0_f64..180.0,
+            fraction in -0.1_f64..1.1,
+        ) {
+            let fail = |e: anyhow::Error| TestCaseError::fail(format!("{e:#}"));
+            let a = LatLon::new(lat1, lon1).map_err(fail)?;
+            let b = LatLon::new(lat2, lon2).map_err(fail)?;
+            prop_assume!(a.distance_to(b).value() < 19_000_000.0);
+            let segment = Segment::new(a, b).map_err(fail)?;
+            let along = Meters::from_raw(segment.length().value() * fraction);
+            prop_assert_eq!(
+                segment.pose_at(along),
+                (segment.point_at(along), segment.bearing_at(along))
+            );
         }
     }
 }

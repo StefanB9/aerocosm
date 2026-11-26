@@ -185,14 +185,14 @@ impl Operations {
             let last = taxi.runs.len().saturating_sub(1);
             for (k, run) in taxi.runs.iter().enumerate() {
                 let at = if k == last { along.min(run.to) } else { along };
-                if run.from <= at
-                    && at <= run.to
-                    && let Some(list) = airside.on_chain.get_mut(run.chain as usize)
-                {
-                    list.push(Occupant {
-                        tail: owner,
-                        position: run.position(at),
-                    });
+                if run.from <= at && at <= run.to {
+                    airside.on_chain.push(
+                        run.chain as usize,
+                        Occupant {
+                            tail: owner,
+                            position: run.position(at),
+                        },
+                    );
                 }
             }
             for (i, passage) in taxi.passages.iter().enumerate() {
@@ -201,9 +201,7 @@ impl Operations {
                 // the line is drawn.
                 let holding = i >= taxi.next && passage.hold.is_some_and(|h| along <= h + EDGE);
                 if !holding && along > passage.entry - ZONE + EDGE && tail <= passage.exit + ZONE {
-                    if let Some(list) = airside.occupied.get_mut(j) {
-                        list.push(owner);
-                    }
+                    airside.occupied.push(j, owner);
                 } else if tail > passage.exit + ZONE
                     && airside.claims.get(j).copied().flatten() == Some(owner)
                 {
@@ -672,19 +670,18 @@ impl Operations {
                 .runs
                 .iter()
                 .find(|run| run.from <= from + 1e-6 && from <= run.to)
-                && let Some(list) = airside.on_chain.get_mut(run.chain as usize)
             {
-                list.push(Occupant {
-                    tail: owner,
-                    position: run.position(from),
-                });
+                airside.on_chain.push(
+                    run.chain as usize,
+                    Occupant {
+                        tail: owner,
+                        position: run.position(from),
+                    },
+                );
             }
             for passage in &taxi.passages {
-                if from >= passage.entry - ZONE
-                    && from - AIRCRAFT_LENGTH <= passage.exit + ZONE
-                    && let Some(list) = airside.occupied.get_mut(passage.junction as usize)
-                {
-                    list.push(owner);
+                if from >= passage.entry - ZONE && from - AIRCRAFT_LENGTH <= passage.exit + ZONE {
+                    airside.occupied.push(passage.junction as usize, owner);
                 }
             }
         }

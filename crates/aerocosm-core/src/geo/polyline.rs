@@ -81,6 +81,13 @@ impl Polyline {
         let (piece, along) = self.locate(distance);
         piece.bearing_at(Meters::from_raw(along))
     }
+
+    /// The point and true course `distance` along, found together (plan M9
+    /// PR 3): exactly [`Polyline::point_at`] and [`Polyline::bearing_at`].
+    pub(crate) fn pose_at(&self, distance: Meters) -> (LatLon, Degrees) {
+        let (piece, along) = self.locate(distance);
+        piece.pose_at(Meters::from_raw(along))
+    }
 }
 
 #[cfg(test)]
@@ -115,6 +122,25 @@ mod tests {
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(1000))]
+
+        #[test]
+        fn test_polyline_pose_is_point_and_bearing_exactly(
+            steps in prop::collection::vec((-0.01_f64..0.01, -0.01_f64..0.01), 1..8),
+            fraction in -0.1_f64..1.1,
+        ) {
+            let fail = |e: anyhow::Error| TestCaseError::fail(format!("{e:#}"));
+            let mut points = vec![LatLon::new(50.0, 8.0).map_err(fail)?];
+            for (dlat, dlon) in steps {
+                let last = points[points.len() - 1];
+                points.push(
+                    LatLon::new(last.latitude().value() + dlat, last.longitude().value() + dlon)
+                        .map_err(fail)?,
+                );
+            }
+            let line = Polyline::new(&points).map_err(fail)?;
+            let along = Meters::from_raw(line.length().value() * fraction);
+            prop_assert_eq!(line.pose_at(along), (line.point_at(along), line.bearing_at(along)));
+        }
 
         #[test]
         fn test_polyline_is_continuous(

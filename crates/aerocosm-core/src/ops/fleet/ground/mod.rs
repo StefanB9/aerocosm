@@ -11,6 +11,7 @@ mod arrival;
 mod control;
 mod departure;
 mod drive;
+mod lists;
 mod reroute;
 mod state;
 mod table;
@@ -150,8 +151,8 @@ pub(super) struct Airside {
     taxiing: Vec<u32>,
     /// Where each of them is, as pilots see it.
     seen: Vec<drive::Seen>,
-    occupied: Vec<Vec<u32>>,
-    on_chain: Vec<Vec<Occupant>>,
+    occupied: lists::TickLists<u32>,
+    on_chain: lists::TickLists<Occupant>,
     spots: Vec<Id<Node>>,
     /// The tail waiting at each spot.
     spot_owner: Vec<Option<u32>>,
@@ -276,10 +277,10 @@ impl GroundControl {
                     exits: vec![None; junctions.junctions().len()],
                     taxiing: Vec::new(),
                     seen: Vec::new(),
-                    occupied: vec![Vec::new(); junctions.junctions().len()],
+                    occupied: lists::TickLists::new(junctions.junctions().len()),
                     locks: vec![Vec::new(); junctions.chains().len()],
                     flow: vec![0.0; junctions.chains().len()],
-                    on_chain: vec![Vec::new(); junctions.chains().len()],
+                    on_chain: lists::TickLists::new(junctions.chains().len()),
                     junctions,
                     runway_of,
                     spot_owner: vec![None; spots.len()],
@@ -362,12 +363,8 @@ impl GroundControl {
             };
             airside.taxiing.clear();
             airside.seen.clear();
-            for list in &mut airside.occupied {
-                list.clear();
-            }
-            for list in &mut airside.on_chain {
-                list.clear();
-            }
+            airside.occupied.clear();
+            airside.on_chain.clear();
             for count in airside.departing.values_mut() {
                 *count = 0;
             }
