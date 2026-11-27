@@ -177,11 +177,55 @@ Not built, as nothing measured supported them: a queue for parked aircraft (the 
 skips them; their part is aircraft that start boarding and plan) and a segment cursor for
 flying (flying does no geometry per tick).
 
-## PR 4 — Departure runway choice
+## PR 4 — Planning (widened 2026-11-26)
 
-- The runway end a departure takes no longer needs an A* taxi route to every candidate end:
-  routes are reused where the ground's state allows, with results unchanged. If unchanged
-  results prove impossible, a cheaper score is proposed under D177.
+Widened with the user's agreement after PR 3's diagnosis: the slowest ticks are planning bursts
+on whole minutes, not only the departure runway choice.
+
+- **Taxi routes reused:** a taxi route depends only on the airport's static layout, its two
+  ends and which taxiways the aircraft's wingspan may use; routes found are kept per airport
+  and reused, with results unchanged. This serves the runway choice (an A* route to every
+  candidate end, at leg planning and again at pushback), arrival planning at landing, and the
+  warm start.
+- **Landings:** choosing the exit, stand and taxi-in, measured and made cheaper where results
+  can stay unchanged.
+- **Landing-slot booking** and **the ground controller's own work** (over 1.5 ms on about half
+  the ticks): measured, and made cheaper where results can stay unchanged.
+- Anything that would change results is proposed under D177.
+
+*As built:* two changes, results unchanged (fingerprints equal; tests require cached routes to
+equal searched ones, on the shipped layouts too, and searches in turn to leave nothing for the
+next).
+
+- **Routes kept** (`ground::cache::RouteCache`): in a midday hour of the cloud run, 110,000
+  route searches had 13,158 distinct ends and wingspan classes (88 % repeats). Each airport
+  keeps its routes by ends and wingspan class (how many of its taxiway limits the wingspan
+  exceeds), at most 8,192 before starting again; `AirportGround::route_cached` serves departure
+  and arrival planning, `route` still searches (tests change layouts). The store sits behind a
+  mutex, invisible to equality and cloning.
+- **Search arrays kept:** each thread keeps A*'s per-node cost and way in, reset only where a
+  search reached, instead of filling arrays the size of the airport for every search; this
+  serves the traffic-weighted searches of landings and reroutes, which cannot be kept.
+
+Measured and left alone, the rest of the widened scope: landing-slot booking (no booking over
+0.3 ms; slow cruise steps were the cloud machine pausing the process) and the ground
+controller (1–2 µs per taxiing aircraft, evenly spread over the survey's parts, 0.43 ms of a
+midday tick on the reference machine: for PR 5). After the two changes, slow steps in the
+cloud's midday half hour fell from 372 to 121, mostly landings (the way off the runway and
+the stand choice, about a third); stand choice is left for acceptance if the worst tick still
+misses D176 after PR 5.
+
+The reference machine's record (`69f3dfe`) against PR 3's (`525eb3b`):
+
+| Measure | PR 3 | PR 4 | D176 target |
+|---|---|---|---|
+| Start-up | 8.85 s | 6.83 s | < 3 s |
+| Midday tick p95 / median / worst | 1.98 / 1.25 / 15.6 ms | 1.77 / 1.22 / 11.4 ms | p95 < 3, worst < 10 ms |
+| Worst tick at 06:00 / 16:00 | 12.1 / 10.7 ms | 9.8 / 8.1 ms | |
+| Simulated day | 121.7 s | 112.6 s | < 120 s |
+| Window, world at 60×: p95 / worst | 8.7 / 20.7 ms | 8.7 / 16.8 ms | p95 < 8.3 ms |
+
+Memory peaks unchanged (523 MB).
 
 ## PR 5 — Parallel ticks (D178)
 

@@ -39,6 +39,52 @@ impl GroundRoute {
     }
 }
 
+/// What a search works in (plan M9 PR 4): per node the cheapest cost found
+/// and the way in, kept between searches and reset only where a search
+/// wrote, instead of filled anew for every node of the airport each time.
+#[derive(Debug, Default)]
+struct Scratch {
+    cost: Vec<f64>,
+    came: Vec<Option<(Id<Edge>, bool)>>,
+    /// The nodes this search reached.
+    touched: Vec<usize>,
+    heap: BinaryHeap<Entry>,
+}
+
+impl Scratch {
+    /// Room for `count` nodes, none reached.
+    fn prepare(&mut self, count: usize) {
+        if self.cost.len() < count {
+            self.cost.resize(count, f64::INFINITY);
+            self.came.resize(count, None);
+        }
+        self.heap.clear();
+    }
+
+    /// Node `node` reached at `cost` through `came`.
+    fn reach(&mut self, node: usize, cost: f64, came: Option<(Id<Edge>, bool)>) {
+        if self.cost[node].is_infinite() {
+            self.touched.push(node);
+        }
+        self.cost[node] = cost;
+        self.came[node] = came;
+    }
+
+    /// Every node unreached again.
+    fn reset(&mut self) {
+        for node in self.touched.drain(..) {
+            self.cost[node] = f64::INFINITY;
+            self.came[node] = None;
+        }
+        self.heap.clear();
+    }
+}
+
+thread_local! {
+    /// Each thread's search scratch.
+    static SCRATCH: std::cell::RefCell<Scratch> = std::cell::RefCell::new(Scratch::default());
+}
+
 /// A queue entry: estimated total cost, then node index for determinism.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Entry {
@@ -113,6 +159,27 @@ impl AirportGround {
         self.route_with(from, to, wingspan, |_, _| 0.0)
     }
 
+    /// [`Self::route`], kept once found (plan M9 PR 4): the same route,
+    /// searched only the first time. For the simulation, whose layouts never
+    /// change.
+    pub(crate) fn route_cached(
+        &self,
+        from: Id<Node>,
+        to: Id<Node>,
+        wingspan: Meters,
+    ) -> Option<GroundRoute> {
+        self.routes
+            .get_or_search((from.index(), to.index()), wingspan, || {
+                self.route(from, to, wingspan)
+            })
+    }
+
+    /// How many routes are kept.
+    #[cfg(test)]
+    pub(crate) fn cached_routes(&self) -> usize {
+        self.routes.len()
+    }
+
     /// Like [`Self::route`], with each edge costing `extra(edge, forward)`
     /// times its length more, e.g. against the traffic on it.
     pub(crate) fn route_with(
@@ -122,25 +189,55 @@ impl AirportGround {
         wingspan: Meters,
         extra: impl Fn(Id<Edge>, bool) -> f64,
     ) -> Option<GroundRoute> {
+        SCRATCH.with(|scratch| {
+            // A search inside a search's costs would find the scratch in
+            // use: it gets its own.
+            match scratch.try_borrow_mut() {
+                Ok(mut scratch) => self.search(from, to, wingspan, &extra, &mut scratch),
+                Err(_) => self.search(from, to, wingspan, &extra, &mut Scratch::default()),
+            }
+        })
+    }
+
+    /// A* from `from` to `to` in `scratch`, which it leaves as it found it.
+    fn search(
+        &self,
+        from: Id<Node>,
+        to: Id<Node>,
+        wingspan: Meters,
+        extra: &impl Fn(Id<Edge>, bool) -> f64,
+        scratch: &mut Scratch,
+    ) -> Option<GroundRoute> {
         let count = self.nodes().len();
         let (start, goal) = (from.as_usize(), to.as_usize());
         if start >= count || goal >= count {
             return None;
         }
-        let mut cost = vec![f64::INFINITY; count];
-        let mut came: Vec<Option<(Id<Edge>, bool)>> = vec![None; count];
-        let mut heap = BinaryHeap::with_capacity(64);
-        cost[start] = 0.0;
-        heap.push(Entry {
+        scratch.prepare(count);
+        let route = self.explore((start, goal), from, wingspan, extra, scratch);
+        scratch.reset();
+        route
+    }
+
+    fn explore(
+        &self,
+        (start, goal): (usize, usize),
+        from: Id<Node>,
+        wingspan: Meters,
+        extra: &impl Fn(Id<Edge>, bool) -> f64,
+        scratch: &mut Scratch,
+    ) -> Option<GroundRoute> {
+        scratch.reach(start, 0.0, None);
+        scratch.heap.push(Entry {
             estimate: self.remaining(start, goal),
             node: from.index(),
         });
-        while let Some(Entry { estimate, node }) = heap.pop() {
+        while let Some(Entry { estimate, node }) = scratch.heap.pop() {
             let here = node as usize;
             if here == goal {
                 break;
             }
-            if estimate - self.remaining(here, goal) > cost[here] + 1e-9 {
+            if estimate - self.remaining(here, goal) > scratch.cost[here] + 1e-9 {
                 // A stale entry: the node was reached more cheaply since.
                 continue;
             }
@@ -158,21 +255,20 @@ impl AirportGround {
                 let next = if forward { edge.to() } else { edge.from() }.as_usize();
                 let step = edge.length().value()
                     * (Self::penalty(edge, start, goal) + extra(edge_id, forward));
-                let reached = cost[here] + step;
-                if reached < cost[next] {
-                    cost[next] = reached;
-                    came[next] = Some((edge_id, forward));
-                    heap.push(Entry {
+                let reached = scratch.cost[here] + step;
+                if reached < scratch.cost[next] {
+                    scratch.reach(next, reached, Some((edge_id, forward)));
+                    scratch.heap.push(Entry {
                         estimate: reached + self.remaining(next, goal),
                         node: u32::try_from(next).ok()?,
                     });
                 }
             }
         }
-        if cost[goal].is_infinite() {
+        if scratch.cost[goal].is_infinite() {
             return None;
         }
-        self.trace(start, goal, &came)
+        self.trace(start, goal, &scratch.came)
     }
 
     /// How much more an edge costs than its length.
@@ -382,6 +478,59 @@ mod tests {
     }
 
     #[test]
+    fn test_cached_routes_are_the_searched_ones_by_wingspan_class() -> Result<()> {
+        // The long way round 0-4-5-2 admits 52 m; built in, so the cache
+        // knows the limit.
+        let mut edges = vec![
+            edge(0, 1, EdgeKind::Taxiway),
+            edge(1, 2, EdgeKind::Taxiway),
+            edge(0, 4, EdgeKind::Taxiway),
+            edge(4, 5, EdgeKind::Taxiway),
+            edge(5, 2, EdgeKind::Taxiway),
+        ];
+        edges[1].max_wingspan = Some(span(52.0)?);
+        let (_, ground) = layout(
+            vec![
+                at(0.0, 0.0),
+                at(1.0, 0.0),
+                at(1.0, 1.0),
+                at(0.0, 1.0),
+                at(-1.0, 0.0),
+                at(-1.0, 2.0),
+            ],
+            edges,
+        )?;
+        let (from, to) = (Id::new(0), Id::new(2));
+        for metres in [36.0, 40.0, 65.0, 36.0, 65.0, 80.0] {
+            let wingspan = span(metres)?;
+            assert_eq!(
+                ground.route_cached(from, to, wingspan),
+                ground.route(from, to, wingspan),
+                "{metres} m"
+            );
+        }
+        assert_eq!(
+            ground.cached_routes(),
+            2,
+            "one per class: up to 52 m and wider"
+        );
+        let narrow = ground
+            .route_cached(from, to, span(36.0)?)
+            .context("short way")?;
+        assert_eq!(nodes_of(&ground, &narrow), vec![0, 1, 2]);
+        let wide = ground
+            .route_cached(from, to, span(65.0)?)
+            .context("long way")?;
+        assert_eq!(nodes_of(&ground, &wide), vec![0, 4, 5, 2]);
+        // A copy of the layout starts without the routes; equality ignores
+        // them.
+        let copy = ground.clone();
+        assert_eq!(copy.cached_routes(), 0);
+        assert_eq!(copy, ground);
+        Ok(())
+    }
+
+    #[test]
     fn test_reachable_from_follows_one_way_edges() -> Result<()> {
         let (_, mut ground) = square()?;
         assert!(
@@ -526,6 +675,45 @@ mod tests {
                 let edge = ground.edge(edge).ok_or_else(|| TestCaseError::fail("edge"))?;
                 prop_assert!(forward || !edge.oneway());
             }
+        }
+
+        #[test]
+        fn test_searches_leave_nothing_behind_for_the_next(
+            first in 0_usize..22, second in 0_usize..22,
+            stand in 0_usize..400, hold in 0_usize..400,
+        ) {
+            let (_, network) = SHIPPED.as_ref().map_err(|e| TestCaseError::fail(e.clone()))?;
+            let airports = network.airports();
+            let ends = |ground: &AirportGround| {
+                (
+                    ground.stands()[stand % ground.stands().len()].node(),
+                    ground.holding_positions()[hold % ground.holding_positions().len()].node(),
+                )
+            };
+            let a = &airports[first % airports.len()];
+            let b = &airports[second % airports.len()];
+            let wingspan = Meters::from_raw(36.0);
+            let (from, to) = ends(a);
+            let before = a.route(from, to, wingspan);
+            let (other_from, other_to) = ends(b);
+            let _ = b.route(other_from, other_to, wingspan);
+            let _ = b.route_with(other_to, other_from, wingspan, |_, forward| f64::from(u8::from(forward)));
+            prop_assert_eq!(a.route(from, to, wingspan), before);
+        }
+
+        #[test]
+        fn test_cached_routes_on_shipped_layouts_equal_searched_ones(
+            airport in 0_usize..22, stand in 0_usize..400, hold in 0_usize..400,
+            metres in 20.0_f64..85.0,
+        ) {
+            let (_, network) = SHIPPED.as_ref().map_err(|e| TestCaseError::fail(e.clone()))?;
+            let ground = &network.airports()[airport % network.airports().len()];
+            let from = ground.stands()[stand % ground.stands().len()].node();
+            let to = ground.holding_positions()[hold % ground.holding_positions().len()].node();
+            let wingspan = Meters::from_raw(metres);
+            let searched = ground.route(from, to, wingspan);
+            prop_assert_eq!(ground.route_cached(from, to, wingspan), searched.clone());
+            prop_assert_eq!(ground.route_cached(from, to, wingspan), searched);
         }
     }
 
