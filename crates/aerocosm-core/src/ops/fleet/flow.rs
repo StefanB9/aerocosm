@@ -263,33 +263,6 @@ impl Operations {
         Ok(Some(delay))
     }
 
-    /// Whether tail `index` in `motion` books its landing slot this tick:
-    /// en route, within the horizon of its arrival, not booked yet.
-    fn must_book(&self, index: usize, motion: &Motion) -> bool {
-        let enroute = matches!(
-            motion.phase(),
-            Phase::Climb | Phase::Cruise | Phase::Descent
-        );
-        let remaining = self.profiles[index].enroute_length() - motion.along();
-        remaining <= HORIZON && enroute && !self.flows[index].booked
-    }
-
-    /// Whether tail `index` in `motion` asks runway control anything this
-    /// tick: queueing, holding, approaching or near the end of descent.
-    fn asking(&self, index: usize, motion: &Motion) -> bool {
-        let phase = motion.phase();
-        let remaining = self.profiles[index].enroute_length() - motion.along();
-        matches!(phase, Phase::Queue | Phase::Holding | Phase::Approach)
-            || (phase == Phase::Descent && remaining <= ASKING_DISTANCE)
-    }
-
-    /// Whether tail `index` in `motion` flies freely this tick: it neither
-    /// books nor asks, so [`Operations::fly`] only advances its motion,
-    /// touching nothing else (plan M9 PR 5).
-    pub(super) fn flies_free(&self, index: usize, motion: &Motion) -> bool {
-        !self.must_book(index, motion) && !self.asking(index, motion)
-    }
-
     /// Advances tail `index`'s motion by a tick, answering its clearance
     /// requests from runway control.
     pub(super) fn fly(
@@ -303,10 +276,14 @@ impl Operations {
         // The common case first: most aircraft neither book nor ask for
         // anything this tick.
         let phase = motion.phase();
-        if self.must_book(index, motion) {
+        let enroute = matches!(phase, Phase::Climb | Phase::Cruise | Phase::Descent);
+        let remaining = self.profiles[index].enroute_length() - motion.along();
+        if remaining <= HORIZON && enroute && !self.flows[index].booked {
             self.book(index, leg, motion, now)?;
         }
-        if !self.asking(index, motion) {
+        let asking = matches!(phase, Phase::Queue | Phase::Holding | Phase::Approach)
+            || (phase == Phase::Descent && remaining <= ASKING_DISTANCE);
+        if !asking {
             return Ok(motion.advance_free(&self.profiles[index], dt));
         }
         if phase == Phase::Holding {

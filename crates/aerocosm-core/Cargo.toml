@@ -14,10 +14,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
-# Parallel ticks (plan M9 D178): the web build stays sequential.
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rayon = { workspace = true }
-
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }

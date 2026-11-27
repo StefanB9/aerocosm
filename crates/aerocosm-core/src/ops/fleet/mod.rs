@@ -5,7 +5,6 @@ use anyhow::{Context, Result};
 
 pub(super) mod board;
 mod flow;
-mod free;
 mod ground;
 mod recovery;
 mod remote;
@@ -119,8 +118,6 @@ pub(crate) struct Operations {
     look_at: Vec<SimTime>,
     /// The tails that taxi under control, this tick; reused.
     taxiing: Vec<usize>,
-    /// Freely flying tails advanced in parallel this tick (plan M9 PR 5).
-    free: free::FreeFlight,
     /// Points refused aircraft wait for, this tick: (airport, tail, point).
     /// Nobody less urgent is cleared onto them (D81).
     wanted: Vec<(usize, u32, u32)>,
@@ -245,7 +242,6 @@ impl Operations {
             parking: vec![Parking::Stand; tail_count],
             requests: Vec::with_capacity(tail_count),
             taxiing: Vec::new(),
-            free: free::FreeFlight::default(),
             look_at: vec![start; tail_count],
             wanted: Vec::new(),
             wanted_edges: Vec::new(),
@@ -394,13 +390,6 @@ impl Operations {
         self.step_with(scenario, &mut NoTimer)
     }
 
-    /// Turns the parallel pass for freely flying tails on or off (plan M9
-    /// PR 5): off, every tail steps one after another.
-    #[cfg(test)]
-    pub(crate) fn set_parallel(&mut self, on: bool) {
-        self.free.enabled = on;
-    }
-
     /// Advances every tail by one tick, marking each part of the tick on
     /// `timer` (plan M5 D136).
     pub(crate) fn step_with(&mut self, scenario: &Scenario, timer: &mut impl Timer) -> Result<()> {
@@ -411,9 +400,6 @@ impl Operations {
         }
         timer.enter(Part::GroundControl);
         self.control_ground(now);
-        timer.enter(Part::Flying);
-        self.fly_free_ahead(now, TICK.as_secs_f64());
-        let mut cursor = 0;
         for index in 0..self.tails.len() {
             // Most of the fleet is parked with nothing due (plan M5 D136).
             if self.look_at[index] > now {
@@ -430,17 +416,8 @@ impl Operations {
                 }
                 Some(_) => Part::Flying,
             };
-            let flown = self.flown(index, &mut cursor);
             timer
-                .tail(index, part, || match flown {
-                    Some(flown) => self.finish_motion(
-                        scenario,
-                        index,
-                        (flown.start.phase(), flown.motion, flown.event),
-                        now,
-                    ),
-                    None => self.step_tail(scenario, index, now),
-                })
+                .tail(index, part, || self.step_tail(scenario, index, now))
                 .with_context(|| format!("tail {index} at {now}"))?;
             let tail = &self.tails[index];
             self.look_at[index] = if tail.motion.is_none() {
@@ -538,67 +515,52 @@ impl Operations {
                 } else {
                     self.fly(index, leg, &mut motion, now, TICK.as_secs_f64())?
                 };
-                self.finish_motion(scenario, index, (before, motion, event), now)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Tail `index` moved this tick from phase `before` to `motion`, with
-    /// `event`: what follows from it, the same whether its motion was
-    /// advanced here or in the parallel pass (plan M9 PR 5).
-    fn finish_motion(
-        &mut self,
-        scenario: &Scenario,
-        index: usize,
-        (before, motion, event): (Phase, Motion, Option<Event>),
-        now: SimTime,
-    ) -> Result<()> {
-        let leg = self.tails[index].leg;
-        if before == Phase::Queue && motion.phase() != Phase::Queue {
-            self.left_queue(index, leg, now)?;
-        }
-        if before == Phase::Landing && motion.phase() == Phase::Landing {
-            self.still_rolling(index, now);
-        }
-        self.tails[index].motion = Some(motion);
-        // Most ticks have no event; only events need the flight.
-        match event {
-            Some(Event::Takeoff) => {
-                self.airborne += 1;
-                let origin = self.flight(index, leg)?.origin();
-                self.count(origin);
-                self.stats.moved(origin, now);
-                self.dispatch_spare(index, leg, now)?;
-            }
-            Some(Event::Landing) => {
-                self.airborne = self.airborne.saturating_sub(1);
-                self.touched_down(index, leg, now)?;
-                let destination = self.flight(index, leg)?.destination();
-                let airline = self.airline_of(index, leg)?;
-                if !self.plan_arrival(scenario, index, destination, airline, now)
-                    && let Some(seconds) =
-                        self.stand_on_arrival(scenario, index, destination, airline)
-                    && let Some(motion) = self.tails[index].motion.as_mut()
-                {
-                    motion.set_taxi_in(seconds);
+                if before == Phase::Queue && motion.phase() != Phase::Queue {
+                    self.left_queue(index, leg, now)?;
                 }
-                self.count(destination);
-                self.stats.moved(destination, now);
+                if before == Phase::Landing && motion.phase() == Phase::Landing {
+                    self.still_rolling(index, now);
+                }
+                self.tails[index].motion = Some(motion);
+                // Most ticks have no event; only events need the flight.
+                match event {
+                    Some(Event::Takeoff) => {
+                        self.airborne += 1;
+                        let origin = self.flight(index, leg)?.origin();
+                        self.count(origin);
+                        self.stats.moved(origin, now);
+                        self.dispatch_spare(index, leg, now)?;
+                    }
+                    Some(Event::Landing) => {
+                        self.airborne = self.airborne.saturating_sub(1);
+                        self.touched_down(index, leg, now)?;
+                        let destination = self.flight(index, leg)?.destination();
+                        let airline = self.airline_of(index, leg)?;
+                        if !self.plan_arrival(scenario, index, destination, airline, now)
+                            && let Some(seconds) =
+                                self.stand_on_arrival(scenario, index, destination, airline)
+                            && let Some(motion) = self.tails[index].motion.as_mut()
+                        {
+                            motion.set_taxi_in(seconds);
+                        }
+                        self.count(destination);
+                        self.stats.moved(destination, now);
+                    }
+                    Some(Event::GoAround) => self.went_around(index, leg, now)?,
+                    Some(Event::Arrived) => {
+                        self.flights_flown += 1;
+                        let flight = *self.flight(index, leg)?;
+                        let due = add(self.tails[index].scheduled, flight.block())?;
+                        self.stats
+                            .arrived(flight.destination(), now.duration_since(due));
+                        self.paths[index] = None;
+                        let tail = self.tails[index];
+                        self.tails[index] = self.next_tail_leg(index, &tail, add(now, TICK)?)?;
+                        self.plan_parking(index, now);
+                    }
+                    None => {}
+                }
             }
-            Some(Event::GoAround) => self.went_around(index, leg, now)?,
-            Some(Event::Arrived) => {
-                self.flights_flown += 1;
-                let flight = *self.flight(index, leg)?;
-                let due = add(self.tails[index].scheduled, flight.block())?;
-                self.stats
-                    .arrived(flight.destination(), now.duration_since(due));
-                self.paths[index] = None;
-                let tail = self.tails[index];
-                self.tails[index] = self.next_tail_leg(index, &tail, add(now, TICK)?)?;
-                self.plan_parking(index, now);
-            }
-            None => {}
         }
         Ok(())
     }
