@@ -227,10 +227,27 @@ The reference machine's record (`69f3dfe`) against PR 3's (`525eb3b`):
 
 Memory peaks unchanged (523 MB).
 
-## PR 5 — Parallel ticks (D178)
+## PR 5 — Background ticking (re-scoped 2026-11-27)
 
-- Flying in parallel per aircraft; ground control and taxi driving in parallel per airport;
-  results applied in a fixed order.
+Planned as parallel ticks (D178): flying in parallel per aircraft, ground control and taxi
+driving per airport. Tried first for flying, it kept results identical but made ticks slower,
+and the PR was re-scoped with the user:
+
+- **Parallel flying (reverted):** a pass advanced every aircraft that neither books a landing
+  slot nor asks runway control anything (about 14,800 a midday tick) on every core, and the
+  fleet's step took each result in tail order, only if the tail was still exactly as the pass
+  found it. Fingerprints stayed equal, but on the cloud machine the midday median rose from
+  3.8–4.0 ms to 5.2–5.5 ms, and to 5.95 ms with a single thread: a free aircraft's step is about
+  65 ns, and the extra scan of all 95,000 aircraft, the second check of each and the buffers
+  cost more than spreading the work saves. The tick is a pass over many aircraft with little work
+  each; dividing it is not worth its bookkeeping.
+- **Background ticking instead:** the viewer's driver hands the simulation to a background task
+  at the end of a frame with the ticks due, and takes it back at the start of a frame once they
+  have finished; a frame never waits for ticks. While they run, the systems that read the
+  simulation keep what they last showed and aircraft move on by interpolation; the simulation
+  stays until a frame has read it once, so the systems that read it as it appears always find
+  it. The same ticks run in the same order, so results are unchanged. `rayon` is not used, and
+  D178 lapses with it.
 
 ## PR 6 — Start-up
 
