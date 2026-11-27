@@ -325,8 +325,11 @@ fn refresh_panel(
     }) {
         return;
     }
+    let Some(simulation) = driver.simulation() else {
+        return;
+    };
     *shown = Some((tail, now, following));
-    let Some(lines) = flight_lines(driver.simulation().scenario(), view) else {
+    let Some(lines) = flight_lines(simulation.scenario(), view) else {
         return;
     };
     node.display = Display::Flex;

@@ -285,11 +285,14 @@ fn update_clock(
     mut clock: Single<&mut Text, (With<ClockText>, Without<AirborneText>)>,
     mut airborne: Single<&mut Text, (With<AirborneText>, Without<ClockText>)>,
 ) {
-    let formatted = format_clock(driver.simulation().time());
+    let Some(simulation) = driver.simulation() else {
+        return;
+    };
+    let formatted = format_clock(simulation.time());
     if clock.0 != formatted {
         clock.0 = formatted;
     }
-    let count = airborne_text(driver.simulation().airborne());
+    let count = airborne_text(simulation.airborne());
     if airborne.0 != count {
         airborne.0 = count;
     }

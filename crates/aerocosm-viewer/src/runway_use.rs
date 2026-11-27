@@ -98,7 +98,9 @@ impl Plugin for RunwayUsePlugin {
 
 /// The wind is fixed until weather arrives, so the runways in use are too.
 fn collect_arrows(mut commands: Commands, driver: Res<SimDriver>) {
-    let simulation = driver.simulation();
+    let Some(simulation) = driver.simulation() else {
+        return;
+    };
     let world = simulation.world();
     let mut arrows = Vec::new();
     for (id, _) in world.airports() {

@@ -195,7 +195,9 @@ impl TrafficView {
                 slot.trail.shift(by);
             }
         }
-        let simulation = driver.simulation();
+        let Some(simulation) = driver.simulation() else {
+            return;
+        };
         let ticks = simulation.ticks();
         if self.ticks == Some(ticks) && !self.slots.is_empty() {
             return;
@@ -282,7 +284,9 @@ fn prepare_sprites(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let simulation = driver.simulation();
+    let Some(simulation) = driver.simulation() else {
+        return;
+    };
     let (Some(schedule), Some(traffic)) = (simulation.schedule(), simulation.scenario().traffic())
     else {
         return;
@@ -545,7 +549,7 @@ fn draw_aircraft(
 
 /// The airline's colour for the selected flight (D49).
 fn airline_color(driver: &SimDriver, view: &FlightView) -> Option<Color> {
-    let traffic = driver.simulation().scenario().traffic()?;
+    let traffic = driver.simulation()?.scenario().traffic()?;
     let [r, g, b] = crate::flights::legible(traffic.airlines().get(view.airline())?.colour().rgb());
     Some(Color::Srgba(Srgba::rgb_u8(r, g, b)))
 }
@@ -642,10 +646,11 @@ mod tests {
             .iter()
             .filter(|slot| slot.view.is_some_and(|view| view.phase().is_airborne()))
             .count();
-        assert_eq!(airborne, driver.simulation().airborne());
+        let simulation = driver.simulation().context("simulation")?;
+        assert_eq!(airborne, simulation.airborne());
         // Sampled in parallel, the views are the core's, by airframe.
         let mut listed = 0;
-        for view in driver.simulation().flights() {
+        for view in simulation.flights() {
             assert_eq!(traffic.flight(view.airframe()), Some(&view));
             listed += 1;
         }

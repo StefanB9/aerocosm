@@ -88,7 +88,7 @@ pub(super) fn draw_taxi_route(
     let (Some(rig), Some(tail)) = (rig, selection.selected_flight()) else {
         return;
     };
-    let Some(route) = driver.simulation().taxi_route(tail) else {
+    let Some(route) = driver.simulation().and_then(|s| s.taxi_route(tail)) else {
         return;
     };
     let points: Vec<Vec2> = route

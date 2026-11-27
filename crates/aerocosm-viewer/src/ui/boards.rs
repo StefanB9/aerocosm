@@ -146,7 +146,9 @@ fn refresh_boards(
     new: Query<(), Added<Board>>,
     mut last_minute: Local<Option<i64>>,
 ) {
-    let simulation = driver.simulation();
+    let Some(simulation) = driver.simulation() else {
+        return;
+    };
     let minute = simulation.time().as_millis() / 60_000;
     if *last_minute == Some(minute) && new.is_empty() {
         return;

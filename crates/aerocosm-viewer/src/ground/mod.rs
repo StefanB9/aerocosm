@@ -100,8 +100,10 @@ pub(crate) fn named_edges(layout: &AirportGround, projection: &MapProjection) ->
 }
 
 fn index_ground(driver: Res<SimDriver>, mut index: ResMut<GroundIndex>) {
-    index.0 = driver
-        .simulation()
+    let Some(simulation) = driver.simulation() else {
+        return;
+    };
+    index.0 = simulation
         .scenario()
         .ground()
         .airports()
@@ -147,7 +149,10 @@ fn stream_ground(
             commands.entity(entity).despawn();
         }
     }
-    let ground = driver.simulation().scenario().ground();
+    let Some(simulation) = driver.simulation() else {
+        return;
+    };
+    let ground = simulation.scenario().ground();
     for i in plan.build {
         let Some((airport, frame, _)) = index.0.get(i) else {
             continue;

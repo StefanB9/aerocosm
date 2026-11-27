@@ -247,7 +247,10 @@ fn finish_loading(
     match built {
         Ok(driver) => {
             info!(
-                airports = driver.simulation().scenario().ground().airports().len(),
+                airports =
+                    driver
+                        .simulation()
+                        .map_or(0, |s| s.scenario().ground().airports().len()),
                 "simulation ready"
             );
             commands.insert_resource(driver);

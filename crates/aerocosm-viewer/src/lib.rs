@@ -35,14 +35,13 @@ use aerocosm_core::SimTime;
 use anyhow::{Context, Result};
 use bevy::{
     DefaultPlugins,
-    app::{App, PluginGroup, Startup, Update},
+    app::{App, Last, PluginGroup, Startup, Update},
     asset::{AssetMetaCheck, AssetPlugin},
     ecs::{
         schedule::{IntoScheduleConfigs, common_conditions::resource_exists},
         system::{Res, ResMut},
     },
     log::error,
-    platform::time::Instant,
     time::{Real, Time},
     utils::default,
     window::{Window, WindowPlugin, WindowResolution},
@@ -136,22 +135,30 @@ fn assemble(app: &mut App, view: StartView) -> Result<()> {
             RunwayUsePlugin,
             UiPlugin,
         ))
-        .add_systems(Update, drive_simulation.in_set(SimSet).in_set(SimReady));
+        .add_systems(Update, drive_simulation.in_set(SimSet).in_set(SimReady))
+        .add_systems(Last, dispatch_ticks);
     Ok(())
 }
 
-/// Advances the simulation by the real time elapsed, at the selected speed.
-fn drive_simulation(
-    time: Res<Time<Real>>,
-    mut driver: ResMut<SimDriver>,
-    mut last: ResMut<driver::Advance>,
-) {
-    let start = Instant::now();
-    match driver.advance(time.elapsed(), || start.elapsed()) {
-        Ok(frame) => *last = frame,
-        Err(error) => {
+/// Takes the simulation back from its background ticks, once they have
+/// finished (plan M9 PR 5): the frame's readers then see the new tick.
+fn drive_simulation(mut driver: ResMut<SimDriver>, mut last: ResMut<driver::Advance>) {
+    *last = driver::Advance::default();
+    match driver.collect() {
+        Some(Ok(frame)) => *last = frame,
+        Some(Err(error)) => {
             error!("{error:#}");
             driver.set_speed(aerocosm_core::SimSpeed::Paused);
         }
+        None => {}
+    }
+}
+
+/// Starts the ticks due by now in the background, once every system of the
+/// frame has read the simulation (plan M9 PR 5): they run while the frame
+/// is drawn and the next one begins.
+fn dispatch_ticks(time: Res<Time<Real>>, driver: Option<ResMut<SimDriver>>) {
+    if let Some(mut driver) = driver {
+        driver.dispatch(time.elapsed());
     }
 }
