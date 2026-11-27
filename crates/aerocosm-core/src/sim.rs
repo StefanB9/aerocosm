@@ -106,6 +106,15 @@ impl Simulation {
         self.operations.as_ref().map(Operations::schedule)
     }
 
+    /// Turns the fleet's parallel pass on or off (plan M9 PR 5): the same
+    /// world either way.
+    #[cfg(test)]
+    pub(crate) fn set_parallel(&mut self, on: bool) {
+        if let Some(operations) = &mut self.operations {
+            operations.set_parallel(on);
+        }
+    }
+
     /// Every boarding or moving flight.
     pub fn flights(&self) -> impl Iterator<Item = FlightView> + '_ {
         self.operations.iter().flat_map(Operations::flights)
@@ -455,6 +464,22 @@ mod tests {
             .airport_by_ident("EDDF".parse()?)
             .context("EDDF")?;
         assert!(sim.movements(frankfurt) > 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parallel_flying_gives_the_same_world() -> Result<()> {
+        // The pass that advances freely flying aircraft in parallel (plan M9
+        // PR 5) changes nothing: the same world tick by tick.
+        let mut parallel = germany(StartMode::Warm)?;
+        let mut sequential = germany(StartMode::Warm)?;
+        sequential.set_parallel(false);
+        for _ in 0..10 {
+            parallel.run_ticks(60)?;
+            sequential.run_ticks(60)?;
+            assert_eq!(parallel.fingerprint(), sequential.fingerprint());
+        }
+        assert!(parallel.flights_flown() > 0, "flights landed meanwhile");
         Ok(())
     }
 
